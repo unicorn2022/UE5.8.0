@@ -1,0 +1,21 @@
+{
+	"localeFilter": {
+		"filterType": "language",
+		"whitelist": [
+			"ja",
+			"ko",
+			"zh"
+		]
+	},
+	"featureFilters": {
+		"conversion_mappings": {
+			"filterType": "exclude"
+		},
+		"stringprep": {
+			"filterType": "exclude"
+		},
+		"translit": {
+			"filterType": "exclude"
+		}
+	}
+}

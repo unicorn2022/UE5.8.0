@@ -1,0 +1,16 @@
+﻿{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "1.0",
+  "Description": "Generic Slate widgets for displaying images and image-like content, and content related to images.",
+  "Category": "Other",
+  "CreatedBy": "Epic Games, Inc.",
+  "CreatedByURL": "https://epicgames.com",
+  "IsBetaVersion": true,
+  "Modules": [
+    {
+      "Name": "ImageWidgets",
+      "Type": "Editor"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+	"localeFilter": {
+		"filterType": "language",
+		"whitelist": [
+			"en",
+			"fr",
+			"it",
+			"de",
+			"es"
+		]
+	},
+	"featureFilters": {
+		"conversion_mappings": {
+			"filterType": "exclude"
+		},
+		"stringprep": {
+			"filterType": "exclude"
+		},
+		"brkitr_dictionaries": {
+			"filterType": "exclude"
+		},
+		"brkitr_lstm": {
+			"filterType": "exclude"
+		},
+		"brkitr_adaboost": {
+			"filterType": "exclude"
+		},
+		"brkitr_rules": {
+			"filterType": "regex",
+			"blacklist": [
+				"^.*_cj$"
+			]
+		},
+		"translit": {
+			"filterType": "exclude"
+		}
+	}
+}

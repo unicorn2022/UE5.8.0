@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\EpicGames.Core\EpicGames.Core.csproj" />
+    <ProjectReference Include="..\EpicGames.LogMatchers\EpicGames.LogMatchers.csproj" />
+    <ProjectReference Include="..\EpicGames.Perforce\EpicGames.Perforce.csproj" />
+  </ItemGroup>
+</Project>

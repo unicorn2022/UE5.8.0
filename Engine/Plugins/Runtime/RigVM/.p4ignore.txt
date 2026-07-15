@@ -1,0 +1,7 @@
+.claude
+.git
+.gitignore
+Binaries
+Intermediate
+
+*.pyc

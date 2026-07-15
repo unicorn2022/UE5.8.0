@@ -1,0 +1,6 @@
+# SDL3 Ignore rules
+SDL-gui-backend/.git/
+SDL-gui-backend/.github/
+docker/build/
+
+

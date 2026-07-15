@@ -1,0 +1,20 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "VerseModuleIndependenceA",
+	"Description": "Test fixture plugin A for the Verse module independence test. Defines a_class which inherits from b_class in VerseModuleIndependenceB.",
+	"VersePath": "/UnrealEngine.com/Tests/VerseModuleIndependenceA",
+	"VerseVersion": 0,
+	"VerseScope": "InternalAPI",
+	"CanContainVerse": true,
+	"EnabledByDefault": false,
+	"ExplicitlyLoaded": true,
+	"builtInAutoActivate": false,
+	"Plugins": [
+		{
+			"Name": "VerseModuleIndependenceB",
+			"Enabled": true
+		}
+	]
+}

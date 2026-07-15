@@ -1,0 +1,40 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1",
+	"FriendlyName": "GDK Package Chunk Installer",
+	"Description": "Allows titles to use GDK chunk installer (XPackage)",
+	"CreatedBy": "Epic Games, Inc.",
+	"Category": "Platform",
+	"CreatedByURL": "https://epicgames.com",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"EnabledByDefault": false,
+	"RequiresBuildPlatform": false,
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"SupportedTargetPlatforms": [ "Win64" ],
+	"Modules": [
+		{
+			"Name": "GDKPackageChunkInstall",
+			"Type": "RuntimeNoCommandlet",
+			"LoadingPhase": "PostConfigInit",
+			"PlatformAllowList": [ "Win64" ]
+		}
+	],
+	"Plugins":
+	[
+		{
+			"Name": "MSGameStore",
+			"Enabled": true,
+			"PlatformAllowList": [ "Win64" ]
+		},
+		{
+			"Name": "MSGamingRuntime",
+			"Enabled": true,
+			"PlatformAllowList": [ "Win64" ]
+		}
+	]
+}

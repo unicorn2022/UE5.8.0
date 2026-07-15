@@ -1,0 +1,22 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#pragma once
+#include "PlatformMediaSource.h"
+#include "AssetDefinition/AssetDefinition_MediaSource.h"
+#include "AssetDefinition_PlatformMediaSource.generated.h"
+
+UCLASS()
+class UAssetDefinition_PlatformMediaSource : public UAssetDefinition_MediaSource
+{
+	GENERATED_BODY()
+public:
+	// UAssetDefinition Begin
+	virtual FText GetAssetDisplayName() const override { return NSLOCTEXT("AssetDefinition", "AssetDefinition_PlatformMediaSource", "Platform Media Source"); }
+	virtual TSoftClassPtr<UObject> GetAssetClass() const override { return UPlatformMediaSource::StaticClass(); }
+	virtual TConstArrayView<FAssetCategoryPath> GetAssetCategories() const override
+	{
+		static const auto Categories = { FAssetCategoryPath(EAssetCategoryPaths::Media, NSLOCTEXT("AssetDefinition", "AssetDefinition_PlatformMediaSourceSubMenu", "Media Sources + Outputs"), ECategoryMenuType::Section) };
+		return Categories;
+	}
+	// UAssetDefinition End
+};

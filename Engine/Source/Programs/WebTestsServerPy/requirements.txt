@@ -1,0 +1,5 @@
+autobahn==24.4.2
+django==4.2.0
+djangorestframework==3.14.0
+channels==4.0.0
+daphne==4.0.0

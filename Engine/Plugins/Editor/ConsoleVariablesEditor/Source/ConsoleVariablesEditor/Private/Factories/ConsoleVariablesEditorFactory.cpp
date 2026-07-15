@@ -1,0 +1,34 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#include "Factories/ConsoleVariablesEditorFactory.h"
+
+#include "AssetToolsModule.h"
+
+#include "ConsoleVariablesAsset.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(ConsoleVariablesEditorFactory)
+
+#define LOCTEXT_NAMESPACE "ConsoleVariablesEditorFactory"
+
+UConsoleVariablesEditorFactory::UConsoleVariablesEditorFactory()
+{
+	SupportedClass = UConsoleVariablesAsset::StaticClass();
+
+	// This factory manufacture new objects from scratch.
+	bCreateNew = true;
+
+	// This factory will open the editor for each new object.
+	bEditAfterNew = true;
+}
+
+UObject* UConsoleVariablesEditorFactory::FactoryCreateNew(UClass* InClass, UObject* InParent, FName InName, EObjectFlags Flags, UObject* Context, FFeedbackContext* Warn)
+{
+	return NewObject<UConsoleVariablesAsset>(InParent, InClass, InName, Flags);
+}
+
+bool UConsoleVariablesEditorFactory::ShouldShowInNewMenu() const
+{
+	return true;
+}
+
+#undef LOCTEXT_NAMESPACE

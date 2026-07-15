@@ -1,0 +1,12 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Deterministic>true</Deterministic>
+    <RootNamespace>EpicGames.Analytics</RootNamespace>
+    <GenerateDocumentationFile>True</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EpicGames.Analytics.Telemetry\EpicGames.Analytics.Telemetry.csproj" />
+    <ProjectReference Include="..\EpicGames.Horde\EpicGames.Horde.csproj" />
+  </ItemGroup>
+</Project>

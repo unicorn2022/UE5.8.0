@@ -1,0 +1,19 @@
+{
+  "installCommand": {
+    "fileName": "UnrealToolboxExampleApplication",
+    "arguments": [ "--install" ]
+  },
+  "uninstallCommand": {
+    "fileName": "UnrealToolboxExampleApplication",
+    "arguments": [ "--uninstall" ]
+  },
+  "runCommand": {
+    "fileName": "UnrealToolboxExampleApplication"
+  },
+  "popupMenu": {
+    "label": "Open Developer Guide",
+    "command": {
+      "fileName": "UnrealToolboxExampleApplication"
+    }
+  }
+}

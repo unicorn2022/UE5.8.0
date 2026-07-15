@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>EpicGames.Compression</RootNamespace>
+    <GenerateDocumentationFile>True</GenerateDocumentationFile>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+
+    <OodleVersion>2.9.10</OodleVersion>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == ''">
+    <None Include="$(OodleVersion)\runtimes\**"
+          Link="runtimes\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <None Include="$(OodleVersion)\runtimes\$(RuntimeIdentifier)\native\*"
+          Link="runtimes\$(RuntimeIdentifier)\native\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

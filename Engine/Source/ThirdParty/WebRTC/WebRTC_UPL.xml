@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--WebRTC module additions-->
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+	<!-- init section is always evaluated once per architecture -->
+	<init>
+		<log text="WebRTC init"/>
+		<setBool result="bSupported" value="false"/>
+		<isArch arch="x86_64">
+    		<setBool result="bSupported" value="true"/>
+    	</isArch>
+		<isArch arch="arm64-v8a">
+	    	<setBool result="bSupported" value="true"/>
+		</isArch>
+	  	<if condition="bSupported">
+			<false>
+	    		<log text="Unsupported architecture: $S(Architecture)"/>
+			</false>
+	  	</if>
+	</init>
+ 
+	<!-- optional files or directories to copy to Intermediate/Android/APK -->
+	<resourceCopies>
+    	<if condition="bSupported">
+      		<true>
+        		<copyFile src="$S(AbsPluginDir)/5414/Lib/Android/$S(Architecture)/Release/libwebrtc.jar" dst="$S(BuildDir)/libs/libwebrtc.jar" />
+        		<log text="Copying WebRTC jar files for WebRTC SDK"/>
+      		</true>
+    	</if>
+  	</resourceCopies>
+ 
+	<!-- optional additions to proguard -->
+	<proguardAdditions>
+		<if condition="bSupported">
+      		<true>
+        		<insert>
+					-keep class org.webrtc.* {
+						public *;
+					}
+				</insert>
+      		</true>
+    	</if>
+	</proguardAdditions>
+
+
+	<gameActivityImportAdditions>
+		<if condition="bSupported">
+      		<true>
+				<insert>
+					// Import WebRTC classes
+					import org.webrtc.*;
+				</insert>
+			</true>
+		</if>
+	</gameActivityImportAdditions>
+
+	<gameActivityOnCreateAdditions>
+		<if condition="bSupported">
+      		<true>
+				<insert>
+					// Initialize WebRTC's ContextUtils class with this applcation's context
+					ContextUtils.initialize(getApplicationContext());
+				</insert>
+			</true>
+		</if>
+	</gameActivityOnCreateAdditions>
+ 
+	<!-- AAR dependencies -->
+	<AARImports>
+		<if condition="bSupported">
+      		<true>
+				<insertValue value="repository $S(AbsPluginDir)/5414/Lib/Android/$S(Architecture)/Release"/>
+				<insertNewline/>
+				<insertValue value="org.webrtc" />
+				<insertNewline/>
+      		</true>
+    	</if>
+	</AARImports>
+</root>

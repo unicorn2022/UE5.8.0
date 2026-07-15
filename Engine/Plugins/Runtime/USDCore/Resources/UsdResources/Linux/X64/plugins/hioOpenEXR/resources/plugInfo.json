@@ -1,0 +1,20 @@
+{
+    "Plugins": [
+        {
+            "Info": {
+                "Types": {
+                   "Hio_OpenEXRImage" : {
+                        "bases": ["HioImage"],
+                        "imageTypes": ["exr"],
+                        "precedence": 30
+                    }
+                }
+            },
+            "LibraryPath": "../../../../../../Source/ThirdParty/USD/Unix/x86_64-unknown-linux-gnu/lib/hioOpenEXR.so",
+            "Name": "hioOpenEXR",
+            "ResourcePath": "resources",
+            "Root": "..",
+            "Type": "library"
+        }
+    ]
+}

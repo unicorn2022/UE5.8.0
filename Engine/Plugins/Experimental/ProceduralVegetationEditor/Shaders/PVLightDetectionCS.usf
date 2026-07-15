@@ -1,0 +1,393 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+#include "/Engine/Public/Platform.ush"
+
+#define COLLISION_MAX_DISTANCE 999999
+#define COLLISION_TYPE_CARD 0
+#define COLLISION_TYPE_CYLINDER 1
+#define EPSILON 1e-6
+
+struct PVRaycastOrigin
+{
+	int PointNumber;
+	int BranchNumber;
+	float3 Position;
+};
+
+struct PVCollisionData
+{
+	int PointNumber;
+	int BranchNumber;
+	int ApicalRay;
+	int Type;
+	float3 Position;
+	float3 Direction;
+	float3 Extents;
+};
+
+struct PVLightDetectionData
+{
+	int PointNumber;
+	int RayNumber;
+	float3 Direction;
+	float LightValue;
+	int Hits;
+	int FaliureType;
+};
+
+// Object-space geometry for one unique static mesh, shared across all instances.
+// Must match FPVMeshGeometryRange in PVLightDetection.h (16 bytes).
+struct PVMeshGeometryRange
+{
+	int StartVertex;
+	int EndVertex;
+	int StartIndex;
+	int EndIndex;
+};
+
+// One placed instance: references shared geometry and carries its own transform + world AABB.
+// Must match FPVMeshInstanceData in PVLightDetection.h (112 bytes).
+struct PVMeshInstanceData
+{
+	float4x4 Transform;    // object-to-world  (64 bytes)
+	float4   AABBMin;      // world-space AABB  (16 bytes, w unused)
+	float4   AABBMax;      // world-space AABB  (16 bytes, w unused)
+	int      GeometryIndex;//                   ( 4 bytes)
+	int      _Pad0;        //                   (12 bytes padding)
+	int      _Pad1;
+	int      _Pad2;
+};
+
+// One placed leaf instance: same layout as PVMeshInstanceData but carries a BranchNumber so
+// the shader can skip leaves that belong to the same branch as the ray-cast origin.
+// Must match FPVLeafMeshInstanceData in PVLightDetection.h (112 bytes).
+struct PVLeafMeshInstanceData
+{
+	float4x4 Transform;    // object-to-world  (64 bytes)
+	float4   AABBMin;      // world-space AABB  (16 bytes, w unused)
+	float4   AABBMax;      // world-space AABB  (16 bytes, w unused)
+	int      GeometryIndex;//                   ( 4 bytes)
+	int      BranchNumber; //                   ( 4 bytes)
+	int      _Pad0;        //                   ( 8 bytes padding)
+	int      _Pad1;
+};
+
+uint NumCollisionData;
+uint MaxBounce;
+uint NumRaycastOrigins;
+uint NumInstances;
+uint NumGeometries;
+uint NumLeafInstances;
+StructuredBuffer<PVRaycastOrigin>       RaycastOrigins;
+StructuredBuffer<PVCollisionData>       CollisionData;
+StructuredBuffer<float3>                Rays;
+StructuredBuffer<PVMeshGeometryRange>   MeshGeometries;
+StructuredBuffer<PVMeshInstanceData>    MeshInstances;
+StructuredBuffer<PVLeafMeshInstanceData> LeafInstances;
+StructuredBuffer<float3>                ColliderMeshVertices;
+StructuredBuffer<uint>                  ColliderMeshIndices;
+RWStructuredBuffer<PVLightDetectionData> LightDetectionData;
+
+// Fast axis-aligned bounding box slab test.
+// Returns true if the ray [RayOrigin, +inf) hits the box before TMax.
+bool RayAABBHit(float3 RayOrigin, float3 InvRayDir, float3 BoxMin, float3 BoxMax, float TMax)
+{
+	float3 T0 = (BoxMin - RayOrigin) * InvRayDir;
+	float3 T1 = (BoxMax - RayOrigin) * InvRayDir;
+	float TEnter = max(max(min(T0.x, T1.x), min(T0.y, T1.y)), min(T0.z, T1.z));
+	float TExit  = min(min(max(T0.x, T1.x), max(T0.y, T1.y)), max(T0.z, T1.z));
+	return TExit >= 0.0f && TEnter <= TExit && TEnter < TMax;
+}
+
+//This function is the HLSL translation of FindIntersection in IterRay3Triangle3.h
+bool RayTriangleHit(float3 RayOrigin, float3 RayDir, float3 Vert0, float3 Vert1, float3 Vert2, inout float t, inout float3 HitPos, inout float3 HitNormal)
+{
+	// Compute the offset origin, edges, and normal.
+	float3 Diff = RayOrigin - Vert0;
+	float3 Edge1 = Vert1 - Vert0;
+	float3 Edge2 = Vert2 - Vert0;
+	float3 Normal = cross(Edge1,Edge2);
+
+	// Solve Q + t*D = b1*E1 + b2*E2 (Q = kDiff, D = ray direction,
+	// E1 = kEdge1, E2 = kEdge2, N = Cross(E1,E2)) by
+	//   |Dot(D,N)|*b1 = sign(Dot(D,N))*Dot(D,Cross(Q,E2))
+	//   |Dot(D,N)|*b2 = sign(Dot(D,N))*Dot(D,Cross(E1,Q))
+	//   |Dot(D,N)|*t = -sign(Dot(D,N))*Dot(Q,N)
+	float DdN = dot(RayDir, Normal);
+	float Sign;
+	if (DdN > EPSILON)
+	{
+		Sign = 1.0;
+	}
+	else if (DdN < -EPSILON)
+	{
+		Sign = -1.0;
+		DdN = -DdN;
+	}
+	else
+	{
+		// Ray and triangle are parallel, call it a "no intersection"
+		// even if the ray does intersect.
+		return false;
+	}
+
+	float DdQxE2 = Sign * dot(RayDir, cross(Diff, Edge2));
+	if (DdQxE2 >= 0.0)
+	{
+		float DdE1xQ = Sign * dot(RayDir, cross(Edge1, Diff));
+		if (DdE1xQ >= 0.0)
+		{
+			if (DdQxE2 + DdE1xQ <= DdN)
+			{
+				// Line intersects triangle, check if ray does.
+				float QdN = -Sign * dot(Diff, Normal);
+				if (QdN >= 0.0)
+				{
+					// Ray intersects triangle.
+					float Inv = (1.0) / DdN;
+					t = QdN * Inv;
+					HitNormal = Normal;
+					HitPos = RayOrigin + (t * RayDir);
+					return true;
+				}
+				// else: t < 0, no intersection
+			}
+			// else: b1+b2 > 1, no intersection
+		}
+		// else: b2 < 0, no intersection
+	}
+	// else: b1 < 0, no intersection
+
+	return false;
+}
+
+// AABB slab test followed by a triangle loop for a single mesh instance.
+// InvRayDir is precomputed by the caller and shared across all instance calls.
+// tOut is inout so successive calls automatically track the globally closest hit.
+bool RayInstanceGeometryHit(
+	float3 RayOrigin, float3 RayDir, float3 InvRayDir,
+	float4x4 Transform, float3 AABBMin, float3 AABBMax, int GeometryIndex,
+	inout float tOut, inout float3 HitPos, inout float3 HitNormal)
+{
+	if (!RayAABBHit(RayOrigin, InvRayDir, AABBMin, AABBMax, tOut))
+		return false;
+
+	PVMeshGeometryRange Geom = MeshGeometries[GeometryIndex];
+	bool bHit = false;
+
+	for (uint i = (uint)Geom.StartIndex; i < (uint)Geom.EndIndex; i += 3)
+	{
+		uint TriIndex1 = ColliderMeshIndices[i + 0];
+		uint TriIndex2 = ColliderMeshIndices[i + 1];
+		uint TriIndex3 = ColliderMeshIndices[i + 2];
+
+		float3 Vert0 = mul(float4(ColliderMeshVertices[Geom.StartVertex + TriIndex1], 1.0f), Transform).xyz;
+		float3 Vert1 = mul(float4(ColliderMeshVertices[Geom.StartVertex + TriIndex2], 1.0f), Transform).xyz;
+		float3 Vert2 = mul(float4(ColliderMeshVertices[Geom.StartVertex + TriIndex3], 1.0f), Transform).xyz;
+
+		float  t      = 0;
+		float3 Normal = float3(0, 0, 0);
+		if (RayTriangleHit(RayOrigin, RayDir, Vert0, Vert1, Vert2, t, HitPos, Normal) && t < tOut)
+		{
+			tOut      = t;
+			HitNormal = normalize(Normal);
+			bHit      = true;
+		}
+	}
+
+	return bHit;
+}
+
+// Tests the ray against all external collider instances and all leaf instances.
+// Leaf instances on the same branch as the ray origin are skipped.
+// Both loops share tOut so the closest hit across all instance types wins automatically,
+// and the leaf AABB tests benefit from any closer hit already found in the collider loop.
+bool RayMeshHit(float3 RayOrigin, float3 RayDir, int RayBranchNumber, out float tOut, out float3 HitPos, out float3 HitNormal)
+{
+	tOut      = COLLISION_MAX_DISTANCE;
+	HitNormal = float3(0, 0, 0);
+	bool bHit = false;
+
+	float3 InvRayDir = 1.0f / RayDir;
+
+	for (uint inst = 0; inst < NumInstances; ++inst)
+	{
+		PVMeshInstanceData MeshInst = MeshInstances[inst];
+		bHit |= RayInstanceGeometryHit(RayOrigin, RayDir, InvRayDir,
+		                               MeshInst.Transform, MeshInst.AABBMin.xyz, MeshInst.AABBMax.xyz, MeshInst.GeometryIndex,
+		                               tOut, HitPos, HitNormal);
+	}
+
+	for (uint inst = 0; inst < NumLeafInstances; ++inst)
+	{
+		PVLeafMeshInstanceData LeafInst = LeafInstances[inst];
+		if (RayBranchNumber == LeafInst.BranchNumber)
+			continue;
+		bHit |= RayInstanceGeometryHit(RayOrigin, RayDir, InvRayDir,
+		                               LeafInst.Transform, LeafInst.AABBMin.xyz, LeafInst.AABBMax.xyz, LeafInst.GeometryIndex,
+		                               tOut, HitPos, HitNormal);
+	}
+
+	return bHit;
+}
+
+bool RayCylinderHit(float3 RayOrigin, float3 RayDirection, PVCollisionData Data, inout float t, inout float3 Normal, inout int FalureType)
+{
+	float3 PA = Data.Position;
+	float3 PB = Data.Position + Data.Direction * Data.Extents.y;
+	float R = Data.Extents.x;
+
+	float3 AB = PB - PA;
+	float3 AO = RayOrigin - PA;
+
+	float3 ABDirection = AB;
+
+	float ABDotAB = dot(AB,AB);
+	float ABDotRayDirection = dot(AB,RayDirection);
+	float ABDotAO = dot(AB,AO);
+
+	float A = dot(RayDirection, RayDirection) - (ABDotRayDirection * ABDotRayDirection) / ABDotAB;
+	float B = dot(RayDirection, AO) - (ABDotRayDirection * ABDotAO) / ABDotAB;
+	float C = dot(AO, AO) - (ABDotAO * ABDotAO) / ABDotAB - R*R;
+
+	float Disc = B*B - A*C;
+
+	if(Disc < 0.0f)
+	{
+		FalureType = 4;
+		return false;
+	}
+
+	float SqrtDisc = sqrt(Disc);
+	float T0 = (-B - SqrtDisc) / ( A);
+	float T1 = (-B + SqrtDisc) / ( A);
+	t = (T0 > 0) ? T0 : T1;
+
+	if (t <= 0)
+	{
+		FalureType = 5;
+		return false;
+	}
+
+	float3 HitPosition = RayOrigin + RayDirection * t;
+	float Y = dot(HitPosition - PA, AB) / ABDotAB;
+
+	if (Y < 0.0f || Y > 1.0f)
+	{
+		FalureType = 6;
+		return false;
+	}
+
+	float3 Closest = PA + AB * Y;
+	Normal = normalize(HitPosition - Closest);
+
+	return true;
+}
+
+bool RayHit(float3 RayOrigin, int RayBranchNumber, float3 RayDirection, out float tOut, out float3 NormalOut, out int FalureType)
+{
+	tOut = COLLISION_MAX_DISTANCE;
+	bool Hit = false;
+
+	// Check skeleton cylinder self-occlusion (skip own branch)
+	for (uint i = 0; i < NumCollisionData; i++)
+	{
+		if (RayBranchNumber == CollisionData[i].BranchNumber)
+		{
+			continue;
+		}
+
+		float t = 0;
+		float3 Normal = float3(0,0,0);
+
+		bool HitCylinder = RayCylinderHit(RayOrigin, RayDirection, CollisionData[i], t, Normal, FalureType);
+
+		if (HitCylinder && t < tOut)
+		{
+			tOut      = t;
+			NormalOut = Normal;
+			Hit       = true;
+			FalureType = 0;
+		}
+	}
+
+	float t2 = COLLISION_MAX_DISTANCE;
+	float3 MeshNormal = float3(0,0,0);
+	float3 MeshHitPos;
+
+	// Check all mesh instances (external colliders + leaves, branch-filtered).
+	bool HitMesh = RayMeshHit(RayOrigin, RayDirection, RayBranchNumber, t2, MeshHitPos, MeshNormal);
+	if (HitMesh && t2 < tOut)
+	{
+		tOut      = t2;
+		NormalOut = normalize(MeshNormal);
+		Hit       = true;
+	}
+
+	return Hit;
+}
+
+// 2D dispatch: (min(N,65535), ceil(N/65535), 1) groups x [64,1,1] threads.
+// One group = one skeleton point; threads within the group = 64 rays.
+[numthreads(64,1,1)]
+void MainCS(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID)
+{
+	// Reconstruct flat point index from 2D group ID
+	uint PointIndex = Gid.y * 65535u + Gid.x;
+	if (PointIndex >= NumRaycastOrigins)
+	{
+		return;
+	}
+
+	uint OutputIndex = PointIndex * 64u + GTid.x;
+
+	LightDetectionData[OutputIndex].PointNumber = RaycastOrigins[PointIndex].PointNumber;
+	LightDetectionData[OutputIndex].RayNumber   = GTid.x;
+
+	float3 Normal        = float3(0,0,0);
+	float3 RayPos        = RaycastOrigins[PointIndex].Position;
+	int    RayBranchNumber = RaycastOrigins[PointIndex].BranchNumber;
+	float3 RayDir        = Rays[GTid.x];
+	float  t             = COLLISION_MAX_DISTANCE;
+	int    Hits          = 0;
+	float  LightValue    = 0.1;
+	int    FaliureType   = 0;
+
+	[loop]
+	for (int Bounce = 0; Bounce < MaxBounce; Bounce++)
+	{
+		if (RayHit(RayPos, RayBranchNumber, RayDir, t, Normal, FaliureType))
+		{
+			float3 HitPosition = RayPos + t * RayDir;
+			RayPos  = HitPosition;
+			RayDir  = reflect(RayDir, Normal);
+			LightDetectionData[OutputIndex].Direction   = RayDir;
+			Hits++;
+			LightDetectionData[OutputIndex].Hits       = Hits;
+			LightDetectionData[OutputIndex].LightValue = (LightDetectionData[OutputIndex].LightValue + LightValue);
+		}
+		else
+		{
+			LightValue = dot(float3(0, 0, 1), RayDir);
+			if (LightValue < 0.85)
+			{
+				LightValue = clamp(LightValue, 0.1, 1.0);
+				LightValue = lerp(0.1, 1, (LightValue - 0.1) / (0.85 - 0.1));
+			}
+			else
+			{
+				LightValue = 1.0;
+			}
+			LightValue = Hits == 0 ? LightValue : (LightDetectionData[OutputIndex].LightValue + LightValue);
+			LightDetectionData[OutputIndex].Hits       = Hits;
+			LightDetectionData[OutputIndex].Direction  = RayDir;
+			LightDetectionData[OutputIndex].LightValue = LightValue;
+			Bounce = MaxBounce;
+		}
+	}
+	LightDetectionData[OutputIndex].FaliureType = FaliureType;
+
+	if (Hits > 0)
+	{
+		LightDetectionData[OutputIndex].LightValue = (LightDetectionData[OutputIndex].LightValue / Hits);
+	}
+}

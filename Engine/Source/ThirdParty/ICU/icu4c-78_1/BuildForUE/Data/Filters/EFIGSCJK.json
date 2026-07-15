@@ -1,0 +1,26 @@
+{
+	"localeFilter": {
+		"filterType": "language",
+		"whitelist": [
+			"en",
+			"fr",
+			"it",
+			"de",
+			"es",
+			"ja",
+			"ko",
+			"zh"
+		]
+	},
+	"featureFilters": {
+		"conversion_mappings": {
+			"filterType": "exclude"
+		},
+		"stringprep": {
+			"filterType": "exclude"
+		},
+		"translit": {
+			"filterType": "exclude"
+		}
+	}
+}

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--Steam Frame OpenXR plugin additions-->
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+	<!-- init section is always evaluated once per architecture -->
+	<init>
+		<log text="Steamworks SDK for Android Init"/>
+		<setBool result="bSupported" value="false"/>
+		<isArch arch="armeabi-v7a">
+			<setBool result="bSupported" value="false"/>
+		</isArch>
+		<isArch arch="arm64-v8a">
+			<setBool result="bSupported" value="true"/>
+		</isArch>
+	</init>
+
+	<!-- optional additions to proguard -->
+	<proguardAdditions>
+		<insert>
+			-keep class android.app.** {*;}
+		</insert>
+	</proguardAdditions>
+
+	<!-- optional files or directories to copy to Intermediate/Android/APK -->
+	<resourceCopies>
+		<isArch arch="arm64-v8a">
+			<log text="Copying Steamworks libsteam_api.so"/>
+			<copyFile src="$S(EngineDir)/Source/ThirdParty/Steamworks/Steamv164/sdk/redistributable_bin/android/arm64/libsteam_api.so"
+            			dst="$S(BuildDir)/libs/arm64-v8a/libsteam_api.so" />
+			<!-- Steam SDK for Android requires shared libc++ runtime -->
+			<log text="Copying libc++_shared.so for Steamworks"/>
+			<copyFile src="$S(NDKRoot)/toolchains/llvm/prebuilt/$S(HostPlatform)/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
+            			dst="$S(BuildDir)/libs/arm64-v8a/libc++_shared.so" />
+		</isArch>
+	</resourceCopies>
+</root>

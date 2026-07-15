@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--OpenXR plugin additions-->
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+	<!-- init section is always evaluated once per architecture -->
+	<init>		
+		
+		<setBoolFromProperty result="bPackageForMetaQuest" ini="Engine" section="/Script/AndroidRuntimeSettings.AndroidRuntimeSettings" property="bPackageForMetaQuest" default="false"/>
+		<setBoolFromProperty result="bPackageForOpenXRImmersive" ini="Engine" section="/Script/AndroidRuntimeSettings.AndroidRuntimeSettings" property="bPackageForOpenXRImmersive" default="false"/>
+		<setBoolFromProperty result="bStartInVR" ini="Game" section="/Script/EngineSettings.GeneralProjectSettings" property="bStartInVR" default="false"/>
+		
+		<setBool result="bCpuArchSupportedByLoader" value="false"/>
+		<isArch arch="arm64-v8a">
+			<setBool result="bCpuArchSupportedByLoader" value="true"/>
+		</isArch>
+		<isArch arch="armeabi-v7a">
+			<setBool result="bCpuArchSupportedByLoader" value="true"/>
+		</isArch>
+		<isArch arch="x86">
+			<setBool result="bCpuArchSupportedByLoader" value="true"/>
+		</isArch>
+		<isArch arch="x86_64">
+			<setBool result="bCpuArchSupportedByLoader" value="true"/>
+		</isArch>
+		
+		<setBool result="bCpuArchSupportedByMetaQuest" value="false"/>
+		<isArch arch="arm64-v8a">
+			<setBool result="bCpuArchSupportedByMetaQuest" value="true"/>
+		</isArch>	
+		
+		<if condition="bCpuArchSupportedByMetaQuest">
+			<false>
+				<log text="OpenXR_APL Warning: bPackageForMetaQuest is true but arch is not arm64-v8a.  Disabling bPackageForMetaQuest"/>
+				<setBool result="bPackageForMetaQuest" value="false"/>
+			</false>
+		</if>	
+	</init>
+
+	
+	<!-- optional updates applied to AndroidManifest.xml -->
+	<androidManifestUpdates>
+		<if condition="bPackageForOpenXRImmersive">
+			<true>
+				<log text="OpenXR_APL androidManifestUpdates for bPackageForOpenXRImmersive"/>
+
+				<!-- Required by Android XR for system-level OpenXR access -->
+				<addPermission android:name="org.khronos.openxr.permission.OPENXR_SYSTEM"/>
+
+				<!-- Detect existence of intent-filter in GameActivity -->
+				<setString result="targetActivityName" value="com.epicgames.unreal.GameActivity"/>
+
+				<!-- Detect existence of intent-filter in either GameActivity or SplashActivity, game by default -->
+				<setString result="targetActivityName" value="com.epicgames.unreal.GameActivity"/>
+				<loopElements tag="activity">
+					<setStringFromAttribute result="scanActivityName" tag="$" name="android:name"/>
+					<setBoolIsEqual result="bSplashActivityExists" arg1="$S(scanActivityName)" arg2="com.epicgames.unreal.SplashActivity"/>
+
+					<if condition="bSplashActivityExists">
+						<true>
+							<log text="OpenXR_APL SplashActivity detected!"/>
+							<setString result="targetActivityName" value="com.epicgames.unreal.SplashActivity"/>
+						</true>
+					</if>
+				</loopElements>
+	
+				<!-- Add Activity Specific Flags -->
+				<loopElements tag="activity">
+					<setStringFromAttribute result="activityName" tag="$" name="android:name"/>
+					
+					<setBoolIsEqual result="bMatchTargetActivity" arg1="$S(activityName)" arg2="$S(targetActivityName)"/>
+					
+					<if condition="bMatchTargetActivity">
+						<true>
+							<log text="OpenXR_APL manifest updates for $S(targetActivityName)"/>
+
+							<!-- Add VR Intent Filter -->
+							<setElement result="vrIntent" value="category"/>
+							<addAttribute tag="$vrIntent" name="android:name" value="org.khronos.openxr.intent.category.IMMERSIVE_HMD"/>
+							<addElement tag="intent-filter" name="vrIntent" once="true"/>
+						</true>
+					</if>
+				</loopElements>
+			</true>
+		</if>
+		
+		<if condition="bPackageForMetaQuest">
+			<true>
+				<log text="OpenXR_APL androidManifestUpdates for bPackageForMetaQuest"/>
+
+				<addFeature android:name="android.hardware.vr.headtracking" android:version="1" android:required="true"  __ExcludeFromAFS="true"/>
+
+				<!-- Detect existence of intent-filter in either GameActivity or SplashActivity, game by default -->
+				<setString result="targetActivityName" value="com.epicgames.unreal.GameActivity"/>
+				<loopElements tag="activity">
+					<setStringFromAttribute result="scanActivityName" tag="$" name="android:name"/>
+					<setBoolIsEqual result="bSplashActivityExists" arg1="$S(scanActivityName)" arg2="com.epicgames.unreal.SplashActivity"/>
+
+					<if condition="bSplashActivityExists">
+						<true>
+							<log text="OpenXR_APL SplashActivity detected!"/>
+							<setString result="targetActivityName" value="com.epicgames.unreal.SplashActivity"/>
+						</true>
+					</if>
+				</loopElements>
+
+				<!-- Add Oculus Splash Screen -->
+				<setBoolFromProperty result="bShowLaunchImage" ini="Engine" section="/Script/AndroidRuntimeSettings.AndroidRuntimeSettings" property="bShowLaunchImage" default="false"/>
+				<if condition="bShowLaunchImage">
+					<true>
+						<setElement result="showOculusSplash" value="meta-data"/>
+						<addAttribute tag="$showOculusSplash" name="android:name" value="com.oculus.ossplash"/>
+						<addAttribute tag="$showOculusSplash" name="android:value" value="true"/>
+						<addAttribute tag="$showOculusSplash" name="__ExcludeFromAFS" value="true" />
+						<addElement tag="application" name="showOculusSplash"/>
+					</true>
+				</if>
+
+				<!-- Add Activity Specific Flags -->
+				<loopElements tag="activity">
+					<setStringFromAttribute result="activityName" tag="$" name="android:name"/>
+
+					<setBoolIsEqual result="bMatchTargetActivity" arg1="$S(activityName)" arg2="$S(targetActivityName)"/>
+
+					<if condition="bMatchTargetActivity">
+						<true>
+							<log text="OpenXR_APL manifest updates for $S(targetActivityName)"/>
+
+							<!-- Add VR Intent Filter, Permissions, and Features -->
+							<setElement result="vrIntent" value="category"/>
+							<addAttribute tag="$vrIntent" name="android:name" value="com.oculus.intent.category.VR"/>
+							<addAttribute tag="$vrIntent" name="__ExcludeFromAFS" value="true" />
+							<!-- only add to first intent-filter which should be the activity -->
+							<addElement tag="intent-filter" name="vrIntent" once="true"/>
+
+							<setElement result="focusAware" value="meta-data" />
+							<addAttribute tag="$focusAware" name="android:name" value="com.oculus.vr.focusaware" />
+							<addAttribute tag="$focusAware" name="android:value" value="true" />
+							<addAttribute tag="$focusAware" name="__ExcludeFromAFS" value="true" />
+							<addElement tag="activity" name="focusAware"/>
+						</true>
+					</if>
+				</loopElements>
+			</true>
+		</if>
+	</androidManifestUpdates>
+
+	
+	<!-- optional additions to the GameActivity class in GameActivity.java -->
+	<gameActivityClassAdditions>
+		<insert>
+			/** Whether this application was packaged for OpenXR IMMERSIVE_HMD or not */
+			public boolean PackagedForAndroidOpenXRImmersiveHMD = false;
+
+			// check the manifest to determine if we are a OpenXR IMMERSIVE_HMD application
+			public boolean AndroidThunkJava_IsOpenXRImmersiveHMDApplication()
+			{
+				return PackagedForAndroidOpenXRImmersiveHMD;
+			}
+		</insert>
+		<insert>
+			/** Whether this application was packaged for Oculus Mobile or not */
+			public boolean PackagedForMetaQuest = false;
+
+			// check the manifest to determine if we are a Oculus Mobile application
+			public boolean AndroidThunkJava_IsOculusMobileApplication()
+			{
+				return PackagedForMetaQuest;
+			}
+		</insert>
+	</gameActivityClassAdditions>
+
+	
+	<!-- optional additions to GameActivity onCreate metadata reading in GameActivity.java -->
+	<gameActivityReadMetadataAdditions>
+		<if condition="bPackageForOpenXRImmersive">
+			<true>
+				<insert>
+					{
+						boolean hasVR = false;
+
+						Intent vrIntent = new Intent(Intent.ACTION_MAIN, null);
+						vrIntent.addCategory("org.khronos.openxr.intent.category.IMMERSIVE_HMD");
+						vrIntent.addFlags(PackageManager.GET_INTENT_FILTERS);
+						vrIntent.setPackage(getApplicationContext().getPackageName());
+
+						PackageManager pkgManager = getApplicationContext().getPackageManager();
+						if (pkgManager != null)
+						{
+							if(!pkgManager.queryIntentActivities(vrIntent, PackageManager.GET_INTENT_FILTERS).isEmpty())
+							{
+								hasVR = true;
+							}
+						}
+
+						if (hasVR)
+						{
+							PackagedForAndroidOpenXRImmersiveHMD = true;
+							Log.debug("OpenXR_APL Found OpenXRImmersiveHMD mode.");
+						}
+						else
+						{
+							PackagedForAndroidOpenXRImmersiveHMD = false;
+							Log.debug("OpenXR_APL No OpenXRImmersiveHMD mode detected.");
+						}
+					}
+				</insert>
+			</true>
+		</if>
+	
+		<if condition="bPackageForMetaQuest">
+			<true>
+				<insert>			
+					{
+						boolean hasVR = false;
+
+						Intent vrIntent = new Intent(Intent.ACTION_MAIN, null);
+						vrIntent.addCategory("com.oculus.intent.category.VR");
+						vrIntent.addFlags(PackageManager.GET_INTENT_FILTERS);
+						vrIntent.setPackage(getApplicationContext().getPackageName());
+
+						PackageManager pkgManager = getApplicationContext().getPackageManager();
+						if (pkgManager != null)
+						{
+							if(!pkgManager.queryIntentActivities(vrIntent, PackageManager.GET_INTENT_FILTERS).isEmpty())
+							{
+								hasVR = true;
+							}
+						}
+
+						if (hasVR)
+						{
+							PackagedForMetaQuest = true;
+							Log.debug("OpenXR_APL Found OpenXR Oculus Mobile mode.");
+						}
+						else
+						{
+							PackagedForMetaQuest = false;
+							Log.debug("OpenXR_APL No OpenXR Oculus Mobile mode detected.");
+						}
+					}
+				</insert>
+			</true>
+		</if>
+	</gameActivityReadMetadataAdditions>
+
+
+	<!-- optional files or directories to copy to Intermediate/Android/APK -->
+	<resourceCopies>
+		<if condition="bCpuArchSupportedByLoader">
+			<true>
+				<log text="Copying libopenxr_loader.so"/>
+				<copyFile src="$S(EngineDir)/Binaries/ThirdParty/OpenXR/Android/$S(Architecture)/libopenxr_loader.so"
+								dst="$S(BuildDir)/libs/$S(Architecture)/libopenxr_loader.so" />
+			</true>
+		</if>
+	</resourceCopies>
+
+
+	<!-- optional libraries to load in GameActivity.java before libUnreal.so -->
+	<soLoadLibrary>
+		<!-- need this if plugin enabled and supported architecture -->
+		<if condition="bCpuArchSupportedByLoader">
+			<true>
+				<loadLibrary name="openxr_loader" failmsg="openxr_loader library not loaded and may be required for OpenXR." />
+			</true>
+		</if>
+	</soLoadLibrary>
+</root>

@@ -1,0 +1,113 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+#include "/Engine/Public/Platform.ush"
+
+struct PVLightDetectionData
+{
+	int PointNumber;
+	int RayNumber;
+	float3 Direction;
+	float LightValue;
+	int Hits;
+	int FaliureType;
+};
+
+struct PVPointLightVectorData
+{
+	int PointNumber;
+	float LightAvailable;
+	float3 LightOptimalDirection;
+	float3 LightSubOptimalDirection;
+};
+
+uint MaxBounce;
+uint NumRays;
+uint NumPoints;
+StructuredBuffer<PVLightDetectionData>    LightDetectionData;
+StructuredBuffer<float3>                  Rays;
+RWStructuredBuffer<PVPointLightVectorData> PointLightVectorData;
+
+// 2D dispatch: (min(N,65535), ceil(N/65535), 1) groups x [1,1,1] threads.
+// One thread = one skeleton point; reads all 64 ray results for that point.
+[numthreads(1,1,1)]
+void MainCS(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID)
+{
+	// Reconstruct flat point index from 2D dispatch ID
+	uint PointIndex = DTid.y * 65535u + DTid.x;
+	if (PointIndex >= NumPoints)
+	{
+		return;
+	}
+
+	float MaxLight              = -1.0f;
+	float TotalLight            = 0.0f;
+	float3 LightOptimalDirection    = float3(0,0,0);
+	float3 LightSubOptimalDirection = float3(0,0,0);
+	int NumSubOptimalDirections = 0;
+	float OptimalDot            = 0.0f;
+	bool isInside               = false;
+	float AverageLight          = 0.674108;
+
+	for (int r = 0; r < NumRays; r++)
+	{
+		int LightDetectionDataIndex = (int)(PointIndex * NumRays) + r;
+		float LightValue   = LightDetectionData[LightDetectionDataIndex].LightValue;
+		float3 RayDirection = LightDetectionData[LightDetectionDataIndex].Direction;
+		float Dot = dot(float3(0,0,1), RayDirection);
+		TotalLight += clamp(LightValue, 0.0f, 1.0f);
+		if (LightValue >= MaxLight && Dot > OptimalDot)
+		{
+			OptimalDot = Dot;
+			MaxLight = LightValue;
+			LightOptimalDirection = RayDirection;
+			if (LightDetectionData[LightDetectionDataIndex].Hits == MaxBounce)
+			{
+				isInside = true;
+				LightOptimalDirection = -LightOptimalDirection;
+			}
+			else
+			{
+				isInside = false;
+			}
+		}
+
+		if (LightDetectionData[LightDetectionDataIndex].Hits > 0)
+		{
+			LightSubOptimalDirection += -Rays[r];
+			NumSubOptimalDirections++;
+		}
+	}
+
+	if (NumSubOptimalDirections > 0)
+	{
+		LightSubOptimalDirection /= NumSubOptimalDirections;
+	}
+	else
+	{
+		LightSubOptimalDirection = LightOptimalDirection;
+	}
+
+	// Guard: hit-ray vectors may cancel to zero (symmetric occlusion) or
+	// LightOptimalDirection may be zero (no ray escaped with positive Z, e.g.
+	// fully occluded bud). Both cases produce NaN from normalize — fall back
+	// to straight up as the safest assumption when light direction is unknown.
+	if (length(LightSubOptimalDirection) < 0.0001)
+	{
+		LightSubOptimalDirection = float3(0, 0, 1);
+	}
+	LightSubOptimalDirection = normalize(LightSubOptimalDirection);
+
+	// Same guard for the optimal direction: zero here propagates into the
+	// phototropism lerp in PVGrower and produces a degenerate apical direction.
+	if (length(LightOptimalDirection) < 0.0001)
+	{
+		LightOptimalDirection = float3(0, 0, 1);
+	}
+
+	float AvailableLight = TotalLight / NumRays;
+	AvailableLight = isInside ? 0.0 : lerp(0, 1, AvailableLight / AverageLight);
+
+	PointLightVectorData[PointIndex].LightAvailable          = AvailableLight;
+	PointLightVectorData[PointIndex].LightOptimalDirection   = LightOptimalDirection;
+	PointLightVectorData[PointIndex].LightSubOptimalDirection = LightSubOptimalDirection;
+	PointLightVectorData[PointIndex].PointNumber             = LightDetectionData[PointIndex * NumRays].PointNumber;
+}

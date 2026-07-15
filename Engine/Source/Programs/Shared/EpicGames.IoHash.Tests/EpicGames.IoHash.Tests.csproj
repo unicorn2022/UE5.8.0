@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\EpicGames.IoHash\EpicGames.IoHash.csproj" />
+  </ItemGroup>
+</Project>

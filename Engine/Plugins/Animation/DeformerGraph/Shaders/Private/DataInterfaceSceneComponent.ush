@@ -1,0 +1,8 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+float4x4 {DataInterfaceName}_WorldTransform;
+
+float4x4 ReadWorldTransform_{DataInterfaceName}()
+{
+	return {DataInterfaceName}_WorldTransform;
+}

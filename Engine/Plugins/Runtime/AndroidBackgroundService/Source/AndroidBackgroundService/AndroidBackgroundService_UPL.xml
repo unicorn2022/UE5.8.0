@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google Cloud Messaging plugin additions-->
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+	<!-- init section is always evaluated once per architecture -->
+	<init>
+		<log text="AndroidBackgroundServices init"/>
+	</init>
+	
+	<buildGradleAdditions>
+		<insert>
+//AndroidBackgroundService_UPL -- START
+	dependencies {
+		implementation('androidx.appcompat:appcompat:1.6.1')
+		implementation('androidx.work:work-runtime:2.11.0')
+		implementation('androidx.concurrent:concurrent-futures:1.1.0')
+		implementation 'androidx.multidex:multidex:2.0.1'
+		
+		//Needed if we ever include guava to avoid conflicts with our use of androidx concurrent futures
+		//implementation 'com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava'
+	}
+//AndroidBackgroundService_UPL -- STOP
+		</insert>
+	</buildGradleAdditions>
+	
+	<!-- optional files or directories to copy or delete from Intermediate/Android/APK before ndk-build -->
+	<prebuildCopies>
+		<log text="Copying AndroidBackgroundServices files to staging"/>
+		<copyDir src="$S(PluginDir)/Java" dst="$S(BuildDir)/src/com/epicgames/unreal" />
+	</prebuildCopies>
+
+	<!-- WorkManager requires compileSdk version 28 or higher -->
+	<minimumSDKAPI>
+		<insertValue value="28"/>
+		<insertNewline/>
+	</minimumSDKAPI>
+
+	<androidManifestUpdates>
+		<!-- Create the background service element. -->
+		<setElement result="BackService" value="service"/>
+		<addAttribute tag="$BackService" name="android:name" value="androidx.work.impl.foreground.SystemForegroundService"/>
+		<addAttribute tag="$BackService" name="android:foregroundServiceType" value="dataSync"/>
+		<addAttribute tag="$BackService" name="tools:node" value="merge"/>
+
+		<!-- Add the service to the application -->
+		<addElement tag="application" name="BackService"/>
+
+		<!-- Create the initialization provider element to merge. -->
+		<setElement result="InitializationProvider" value="provider"/>
+		<addAttribute tag="$InitializationProvider" name="android:name" value="androidx.startup.InitializationProvider"/>
+		<addAttribute tag="$InitializationProvider" name="android:authorities" value="${applicationId}.androidx-startup"/>
+		<addAttribute tag="$InitializationProvider" name="android:exported" value="false"/>
+		<addAttribute tag="$InitializationProvider" name="tools:node" value="merge"/>
+
+		<!-- Create the initializer meta-data element to remove. -->
+		<setElement result="WorkManagerInitializer" value="meta-data"/>
+		<addAttribute tag="$WorkManagerInitializer" name="android:name" value="androidx.work.WorkManagerInitializer"/>
+		<addAttribute tag="$WorkManagerInitializer" name="android:value" value="androidx.startup"/>
+		<addAttribute tag="$WorkManagerInitializer" name="tools:node" value="remove"/>
+
+		<!-- Add the meta-data to the provider -->
+		<addElement tag="$InitializationProvider" name="WorkManagerInitializer"/>
+		
+		<!-- Add the provider to the application -->
+		<addElement tag="application" name="InitializationProvider"/>
+	</androidManifestUpdates>
+
+	<gameApplicationImplementsAdditions>
+		<insertNewline/>
+		<insertValue value="// AndroidBackgroundService - START" />
+		<insertNewline/>
+		<insertValue value=", androidx.work.Configuration.Provider" />
+		<insertNewline/>
+		<insertValue value="// AndroidBackgroundService - STOP" />
+		<insertNewline/>
+	</gameApplicationImplementsAdditions>
+
+	<gameApplicationClassAdditions>
+		<insert>
+// AndroidBackgroundService - START
+	@NonNull
+	@Override
+	public androidx.work.Configuration getWorkManagerConfiguration()
+	{
+		// This acts as the default configuration, but guarantees
+		// it is ready the moment something requests WorkManager.
+		return new androidx.work.Configuration.Builder().build();
+	}
+
+// AndroidBackgroundService - STOP
+		</insert>
+	</gameApplicationClassAdditions>
+	
+	<!-- optional additions to proguard -->
+	<proguardAdditions>
+		<insert>
+			# AndroidBackgroundService UPL Additions -- START
+
+			# Android Background Services Classes with native calls ...
+
+			-keep class com.epicgames.unreal.workmanager.UEWorker {
+			public *;
+			}
+
+			-keep class com.epicgames.unreal.workmanager.UEWorkManagerJavaInterface {
+			public *;
+			}
+
+			-keep class com.epicgames.unreal.workmanager.UEWorkManagerJavaInterface$FWorkRequestParametersJavaInterface {
+			public *;
+			}
+
+			# AndroidBackgroundService UPL Additions -- STOP
+		</insert>
+	</proguardAdditions>
+</root>

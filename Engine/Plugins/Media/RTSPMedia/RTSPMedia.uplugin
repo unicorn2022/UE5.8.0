@@ -1,0 +1,44 @@
+{
+    "FileVersion": 3,
+    "Version": 1,
+    "VersionName": "1.0",
+    "FriendlyName": "RTSP Media",
+    "Description": "Real-time media streaming via the RTSP protocol",
+    "Category": "Media Players",
+    "CreatedBy": "Epic Games",
+    "CreatedByURL": "https://epicgames.com",
+    "CanContainContent": true,
+    "IsExperimentalVersion": true,
+    "EnabledByDefault": false,
+    "SupportedTargetPlatforms": [
+        "Win64",
+        "Mac",
+        "Linux"
+    ],
+    "Modules": [
+        {
+            "Name": "RTSPMedia",
+            "Type": "Runtime",
+            "LoadingPhase": "Default"
+        },
+        {
+            "Name": "RTSPMediaEditor",
+            "Type": "Editor",
+            "LoadingPhase": "PostEngineInit"
+        }
+    ],
+    "Plugins": [
+        {
+            "Name": "ElectraCodecs",
+            "Enabled": true
+        },
+        {
+            "Name": "MediaIOFramework",
+            "Enabled": true
+        },
+        {
+            "Name": "MediaPlayerEditor",
+            "Enabled": true
+        }
+    ]
+}

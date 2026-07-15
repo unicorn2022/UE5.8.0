@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\EpicGames.Tracing\EpicGames.Tracing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="UnrealInsights\example_trace.decomp.utrace">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>

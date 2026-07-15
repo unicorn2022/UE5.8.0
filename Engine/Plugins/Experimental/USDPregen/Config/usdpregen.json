@@ -1,0 +1,54 @@
+{
+  "content": {
+    "plugin_name" : "InterchangePregenSharedContent"
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 53100
+  },
+  "scheduler": {
+    "task_lease_seconds": 900,
+    "hard_timeout_seconds": 3600,
+    "watchdog_interval_seconds": 5.0,
+    "longpoll_interval_seconds": 22.0,
+    "max_task_attempts": 3
+  },
+  "log": {
+    "max_log_lines_per_task": 500,
+    "default_log_lines_in_status": 200
+  },
+  "worker": {
+    "mode": "managed",
+    "max_local_workers": 3,
+    "default_workers_per_job": 1,
+    "memory_restart_threshold_mib": 32768,
+    "shutdown_timeout_seconds": 60.0,
+    "launch": {
+      "program": "UnrealEditor",
+      "args": [
+        "-renderoffscreen",
+        "-unattended",
+        "-nop4",
+        "-nosound",
+        "-ddc=noshared",
+        "-MAXTHREADS=4"
+      ],
+      "timeout": 60
+    }
+  },
+  "discovery": {
+    "discovery_plugin_name": "",
+    "definition_prefix": "",
+    "initial_path": "",
+    "purposes": [],
+    "exclude_variant_sets": [],
+    "discovery_mode": "",
+    "asset_identifier_fallback": "",
+    "asset_version_fallback": ""
+  },
+  "storage": {
+    "storage_plugin_name": "",
+    "manifest_dir": "",
+    "package_sub_path_template": ""
+  }
+}

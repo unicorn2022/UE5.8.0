@@ -1,0 +1,11 @@
+.vs
+.minio
+.git
+.vscode
+
+**/bin
+**/obj
+**/uatbin
+**/uatobj
+**/out
+**/node_modules

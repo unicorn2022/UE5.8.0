@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "{5532D745-4181-BACF-3060-3EAC0C61F5D3}",
+	"Category": "",
+	"Description": "",
+	"Plugins": [
+		{
+			"Name": "USDPregen",
+			"Enabled": true
+		},
+		{
+			"Name": "InterchangeOpenUSD",
+			"Enabled": true,
+			"SupportedTargetPlatforms": [
+				"Win64",
+				"Linux",
+				"Mac"
+			]
+		},
+		{
+			"Name": "InterchangePregenSharedContent",
+			"Enabled": true
+		}
+	]
+}

@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36109.1
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PartnerCenterTool", "PartnerCenterTool.csproj", "{038BA348-0269-418D-A1B4-0C53CF819FBB}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{038BA348-0269-418D-A1B4-0C53CF819FBB}.Debug|x64.ActiveCfg = Debug|x64
+		{038BA348-0269-418D-A1B4-0C53CF819FBB}.Debug|x64.Build.0 = Debug|x64
+		{038BA348-0269-418D-A1B4-0C53CF819FBB}.Release|x64.ActiveCfg = Release|x64
+		{038BA348-0269-418D-A1B4-0C53CF819FBB}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {6ED1367C-53B3-46D7-896A-6998484AA54B}
+	EndGlobalSection
+EndGlobal

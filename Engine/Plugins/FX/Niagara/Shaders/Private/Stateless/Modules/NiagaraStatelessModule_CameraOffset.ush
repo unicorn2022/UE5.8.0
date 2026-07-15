@@ -1,0 +1,14 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+FNiagaraStatelessBuiltDistributionType CameraOffset_Distribution;
+float CameraOffset_Scale;
+
+void CameraOffset_Simulate(inout FStatelessParticle Particle)
+{
+	if (FNiagaraStatelessBuiltDistribution::IsValid(CameraOffset_Distribution))
+	{
+		const float2 CameraOffsets = SampleDistributionValuesFloat(CameraOffset_Distribution, 0, Particle.NormalizedAge, Particle.PreviousNormalizedAge);
+		Particle.CameraOffset			= CameraOffsets[0] * CameraOffset_Scale;
+		Particle.PreviousCameraOffset	= CameraOffsets[1] * CameraOffset_Scale;
+	}
+}

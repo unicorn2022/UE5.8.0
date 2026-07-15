@@ -1,0 +1,36 @@
+{
+	"FileVersion": 3,
+
+	"FriendlyName" : "GDK Net Driver",
+	"Version" : 1,
+	"VersionName" : "1.0",
+	"Category" : "Online Platform",
+	"Description": "Net driver for GDK platforms",
+	"CreatedBy": "Epic Games, Inc.",
+	"CreatedByURL": "http://epicgames.com",
+	"EnabledByDefault": false,
+	"RequiresBuildPlatform": false,
+	"HasExplicitPlatforms": true,	
+	"SupportedTargetPlatforms": ["Win64"],
+	"Modules": [
+		{
+			"Name": "GDKNetDriver",
+			"Type": "RuntimeNoCommandlet",
+			"LoadingPhase":  "Default",
+			"HasExplicitPlatforms": true,
+			"PlatformAllowList": ["Win64"]
+		}
+	],
+	"LocalizationTargets": [
+		{
+			"Name": "GDKNetDriver",
+			"LoadingPolicy": "Always"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "OnlineSubsystemUtils",
+			"Enabled": true
+		}
+	]
+}

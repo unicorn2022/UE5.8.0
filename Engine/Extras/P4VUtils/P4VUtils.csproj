@@ -1,0 +1,110 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\..\Source\Programs\Shared\UnrealEngine.csproj.props" />
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
+    <PublishSingleFile>True</PublishSingleFile>
+    <SelfContained>True</SelfContained>
+    <!-- Supress CA1812: "Class" is an internal class that is apparently never instantiated.
+      With the change to dynamic instantiation this warning is triggered.
+      -->
+    <NoWarn>CA1812</NoWarn>
+  </PropertyGroup>
+
+  <!-- Version information - uebp_CL is set by Horde on build machines -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <BuildChangelist>$(uebp_CL)</BuildChangelist>
+    <BuildChangelist Condition="'$(BuildChangelist)' == ''">NoCL</BuildChangelist>
+    <InformationalVersion>$(Version)-$(BuildChangelist)</InformationalVersion>
+  </PropertyGroup>
+
+    <PropertyGroup>
+      <WithRestricted Condition="Exists('..\..\Restricted\NotForLicensees\Extras\P4VUtils\P4VUtils.ini')">true</WithRestricted>
+      <NFLPrefix Condition="'$(WithRestricted)'=='true'">../../Restricted/NotForLicensees/Extras/P4VUtils/</NFLPrefix>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+      <OutputPath>bin\Release</OutputPath>
+    </PropertyGroup>
+    <Choose>
+    <When Condition="'$(IsWindows)'=='true'">
+      <PropertyGroup>
+        <TargetFramework>net10.0-windows</TargetFramework>
+        <UseWindowsForms>true</UseWindowsForms>
+        <UseWPF>true</UseWPF>
+        <DefineConstants>$(DefineConstants);IS_WINDOWS</DefineConstants>
+        <PublishDir>$(NFLPrefix)Binaries/Win64</PublishDir>
+        <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+      </PropertyGroup>
+      <Choose>
+        <When Condition="'$(IsArm64)'=='true'">
+          <PropertyGroup>
+            <RuntimeIdentifier>win-arm64</RuntimeIdentifier>
+          </PropertyGroup>
+        </When>
+      </Choose>
+    </When>
+    <Otherwise>
+      <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+      </PropertyGroup>
+      <Choose>
+      <When Condition="'$(IsOSX)'=='true'">
+        <PropertyGroup>
+          <DefineConstants>$(DefineConstants);IS_MAC</DefineConstants>
+          <PublishDir>$(NFLPrefix)Binaries/Mac</PublishDir>
+          <RuntimeIdentifier>osx-x64</RuntimeIdentifier>
+        </PropertyGroup>
+      </When>
+      <Otherwise>
+        <PropertyGroup>
+          <DefineConstants>$(DefineConstants);IS_LINUX</DefineConstants>
+          <PublishDir>$(NFLPrefix)Binaries/Linux</PublishDir>
+          <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+        </PropertyGroup>
+      </Otherwise>
+      </Choose>
+    </Otherwise>
+  </Choose>
+  
+  <ItemGroup Condition="'$(WithRestricted)'=='true'">
+    <None Include="$(NFLPrefix)/P4VUtils.ini" Link="NotForLicensees/P4VUtils.ini">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <Compile Include="..\..\Restricted\*\Extras\P4VUtils\Commands\*.cs">
+      <Link>Restricted\Commands\%(Filename)%(Extension)</Link>
+    </Compile>
+  </ItemGroup>
+  
+  <ItemGroup>
+    <None Remove="Toolbox.json" />
+  </ItemGroup>
+    
+  <ItemGroup>
+    <Content Include="Toolbox.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="UgsTool.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Source\Programs\Shared\EpicGames.Core\EpicGames.Core.csproj" />
+    <ProjectReference Include="..\..\Source\Programs\Shared\EpicGames.Perforce\EpicGames.Perforce.csproj" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <None Update="P4VUtils.ini">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

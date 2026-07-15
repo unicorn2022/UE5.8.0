@@ -1,0 +1,11 @@
+{
+	"MainGDKVersion": "260400",
+	"MinGDKVersion": "250404",
+	"MaxGDKVersion": "260499",
+
+	"//GRDK_1": "240305 has a byte-ordering problem with PlayFab that causes compile errors",
+	"BannedGDKVersions": [
+		"240305"
+	]
+
+}

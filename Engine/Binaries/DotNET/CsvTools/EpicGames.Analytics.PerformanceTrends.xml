@@ -1,0 +1,262 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>EpicGames.Analytics.PerformanceTrends</name>
+    </assembly>
+    <members>
+        <member name="T:EpicGames.Analytics.KeyStatTelemetryRecord">
+            <summary>
+            Telemetry record that describes key stats for performance tests.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.KeyStatTelemetryRecord.DynamicResolutionPercentageMax">
+             <summary>
+            Dynamic resolution max percentage.
+             </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.KeyStatTelemetryRecord.CsvId">
+            <summary>
+            Csv id used to create this record.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.KeyStatTelemetryRecord.GpuTimeAvg">
+            <summary>
+            Average GPU time.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.KeyStatTelemetryRecord.PhysicalUsedMbMax">
+            <summary>
+            Max physical memory used.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.KeyStatTelemetryRecord.DynamicResolutionVsmNanite">
+            <summary>
+            Dynamic resolution through Nanite.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.KeyStatTelemetryRecord.MVP">
+            <summary>
+            MVP.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.KeyStatTelemetryRecord.HitchesMin">
+            <summary>
+            Hitches per minute.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.KeyStatTelemetryRecord.HitchTimePercent">
+            <summary>
+            Hitch time percent.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.KeyStatTelemetryRecord.GameThreadtimeAvg">
+            <summary>
+            Game thread time average.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.KeyStatTelemetryRecord.RenderThreadtimeAvg">
+            <summary>
+            Render thread time average.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.KeyStatTelemetryRecord.DynamicResolutionPercentageAvg">
+            <summary>
+            Dynamic reoslution percentage average.
+            </summary>
+        </member>
+        <member name="M:EpicGames.Analytics.KeyStatTelemetryRecord.#ctor">
+            <summary>
+            No arg constructor for ORM construction.
+            </summary>
+            <remarks>Used for ORM instantiation.</remarks>
+        </member>
+        <member name="T:EpicGames.Analytics.PerformanceTrends.StandardTelemetryMetadata">
+            <summary>
+            Utility class to handle standard telemetry operations, and metadata processing.
+            </summary>
+        </member>
+        <member name="M:EpicGames.Analytics.PerformanceTrends.StandardTelemetryMetadata.SanitizeHashtable(System.Collections.Hashtable)">
+            <summary>
+            Sanitizes keys of the provided source hashtable.
+            </summary>
+            <param name="source">The source hashtable to sanitize.</param>
+            <returns>A copy of the hashtable with all keys sanitized.</returns>
+        </member>
+        <member name="F:EpicGames.Analytics.PerformanceTrends.StandardTelemetryMetadata.StandardMetadataKeys">
+            <summary>
+            The standard metadata keys.
+            </summary>
+        </member>
+        <member name="M:EpicGames.Analytics.PerformanceTrends.StandardTelemetryMetadata.CreateFilteredHashtable(System.Collections.Hashtable)">
+            <summary>
+            Creates a new hashtable only with the required metadata entries retained (if they exist).
+            </summary>
+            <param name="sourceTable">The source table.</param>
+            <returns>Hashtable with the required metadata entries.</returns>
+        </member>
+        <member name="T:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry">
+            <summary>
+            Abstract record that describes the shared metadata for performance trend telemetry.
+            </summary>
+            <remarks>Whilst this table specifies <see cref="T:EpicGames.Analytics.Telemetry.AnalyticsTableGenAttribute"/>, it does so for a narrow use in shared query context, and not against any specific <see cref="T:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry"/> table.</remarks>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.EngineVersion">
+            <summary>
+            The engine version of the telemetry.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.EngineReleaseVersion">
+            <summary>
+            The engine release version of the telemetry.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.BuildVersion">
+            <summary>
+            The build version of the telemetry.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.Platform">
+            <summary>
+            The platform of the telemetry.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.TestId">
+            <summary>
+            The test id for the telemetry, if applicable.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.TestName">
+            <summary>
+            The test name for the telemetry, if applicable.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.TestConfigName">
+            <summary>
+            The test config name for the telemetry, if applicable.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.GauntletTestType">
+            <summary>
+            The test type, if applicable.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.GauntletSubTest">
+            <summary>
+            The sub test type, if applicable.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.Collated">
+            <summary>
+            Whether this represents collated data, or not.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.Branch">
+            <summary>
+            The branch the underlying test build was produced from.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.Changelist">
+            <summary>
+            The changelist the underlying test build was produced from.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.StartTimestamp">
+            <summary>
+            The start timestamp of the performance trend session.
+            </summary>
+            <remarks>Time since epoch.</remarks>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.EndTimestamp">
+            <summary>
+            The end timestamp of the performance trend session.
+            </summary>
+            <remarks>Time since epoch.</remarks>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.BuildSuffix">
+            <summary>
+            The build suffix for the build string.
+            </summary>
+            <remarks>This typically refers to the test product name.</remarks>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.TestBuildIsPreflight">
+            <summary>
+            Int boolean representation of whether the test build was generated by preflight or not.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.Cpu">
+            <summary>
+            The CPU of the hardware the performance telemetry was generated from.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.Gpu">
+            <summary>
+            The GPU of the hardware the performance telemetry was generated from.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.VerbatimRhiName">
+            <summary>
+            The RHI name of the hardware the performance telemetry was generated from.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.DeviceProfile">
+            <summary>
+            The device profile the performance telemetry was generated from.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.TestIdentity">
+            <summary>
+            The data source of the performance trend telemetry.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.SummaryName">
+            <summary>
+            Summary table name.
+            </summary>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.ComputedPlatform">
+            <summary>
+            The semantic platform the telemetry was produced on.
+            </summary>
+            <remarks>
+            This represents the coalesced result of <see cref="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.TestConfigName"/> and <see cref="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.Platform"/>.
+            <see cref="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.TestConfigName"/> represent the modern way of disambiguating between platforms (and within platforms - ex. Windows-Vulkan and !Vulkan), whereas <see cref="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.Platform"/> represents a historical model.
+            </remarks>
+        </member>
+        <member name="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.ComputedStream">
+            <summary>
+            The stream the underlying build was produced from.
+            </summary>
+            <remarks>
+            This represents the coalesced result of <see cref="P:EpicGames.Horde.Telemetry.HordeContextTelemetryRecord.StreamId"/> and <see cref="P:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.Branch"/>.
+            Common local user invocations that result in telemetry emissions may not have a stream id, but will always have a branch.
+            </remarks>
+        </member>
+        <member name="M:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.#ctor">
+            <summary>
+            No arg constructor for ORM construction.
+            </summary>
+            <remarks>Used for ORM instantiation.</remarks>
+        </member>
+        <member name="M:EpicGames.Analytics.PerformanceTrends.PerformanceTrendTelemetry.#ctor(System.Collections.Hashtable,System.String,System.Int32,System.String,System.String,System.Boolean,System.String,System.String,System.String,System.String,System.String,System.Nullable{System.Int32},System.String,System.String,System.Boolean,System.String)">
+            <summary>
+            Constructor.
+            </summary>
+            <param name="source">The source table to construct the telemetry record from.</param>
+            <param name="eventName">The event name.</param>
+            <param name="schemaVersion">The schema version of the telemetry.</param>
+            <param name="sessionId">The id used to correlate telemetry emitted in the same session.</param>
+            <param name="sessionLabel">The label used to correlate telemetry emitted across multiple sessions.</param>
+            <param name="isBuildMachine">True whether this is a build machine context, false otherwise.</param>
+            <param name="hordeUrlStr">The horde url.</param>
+            <param name="streamId">The stream id.</param>
+            <param name="templateId">The template id.</param>
+            <param name="jobId">The Horde job id.</param>
+            <param name="stepId">The Horde step id.</param>
+            <param name="commitIdOrdered">The ordered commitId.</param>
+            <param name="commitId">The commitId.</param>
+            <param name="summaryName">The summary name.</param>
+            <param name="collated">Whether this record represents pre-aggregation.</param>
+            <param name="testIdentity">The context in which the performance trend was generated.</param>
+        </member>
+    </members>
+</doc>

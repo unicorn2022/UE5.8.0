@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\EpicGames.Redis\EpicGames.Redis.csproj" />
+  </ItemGroup>
+</Project>

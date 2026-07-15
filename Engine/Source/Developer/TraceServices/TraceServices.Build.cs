@@ -1,0 +1,21 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+using UnrealBuildTool;
+
+public class TraceServices : ModuleRules
+{
+	public TraceServices(ReadOnlyTargetRules Target) : base(Target)
+	{
+		CppCompileWarningSettings.UnsafeTypeCastWarningLevel = WarningLevel.Error;
+
+		PublicDependencyModuleNames.AddRange(
+			new string[] {
+				"Cbor",
+				"Core",
+				"CoreUObject",
+				"SymsLib",
+				"TraceAnalysis",
+			}
+		);
+	}
+}

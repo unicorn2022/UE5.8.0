@@ -1,0 +1,98 @@
+<!--
+
+  The MIT License (MIT)
+  
+  Copyright (c) 2024 Advanced Micro Devices, Inc.,
+  Fatalist Development AB (Avalanche Studio Group),
+  and Miguel Petersen.
+  
+  All Rights Reserved.
+  
+  Permission is hereby granted, free of charge, to any person obtaining a copy 
+  of this software and associated documentation files (the "Software"), to deal 
+  in the Software without restriction, including without limitation the rights 
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies 
+  of the Software, and to permit persons to whom the Software is furnished to do so, 
+  subject to the following conditions:
+  
+  The above copyright notice and this permission notice shall be included in all 
+  copies or substantial portions of the Software.
+  
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, 
+  INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR 
+  PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE 
+  FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, 
+  ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+  
+-->
+
+
+<schema>
+    <message name="DebugWatchpoint">
+        <field name="codeOffset" type="uint32"/>
+        <field name="uid" type="uint32"/>
+        <field name="flags" type="uint32"/>
+        <field name="variableId" type="uint32"/>
+        <field name="valueId" type="uint32"/>
+        <field name="markerHash32" type="uint32"/>
+    </message>
+    
+    <message name="DebugConfig">
+        <field name="watchpoints" type="stream"/>
+    </message>
+
+    <message name="DebugWatchpointStreamHandled">
+        <field name="request" type="uint32"/>
+    </message>
+
+    <message name="RegisterDebugWatchpoint">
+        <field name="uid" type="uint32"/>
+        <field name="streamSize" type="uint32"/>
+        <field name="captureMode" type="uint32"/>
+    </message>
+
+    <message name="ReallocateDebugWatchpoint">
+        <field name="uid" type="uint32"/>
+        <field name="streamSize" type="uint32"/>
+    </message>
+
+    <message name="DeregisterDebugWatchpoint">
+        <field name="uid" type="uint32"/>
+    </message>
+
+    <message name="DebugWatchpointStream">
+        <field name="request" type="uint32"/>
+        <field name="uid" type="uint32"/>
+        <field name="captureMode" type="uint32"/>
+        <field name="data" type="array" element="uint8"/>
+        <field name="dataFormat" type="uint32"/>
+        <field name="dataTypeId" type="uint32"/>
+        <field name="dataTinyType" type="array" element="uint8"/>
+        <field name="dataCompression" type="uint32"/>
+        <field name="dataDWordStride" type="uint32"/>
+        <field name="dataOrder" type="uint32"/>
+        <field name="dataStaticWidth" type="uint32"/>
+        <field name="dataStaticHeight" type="uint32"/>
+        <field name="dataStaticDepth" type="uint32"/>
+        <field name="dataDynamicCounter" type="uint32"/>
+        <field name="dataRequestStreamSize" type="uint32"/>
+    </message>
+
+    <message name="DebugWatchpointValueMetadata">
+        <field name="name" type="string"/>
+        <field name="valueId" type="uint32"/>
+        <field name="hasReconstruction" type="bool"/>
+    </message>
+
+    <message name="DebugWatchpointVariableMetadata">
+        <field name="name" type="string"/>
+        <field name="variableId" type="uint32"/>
+        <field name="dataTinyType" type="array" element="uint8"/>
+        <field name="values" type="stream"/>
+    </message>
+    
+    <message name="DebugWatchpointMetadata">
+        <field name="uid" type="uint32"/>
+        <field name="variables" type="stream"/>
+    </message>
+</schema>

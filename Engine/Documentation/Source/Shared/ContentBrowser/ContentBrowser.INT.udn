@@ -1,0 +1,56 @@
+Availability:NoPublish
+Title:
+Crumbs:
+Description:
+
+[EXCERPT:Tab]
+###Content Browser
+The Content Browser is the primary area of the Unreal Editor for creating, importing, organizing, viewing, and modifying content assets within Unreal Editor. It also provides the ability to manage content folders and perform other useful operations on assets, such as renaming, moving, copying, and viewing references. The Content Browser can search for and interact with all assets in the game.
+
+[VAR:ToolTipFullLink]
+content-browser-in-unreal-engine
+[/VAR]
+[/EXCERPT:Tab]
+
+[EXCERPT:AdvancedSearchSyntax]
+
+You can search for your content in the Content Browser using advanced search operators. These operators can refine your search, making it easier for you to find what you need. You can also use them to search for key-value pairs from Asset metadata, and access special key values. 
+Filters can be saved and shared amongst team members.
+
+---
+
+#Operators
+- Equal (= or == or :), NotEqual(!= or !:)
+- Less (<), LessOrEqual (<= or <:), Greater (>), GreaterOrEqual (>= or >:), 
+- Or (OR or || or |), And (AND or && or &), Not (NOT or !)
+
+#String Operations
+- Invert (-)
+- Exact (+)
+- StartsWith, Ends With (...)
+- Quotes (' or ")
+
+#Special Keys
+- The Asset name (Name)
+- The Asset path (Path)
+- The Asset class (Class or Type)
+- The Asset's parent class (ParentClass)
+- The names of any collections that contain the Asset (Collection)
+- Any meta-data tag
+
+#Examples
+1.Find all blueprints whose parent class have Pawn in its name
+**Type==Blueprint AND ParentClass==Pawn**
+1.Find any asset that doesn't have "Foo" in its path or whose name is exactly "Bar"
+**Path=-"Foo" OR Name=+"Bar"**
+1.Find all materials that with a translucent BlendMode and whose names start with "Foo"
+**Type==Material AND (BlendMode==Translucent AND Name=Foo...)**
+
+---
+
+Follow the link for a more extensive description of the search syntax.
+
+[VAR:ToolTipFullLink]
+advanced-search-syntax-in-unreal-engine
+[/VAR]
+[/EXCERPT:AdvancedSearchSyntax]

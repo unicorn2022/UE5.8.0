@@ -1,0 +1,286 @@
+#!/bin/bash
+
+set -e
+
+LIBRARY_NAME="OpenUSD"
+REPOSITORY_NAME="OpenUSD"
+
+# Informational, for the usage message.
+CURRENT_LIBRARY_VERSION=26.03
+
+BUILD_SCRIPT_NAME="$(basename $BASH_SOURCE)"
+BUILD_SCRIPT_DIR=`cd $(dirname "$BASH_SOURCE"); pwd`
+
+UsageAndExit()
+{
+    echo "Build $LIBRARY_NAME for use with Unreal Engine on Linux"
+    echo
+    echo "Usage:"
+    echo
+    echo "    $BUILD_SCRIPT_NAME <$LIBRARY_NAME Version>"
+    echo
+    echo "Usage examples:"
+    echo
+    echo "    $BUILD_SCRIPT_NAME $CURRENT_LIBRARY_VERSION"
+    echo "      -- Installs $LIBRARY_NAME version $CURRENT_LIBRARY_VERSION."
+    echo
+    exit 1
+}
+
+# Get version from arguments.
+LIBRARY_VERSION=$1
+if [ -z "$LIBRARY_VERSION" ]
+then
+    UsageAndExit
+fi
+
+# OpenUSD is not currently supported on aarch64 Linux due to missing
+# Python support.
+ARCH_NAME=x86_64-unknown-linux-gnu
+
+# This path may be adjusted to point to wherever the OpenUSD source is
+# located. It is typically obtained by either downloading a zip/tarball of
+# the source code, or more commonly by cloning the GitHub repository, e.g.:
+#     git clone --branch <version tag> https://github.com/PixarAnimationStudios/OpenUSD.git OpenUSD_src
+# Then from inside the cloned OpenUSD_src directory, apply all patches sitting
+# next to this build script:
+#     git apply <build script location>/OpenUSD_*.patch
+# Note also that this path may be emitted as part of OpenUSD error messages, so
+# it is suggested that it not reveal any sensitive information.
+OPENUSD_SOURCE_LOCATION="/tmp/${REPOSITORY_NAME}_src"
+
+PLATFORM_NAME=Linux
+
+UE_ENGINE_LOCATION=`cd $BUILD_SCRIPT_DIR/../../../../../..; pwd`
+
+# Architecture-dependent strings and paths.
+ARCH_STRING=X64
+PYTHON_PLATFORM_NAME=$PLATFORM_NAME
+ENGINE_BINARIES_LOCATION="$UE_ENGINE_LOCATION/Binaries/$PYTHON_PLATFORM_NAME"
+PYTHON_NATIVE_PLATFORM_NAME=$PLATFORM_NAME
+
+UE_SOURCE_THIRD_PARTY_LOCATION="$UE_ENGINE_LOCATION/Source/ThirdParty"
+TBB_LOCATION="$UE_SOURCE_THIRD_PARTY_LOCATION/Intel/TBB/Deploy/oneTBB-2022.3.0"
+TBB_LIB_LOCATION="$TBB_LOCATION/Unix/$ARCH_NAME/lib"
+TBB_CMAKE_LOCATION="$TBB_LIB_LOCATION/cmake/TBB"
+IMATH_LOCATION="$UE_SOURCE_THIRD_PARTY_LOCATION/Imath/Deploy/Imath-3.2.2"
+IMATH_LIB_LOCATION="$IMATH_LOCATION/Unix/$ARCH_NAME/lib"
+IMATH_CMAKE_LOCATION="$IMATH_LIB_LOCATION/cmake/Imath"
+OPENSUBDIV_LOCATION="$UE_SOURCE_THIRD_PARTY_LOCATION/OpenSubdiv/Deploy/OpenSubdiv-3.7.0"
+OPENSUBDIV_LIB_LOCATION="$OPENSUBDIV_LOCATION/Unix/$ARCH_NAME/lib"
+OPENSUBDIV_CMAKE_LOCATION="$OPENSUBDIV_LIB_LOCATION/cmake/OpenSubdiv"
+ALEMBIC_LOCATION="$UE_SOURCE_THIRD_PARTY_LOCATION/Alembic/Deploy/alembic-1.8.9"
+ALEMBIC_LIB_LOCATION="$ALEMBIC_LOCATION/Unix/$ARCH_NAME/lib"
+ALEMBIC_CMAKE_LOCATION="$ALEMBIC_LIB_LOCATION/cmake/Alembic"
+MATERIALX_LOCATION="$UE_SOURCE_THIRD_PARTY_LOCATION/MaterialX/Deploy/MaterialX-1.39.4"
+MATERIALX_LIB_LOCATION="$MATERIALX_LOCATION/Unix/$ARCH_NAME/lib"
+MATERIALX_CMAKE_LOCATION="$MATERIALX_LIB_LOCATION/cmake/MaterialX"
+
+PYTHON_EXECUTABLE_LOCATION="$UE_ENGINE_LOCATION/Binaries/ThirdParty/Python3/$PYTHON_NATIVE_PLATFORM_NAME/bin/python3"
+PYTHON_SOURCE_LOCATION="$UE_SOURCE_THIRD_PARTY_LOCATION/Python3/$PLATFORM_NAME"
+PYTHON_INCLUDE_LOCATION="$PYTHON_SOURCE_LOCATION/include"
+PYTHON_LIBRARY_LOCATION="$UE_ENGINE_LOCATION/Binaries/ThirdParty/Python3/$PLATFORM_NAME/lib/libpython3.11.so"
+
+UE_MODULE_USD_LOCATION=$BUILD_SCRIPT_DIR
+
+BUILD_LOCATION="$UE_MODULE_USD_LOCATION/Intermediate"
+
+# OpenUSD build products are written into a deployment directory and must then
+# be manually copied from there into place.
+INSTALL_LOCATION="$BUILD_LOCATION/Deploy/$REPOSITORY_NAME-$LIBRARY_VERSION"
+
+rm -rf $BUILD_LOCATION
+
+mkdir $BUILD_LOCATION
+pushd $BUILD_LOCATION > /dev/null
+
+# Run Engine/Build/BatchFiles/Linux/SetupToolchain.sh first to ensure
+# that the toolchain is setup and verify that this name matches.
+TOOLCHAIN_NAME=v26_clang-20.1.8-rockylinux8
+
+UE_TOOLCHAIN_LOCATION="$UE_ENGINE_LOCATION/Extras/ThirdPartyNotUE/SDKs/HostLinux/Linux_x64/$TOOLCHAIN_NAME"
+UE_TOOLCHAIN_ARCH_INCLUDE_LOCATION="$UE_TOOLCHAIN_LOCATION/$ARCH_NAME/include/c++/v1"
+UE_TOOLCHAIN_ARCH_LIB_LOCATION="$UE_TOOLCHAIN_LOCATION/$ARCH_NAME/lib64"
+
+C_FLAGS=""
+CXX_FLAGS="-nostdinc++ -I$UE_TOOLCHAIN_ARCH_INCLUDE_LOCATION -I$PYTHON_INCLUDE_LOCATION"
+LINKER_FLAGS="-fuse-ld=lld -nodefaultlibs -stdlib=libc++ $UE_TOOLCHAIN_ARCH_LIB_LOCATION/libc++.a $UE_TOOLCHAIN_ARCH_LIB_LOCATION/libc++abi.a $PYTHON_LIBRARY_LOCATION -lm -lc -lgcc_s -lgcc"
+
+# Determine whether we're cross compiling for an architecture that doesn't
+# match the host. This is the way that CMake determines the value for the
+# CMAKE_HOST_SYSTEM_PROCESSOR variable.
+HOST_SYSTEM_PROCESSOR=`uname -m`
+TARGET_SYSTEM_PROCESSOR=$HOST_SYSTEM_PROCESSOR
+
+if [[ $ARCH_NAME != $HOST_SYSTEM_PROCESSOR* ]]
+then
+    ARCH_NAME_PARTS=(${ARCH_NAME//-/ })
+    TARGET_SYSTEM_PROCESSOR=${ARCH_NAME_PARTS[0]}
+fi
+
+( cat <<_EOF_
+    # Auto-generated by script: $BUILD_SCRIPT_DIR/$BUILD_SCRIPT_NAME
+
+    message (STATUS "UE_TOOLCHAIN_LOCATION is '${UE_TOOLCHAIN_LOCATION}'")
+    message (STATUS "ARCH_NAME is '${ARCH_NAME}'")
+    message (STATUS "TARGET_SYSTEM_PROCESSOR is '${TARGET_SYSTEM_PROCESSOR}'")
+
+    set(CMAKE_SYSTEM_NAME Linux)
+    set(CMAKE_SYSTEM_PROCESSOR ${TARGET_SYSTEM_PROCESSOR})
+
+    set(CMAKE_SYSROOT ${UE_TOOLCHAIN_LOCATION}/${ARCH_NAME})
+    set(CMAKE_LIBRARY_ARCHITECTURE ${ARCH_NAME})
+
+    set(CMAKE_C_COMPILER \${CMAKE_SYSROOT}/bin/clang)
+    set(CMAKE_C_COMPILER_TARGET ${ARCH_NAME})
+    set(CMAKE_C_FLAGS "-target ${ARCH_NAME} ${C_FLAGS}")
+
+    set(CMAKE_CXX_COMPILER \${CMAKE_SYSROOT}/bin/clang++)
+    set(CMAKE_CXX_COMPILER_TARGET ${ARCH_NAME})
+    set(CMAKE_CXX_FLAGS "-target ${ARCH_NAME} ${CXX_FLAGS}")
+
+    set(CMAKE_EXE_LINKER_FLAGS "${LINKER_FLAGS}")
+    set(CMAKE_MODULE_LINKER_FLAGS "${LINKER_FLAGS}")
+    set(CMAKE_SHARED_LINKER_FLAGS "${LINKER_FLAGS}")
+
+    set(CMAKE_FIND_ROOT_PATH "${UE_TOOLCHAIN_LOCATION}")
+    list(APPEND CMAKE_FIND_ROOT_PATH "${TBB_CMAKE_LOCATION}")
+    list(APPEND CMAKE_FIND_ROOT_PATH "${IMATH_CMAKE_LOCATION}")
+    list(APPEND CMAKE_FIND_ROOT_PATH "${OPENSUBDIV_CMAKE_LOCATION}")
+    list(APPEND CMAKE_FIND_ROOT_PATH "${ALEMBIC_CMAKE_LOCATION}")
+    list(APPEND CMAKE_FIND_ROOT_PATH "${MATERIALX_CMAKE_LOCATION}")
+    set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+    set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+    set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+    set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+_EOF_
+) > /tmp/__cmake_toolchain.cmake
+
+CMAKE_ARGS=(
+    -DCMAKE_TOOLCHAIN_FILE="/tmp/__cmake_toolchain.cmake"
+    -DCMAKE_INSTALL_PREFIX="$INSTALL_LOCATION"
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    -DPython3_EXECUTABLE="$PYTHON_EXECUTABLE_LOCATION"
+    -DPython3_INCLUDE_DIR="$PYTHON_INCLUDE_LOCATION"
+    -DPython3_LIBRARY="$PYTHON_LIBRARY_LOCATION"
+    -DPXR_BUILD_ALEMBIC_PLUGIN=ON
+    -DPXR_ENABLE_HDF5_SUPPORT=OFF
+    -DPXR_ENABLE_MATERIALX_SUPPORT=ON
+    -DBUILD_SHARED_LIBS=ON
+    -DPXR_BUILD_TESTS=OFF
+    -DPXR_BUILD_EXAMPLES=OFF
+    -DPXR_BUILD_TUTORIALS=OFF
+    -DPXR_BUILD_USD_TOOLS=OFF
+    -DPXR_BUILD_IMAGING=ON
+    -DPXR_BUILD_USD_IMAGING=ON
+    -DPXR_ENABLE_GL_SUPPORT=OFF
+    -DPXR_BUILD_USDVIEW=OFF
+)
+
+NUM_CPU=`grep -c ^processor /proc/cpuinfo`
+BUILD_TYPE=Release
+
+echo Configuring $BUILD_TYPE build for $LIBRARY_NAME version $LIBRARY_VERSION...
+cmake -G "Unix Makefiles" $OPENUSD_SOURCE_LOCATION -DCMAKE_BUILD_TYPE=$BUILD_TYPE "${CMAKE_ARGS[@]}"
+
+echo Building $LIBRARY_NAME for $BUILD_TYPE...
+cmake --build . -j$NUM_CPU
+
+echo Installing $LIBRARY_NAME for $BUILD_TYPE...
+cmake --install .
+
+popd > /dev/null
+
+BUILD_BIN_LOCATION="$INSTALL_LOCATION/bin"
+BUILD_LIB_LOCATION="$INSTALL_LOCATION/lib"
+
+INSTALL_LIB_LOCATION="$INSTALL_LOCATION/Unix/$ARCH_NAME/lib"
+
+echo Removing command-line tools...
+rm -rf "$BUILD_BIN_LOCATION"
+
+echo Moving shared libraries to lib directory...
+mkdir -p $INSTALL_LIB_LOCATION
+mv $BUILD_LIB_LOCATION/*.so $INSTALL_LIB_LOCATION
+
+echo Moving built-in $LIBRARY_NAME plugins to UsdResources plugins directory...
+INSTALL_RESOURCES_LOCATION="$INSTALL_LOCATION/Resources/UsdResources/$PLATFORM_NAME/$ARCH_STRING"
+INSTALL_RESOURCES_PLUGINS_LOCATION="$INSTALL_RESOURCES_LOCATION/plugins"
+mkdir -p $INSTALL_RESOURCES_LOCATION
+mv "$BUILD_LIB_LOCATION/usd" "$INSTALL_RESOURCES_PLUGINS_LOCATION"
+
+echo Moving $LIBRARY_NAME plugin shared libraries to lib directory...
+INSTALL_PLUGIN_LOCATION="$INSTALL_LOCATION/plugin"
+INSTALL_PLUGIN_USD_LOCATION="$INSTALL_PLUGIN_LOCATION/usd"
+mv $INSTALL_PLUGIN_USD_LOCATION/*.so "$INSTALL_LIB_LOCATION"
+
+echo Removing top-level $LIBRARY_NAME plugins plugInfo.json file...
+rm -f "$INSTALL_PLUGIN_USD_LOCATION/plugInfo.json"
+
+echo Moving $LIBRARY_NAME plugin resource directories to UsdResources plugins directory
+mv "$INSTALL_PLUGIN_USD_LOCATION/hioAvif" "$INSTALL_RESOURCES_PLUGINS_LOCATION"
+mv "$INSTALL_PLUGIN_USD_LOCATION/hioOpenEXR" "$INSTALL_RESOURCES_PLUGINS_LOCATION"
+mv "$INSTALL_PLUGIN_USD_LOCATION/sdrGlslfx" "$INSTALL_RESOURCES_PLUGINS_LOCATION"
+mv "$INSTALL_PLUGIN_USD_LOCATION/usdAbc" "$INSTALL_RESOURCES_PLUGINS_LOCATION"
+mv "$INSTALL_PLUGIN_USD_LOCATION/usdShaders" "$INSTALL_RESOURCES_PLUGINS_LOCATION"
+
+rmdir "$INSTALL_PLUGIN_USD_LOCATION"
+rmdir "$INSTALL_PLUGIN_LOCATION"
+
+echo Removing CMake files...
+rm -rf "$INSTALL_LOCATION/cmake"
+rm -f $INSTALL_LOCATION/*.cmake
+
+echo Removing Python .pyc files...
+find "$INSTALL_LOCATION" -name "*.pyc" -delete
+
+echo Removing pxr.Tf.testenv Python module...
+rm -rf "$BUILD_LIB_LOCATION/python/pxr/Tf/testenv"
+
+echo Moving Python modules to Content...
+INSTALL_CONTENT_LOCATION="$INSTALL_LOCATION/Content/Python/Lib/$PLATFORM_NAME/$ARCH_STRING/site-packages"
+mkdir -p "$INSTALL_CONTENT_LOCATION"
+mv "$BUILD_LIB_LOCATION/python/pxr" "$INSTALL_CONTENT_LOCATION"
+rmdir "$BUILD_LIB_LOCATION/python"
+
+rmdir "$BUILD_LIB_LOCATION"
+
+# The locations of the shared libraries where they will live when ultimately
+# deployed are used to generate relative paths for use as rpaths and as
+# LibraryPaths in plugInfo.json files.
+# The OpenUSD Python module shared libraries and OpenUSD plugins all exist at
+# the same directory level, so any of them can be used to generate a relative
+# path.
+USD_PLUGIN_LOCATION="$UE_ENGINE_LOCATION/Plugins/Runtime/USDCore/Resources/UsdResources/$PLATFORM_NAME/$ARCH_STRING/plugins/usd"
+USD_PYTHON_MODULE_LOCATION="$UE_ENGINE_LOCATION/Plugins/Runtime/USDCore/Content/Python/Lib/$PLATFORM_NAME/$ARCH_STRING/site-packages/pxr/Usd"
+USD_LIBS_LOCATION="$UE_ENGINE_LOCATION/Plugins/Runtime/USDCore/Source/ThirdParty/USD/Unix/$ARCH_NAME/lib"
+
+echo Adjusting plugInfo.json LibraryPath fields...
+USD_PLUGIN_TO_USD_LIBS_REL_PATH=`$PYTHON_EXECUTABLE_LOCATION -c "import os.path; print(os.path.relpath('$USD_LIBS_LOCATION', '$USD_PLUGIN_LOCATION'))"`
+
+for PLUG_INFO_FILE in `find $INSTALL_RESOURCES_LOCATION -name plugInfo.json | xargs grep LibraryPath -l`
+do
+    $PYTHON_EXECUTABLE_LOCATION $BUILD_SCRIPT_DIR/modify_plugInfo_file.py $PLUG_INFO_FILE $USD_PLUGIN_TO_USD_LIBS_REL_PATH
+done
+
+echo Cleaning @rpath entries for shared libraries...
+# The OpenUSD Python modules link first against the OpenUSD libraries within
+# the plugin directory followed by libraries in the engine binaries.
+PYTHON_TO_USD_LIBS_REL_PATH=`$PYTHON_EXECUTABLE_LOCATION -c "import os.path; print(os.path.relpath('$USD_LIBS_LOCATION', '$USD_PYTHON_MODULE_LOCATION'))"`
+PYTHON_TO_ENGINE_BINARIES_REL_PATH=`$PYTHON_EXECUTABLE_LOCATION -c "import os.path; print(os.path.relpath('$ENGINE_BINARIES_LOCATION', '$USD_PYTHON_MODULE_LOCATION'))"`
+
+for PY_SHARED_LIB in `find $INSTALL_CONTENT_LOCATION -name '*.so'`
+do
+    patchelf --set-rpath "\$ORIGIN/$PYTHON_TO_USD_LIBS_REL_PATH:\$ORIGIN/$PYTHON_TO_ENGINE_BINARIES_REL_PATH" --force-rpath $PY_SHARED_LIB
+done
+
+# The OpenUSD libraries link first against sibling libraries in the same
+# directory followed by libraries in the engine binaries.
+USD_LIBS_TO_ENGINE_BINARIES_REL_PATH=`$PYTHON_EXECUTABLE_LOCATION -c "import os.path; print(os.path.relpath('$ENGINE_BINARIES_LOCATION', '$USD_LIBS_LOCATION'))"`
+
+for USD_SHARED_LIB in `find $INSTALL_LIB_LOCATION -name '*.so'`
+do
+    patchelf --set-rpath "\$ORIGIN/.:\$ORIGIN/$USD_LIBS_TO_ENGINE_BINARIES_REL_PATH" --force-rpath $USD_SHARED_LIB
+done
+
+echo Done.

@@ -1,0 +1,30 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"FriendlyName": "MetaHuman CoreML",
+	"Description": "CoreML models and dependencies for MetaHuman inference on Apple platforms.",
+	"Category": "MetaHuman",
+	"CreatedBy": "Epic Games, Inc.",
+	"CreatedByURL": "http://epicgames.com",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"EnabledByDefault": false,
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"SupportedTargetPlatforms": [
+		"Mac",
+		"IOS",
+		"TVOS",
+		"VisionOS"
+	],
+	"Plugins": [
+		{
+			"Name": "NNERuntimeCoreML",
+			"Enabled": true
+		}
+	]
+}

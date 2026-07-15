@@ -1,0 +1,5 @@
+build
+vsxmake*
+tags
+*.user
+compile_commands.json

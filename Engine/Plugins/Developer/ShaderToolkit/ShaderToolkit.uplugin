@@ -1,0 +1,35 @@
+{
+	"FileVersion": 1,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Shader Toolkit",
+	"Description": "A suite of tools to analyze your projects build and shaders to help reduce shader and material permutations.",
+	"Category": "Editor",
+	"CreatedBy": "Epic Games, Inc.",
+	"CreatedByURL": "https://epicgames.com",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"EnabledByDefault": false,
+	"CanContainContent": false,
+	"IsExperimentalVersion": true,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "ShaderAuditCore",
+			"Type": "EditorAndProgram",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "ShaderAudit",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "MaterialValidation",
+			"Enabled": true
+		}
+	]
+}

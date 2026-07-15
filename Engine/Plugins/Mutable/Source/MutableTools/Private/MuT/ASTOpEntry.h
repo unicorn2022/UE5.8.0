@@ -1,0 +1,33 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#pragma once
+
+#include "HAL/Platform.h"
+#include "MuR/Operations.h"
+#include "MuR/Ptr.h"
+#include "MuT/AST.h"
+
+
+namespace UE::Mutable::Private
+{
+	struct FProgram;
+
+	class ASTOpEntry final : public ASTOp
+	{
+	public:
+		ASTChild A;
+
+		ASTOpEntry();
+		ASTOpEntry(const ASTOpEntry&) = delete;
+		~ASTOpEntry();
+
+		// ASTOp interface
+		virtual EOpType GetOpType() const override;
+		virtual uint32 Hash() const override;
+		virtual bool IsEqual(const ASTOp&) const override;
+		virtual Ptr<ASTOp> Clone(MapChildFuncRef) const override;
+		virtual void ForEachChild(const TFunctionRef<void(ASTChild&)>) override;
+		virtual void Link(FProgram&, FLinkerOptions*) override;
+	};
+}
+

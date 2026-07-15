@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyTitle>CSVSplit</AssemblyTitle>
+    <Product>CSVSplit</Product>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CsvStats\CsvStats.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Data.DataSetExtensions" Version="4.5.0" />
+  </ItemGroup>
+</Project>

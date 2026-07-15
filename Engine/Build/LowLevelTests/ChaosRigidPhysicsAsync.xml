@@ -1,0 +1,9 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<BuildGraph xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.epicgames.com/BuildGraph ../../Build/Graph/Schema.xsd" xmlns="http://www.epicgames.com/BuildGraph">
+  <Option Name="RunChaosRigidPhysicsAsyncTests" DefaultValue="" Description="Run ChaosRigidPhysicsAsync Tests" />
+  <Property Name="TestNames" Value="$(TestNames);ChaosRigidPhysicsAsync" />
+  <Extend Name="RunAllTests">
+    <Expand Name="DeployAndTest" Platform="Win64" TestName="ChaosRigidPhysicsAsync" ShortName="ChaosRigidPhysicsAsync" TargetName="ChaosRigidPhysicsAsyncTests" BinaryRelativePath="Engine\Binaries" ReportType="testdata" Tags="[@ChaosTests]" ExtraCompilationArgs="-allmodules" />
+    <Expand Name="DeployAndTest" Platform="Mac" TestName="ChaosRigidPhysicsAsync" ShortName="ChaosRigidPhysicsAsync" TargetName="ChaosRigidPhysicsAsyncTests" BinaryRelativePath="Engine\Binaries" ReportType="testdata" Tags="[@ChaosTests]" ExtraCompilationArgs="-allmodules" />
+  </Extend>
+</BuildGraph>
