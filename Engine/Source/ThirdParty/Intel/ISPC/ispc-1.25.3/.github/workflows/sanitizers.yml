@@ -1,0 +1,63 @@
+# Copyright 2023-2024, Intel Corporation
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: Sanitizers
+
+permissions: read-all
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SDE_MIRROR_ID: 813591
+  SDE_TAR_NAME: sde-external-9.33.0-2024-01-07
+  USER_AGENT: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36"
+  LLVM_REPO: https://github.com/ispc/ispc.dependencies
+
+jobs:
+  linux-ispc-llvm18-asan:
+    runs-on: ubuntu-22.04
+    env:
+      LLVM_VERSION: "18.1"
+      LLVM_TAR: llvm-18.1.8-ubuntu22.04-Release+Asserts-x86.arm.wasm.tar.xz
+      ISPC_OPAQUE_PTR_MODE: "ON"
+
+    steps:
+    - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
+      with:
+        submodules: true
+
+    - name: Install dependencies
+      run: |
+        .github/workflows/scripts/install-build-deps.sh
+
+    # We will use system gcc until we rebuild LLVM with compiler-rt.
+    - name: Check environment
+      run: |
+        which -a gcc
+        cat /proc/cpuinfo
+
+    - name: Build ISPC with ASAN
+      run: |
+          cmake -B build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_FLAGS="-fsanitize=address -O0 -g3" -DCMAKE_CXX_FLAGS="-fsanitize=address -O0 -g3"
+          cmake --build build --target ispc ispc-opt -j4
+
+    # Address sanitizer includes leak sanitizer but we don't want it to report
+    # all leaks at the moment because there are quite a lot if them.
+    # So, we disable leaks detection to have clean report.
+    - name: Build examples with ASAN
+      run: |
+          ASAN_OPTIONS=detect_leaks=1 cmake --build build --target ispc_cpu_examples -j4
+
+    - name: Build LIT tests with ASAN
+      run: |
+          ASAN_OPTIONS=detect_leaks=1 cmake --build build --target check-all
+
+    - name: Build runtime tests with ASAN
+      run: |
+          ASAN_OPTIONS=detect_leaks=1 PATH=$(pwd)/build/bin:$PATH ./scripts/run_tests.py --target=avx2-i32x8 --arch=x86-64

@@ -1,0 +1,27 @@
+# Copyright 2022-2024, Intel Corporation
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: Check copyright
+
+permissions: read-all
+
+on: [pull_request]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check_copyright:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
+      with:
+        fetch-depth: 0
+        submodules: false
+
+    - name: Check copyright
+      run: |
+        ./scripts/check_copyright.sh "origin/$GITHUB_BASE_REF"
+

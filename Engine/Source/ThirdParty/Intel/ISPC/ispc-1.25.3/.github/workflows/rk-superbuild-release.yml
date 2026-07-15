@@ -1,0 +1,56 @@
+
+# Copyright 2024 Intel Corporation
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: RK superbuild (release)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'ISPC release version (just number without v, e.g., 1.24.0)'
+        required: true
+        type: string
+
+permissions: read-all
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-cpu-ubuntu-2204:
+    runs-on: ubuntu-latest
+    # Disabling this workflow for non ispc/ispc repo as it needs to run on releases only.
+    if: github.repository == 'ispc/ispc'
+    container:
+      image: ubuntu:22.04
+
+    steps:
+    - name: Install packages
+      run: |
+        echo "Installing build dependencies..."
+        apt update
+        apt upgrade -y
+        apt install -y git wget tar build-essential cmake ninja-build libglfw3-dev libgl1-mesa-dev libxinerama-dev libxcursor-dev libxi-dev python3-dev
+
+    - name: Clone RK superbuild repo
+      uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
+      with:
+        repository: RenderKit/superbuild
+
+    - name: Download ISPC release archives
+      env:
+        LINK: https://github.com/ispc/ispc/releases/download/v${{ inputs.version }}/ispc-v${{ inputs.version }}-linux-oneapi.tar.gz
+      run: |
+        echo "Download artifact ${LINK}" >> "$GITHUB_STEP_SUMMARY"
+        wget "${{ env.LINK }}"
+        tar xf "ispc-v${{ inputs.version }}-linux-oneapi.tar.gz"
+      shell: bash
+
+    - name: Build
+      run: |
+        mkdir build
+        cd build
+        cmake -DISPC_URL="${GITHUB_WORKSPACE}/ispc-v${{ inputs.version }}-linux-oneapi.tar.gz" -DISPC_VERSION=${{ inputs.version }} ../
+        cmake --build .

@@ -1,0 +1,36 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "HordeServer",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "${workspaceFolder}/HordeServer/bin/Debug/net8.0/HordeServer.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/HordeServer/bin/Debug/net8.0/",
+            "stopAtEntry": false,
+            "console": "externalTerminal"
+        },
+        {
+            "name": "HordeAgent",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "${workspaceFolder}/HordeAgent/bin/Debug/net8.0/HordeAgent.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/HordeAgent/bin/Debug/net8.0",
+            "stopAtEntry": false,
+            "console": "externalTerminal"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Debug Server and Agent",
+            "configurations": [
+                "HordeServer",
+                "HordeAgent"
+            ],
+            // Optional: Controls if debugging should stop if one process exits.
+            "stopAll": true
+        }
+    ]
+}
