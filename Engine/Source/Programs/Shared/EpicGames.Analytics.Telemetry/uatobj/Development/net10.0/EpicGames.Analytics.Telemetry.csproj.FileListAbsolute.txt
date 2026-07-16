@@ -1,0 +1,10 @@
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Analytics.Telemetry\uatbin\Development\net10.0\EpicGames.Analytics.Telemetry.deps.json
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Analytics.Telemetry\uatbin\Development\net10.0\EpicGames.Analytics.Telemetry.dll
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Analytics.Telemetry\uatbin\Development\net10.0\EpicGames.Analytics.Telemetry.pdb
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Analytics.Telemetry\uatobj\Development\net10.0\EpicGames.Analytics.Telemetry.GeneratedMSBuildEditorConfig.editorconfig
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Analytics.Telemetry\uatobj\Development\net10.0\EpicGames.Analytics.Telemetry.csproj.CoreCompileInputs.cache
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Analytics.Telemetry\uatobj\Development\net10.0\EpicGames.Analytics.Telemetry.sourcelink.json
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Analytics.Telemetry\uatobj\Development\net10.0\EpicGames.Analytics.Telemetry.dll
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Analytics.Telemetry\uatobj\Development\net10.0\refint\EpicGames.Analytics.Telemetry.dll
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Analytics.Telemetry\uatobj\Development\net10.0\EpicGames.Analytics.Telemetry.pdb
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Analytics.Telemetry\uatobj\Development\net10.0\ref\EpicGames.Analytics.Telemetry.dll

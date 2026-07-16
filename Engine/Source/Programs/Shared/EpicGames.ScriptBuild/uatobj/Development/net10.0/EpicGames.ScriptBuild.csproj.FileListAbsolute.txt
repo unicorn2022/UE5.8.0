@@ -1,0 +1,14 @@
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.ScriptBuild\uatbin\Development\net10.0\selenium-manager\linux\selenium-manager
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.ScriptBuild\uatbin\Development\net10.0\selenium-manager\macos\selenium-manager
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.ScriptBuild\uatbin\Development\net10.0\selenium-manager\windows\selenium-manager.exe
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.ScriptBuild\uatbin\Development\net10.0\EpicGames.ScriptBuild.deps.json
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.ScriptBuild\uatbin\Development\net10.0\EpicGames.ScriptBuild.dll
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.ScriptBuild\uatbin\Development\net10.0\EpicGames.ScriptBuild.pdb
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.ScriptBuild\uatobj\Development\net10.0\EpicGames.ScriptBuild.csproj.AssemblyReference.cache
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.ScriptBuild\uatobj\Development\net10.0\EpicGames.ScriptBuild.GeneratedMSBuildEditorConfig.editorconfig
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.ScriptBuild\uatobj\Development\net10.0\EpicGames.ScriptBuild.csproj.CoreCompileInputs.cache
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.ScriptBuild\uatobj\Development\net10.0\EpicGames.ScriptBuild.sourcelink.json
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.ScriptBuild\uatobj\Development\net10.0\EpicGames.ScriptBuild.dll
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.ScriptBuild\uatobj\Development\net10.0\refint\EpicGames.ScriptBuild.dll
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.ScriptBuild\uatobj\Development\net10.0\EpicGames.ScriptBuild.pdb
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.ScriptBuild\uatobj\Development\net10.0\ref\EpicGames.ScriptBuild.dll

@@ -1,0 +1,14 @@
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.MsBuild\uatbin\Development\net10.0\EpicGames.MsBuild.deps.json
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.MsBuild\uatbin\Development\net10.0\EpicGames.MsBuild.dll
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.MsBuild\uatbin\Development\net10.0\EpicGames.MsBuild.pdb
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.MsBuild\uatbin\Development\net10.0\EpicGames.Core.dll
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.MsBuild\uatbin\Development\net10.0\EpicGames.Core.pdb
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.MsBuild\uatobj\Development\net10.0\EpicGames.MsBuild.csproj.AssemblyReference.cache
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.MsBuild\uatobj\Development\net10.0\EpicGames.MsBuild.GeneratedMSBuildEditorConfig.editorconfig
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.MsBuild\uatobj\Development\net10.0\EpicGames.MsBuild.csproj.CoreCompileInputs.cache
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.MsBuild\uatobj\Development\net10.0\EpicGames.MsBuild.sourcelink.json
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.MsBuild\uatobj\Development\net10.0\EpicGame.CE5A2AC0.Up2Date
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.MsBuild\uatobj\Development\net10.0\EpicGames.MsBuild.dll
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.MsBuild\uatobj\Development\net10.0\refint\EpicGames.MsBuild.dll
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.MsBuild\uatobj\Development\net10.0\EpicGames.MsBuild.pdb
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.MsBuild\uatobj\Development\net10.0\ref\EpicGames.MsBuild.dll

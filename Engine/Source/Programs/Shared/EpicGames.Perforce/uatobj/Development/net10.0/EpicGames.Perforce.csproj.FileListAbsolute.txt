@@ -1,0 +1,17 @@
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatbin\Development\net10.0\EpicGames.Perforce.Native.dll
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatbin\Development\net10.0\EpicGames.Perforce.Native.so
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatbin\Development\net10.0\EpicGames.Perforce.Native.dylib
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatbin\Development\net10.0\EpicGames.Perforce.deps.json
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatbin\Development\net10.0\EpicGames.Perforce.dll
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatbin\Development\net10.0\EpicGames.Perforce.pdb
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatbin\Development\net10.0\EpicGames.Core.dll
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatbin\Development\net10.0\EpicGames.Core.pdb
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatobj\Development\net10.0\EpicGames.Perforce.csproj.AssemblyReference.cache
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatobj\Development\net10.0\EpicGames.Perforce.GeneratedMSBuildEditorConfig.editorconfig
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatobj\Development\net10.0\EpicGames.Perforce.csproj.CoreCompileInputs.cache
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatobj\Development\net10.0\EpicGames.Perforce.sourcelink.json
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatobj\Development\net10.0\EpicGame.4CAE03E3.Up2Date
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatobj\Development\net10.0\EpicGames.Perforce.dll
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatobj\Development\net10.0\refint\EpicGames.Perforce.dll
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatobj\Development\net10.0\EpicGames.Perforce.pdb
+D:\project_ue5\ue5.8.0-main\Engine\Source\Programs\Shared\EpicGames.Perforce\uatobj\Development\net10.0\ref\EpicGames.Perforce.dll
