@@ -241,7 +241,7 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
 <div class="main">
 <div class="topbar">
   <div class="breadcrumb">
-    <a href="../index.html">UE5.8 渲染文档</a> &rsaquo;
+    <a href="../../index.html">UE5.8 渲染文档</a> &rsaquo;
     <span>渲染机制</span>
   </div>
 </div>
@@ -371,10 +371,10 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
   <line x1="755" y1="512" x2="540" y2="540" stroke="#FFA726" stroke-width="1" marker-end="url(#arr)"/>
 
   <!-- 标签 -->
-  <rect x="45" y="144" width="10" height="10" fill="#66BB6A" rx="2"/>
-  <text x="70" y="153" fill="#66BB6A" font-size="9">静态：缓存 MeshDrawCommand，仅可见性筛选后发往 GPU</text>
-  <rect x="45" y="160" width="10" height="10" fill="#FFA726" rx="2"/>
-  <text x="70" y="169" fill="#FFA726" font-size="9">动态：每帧收集新网格，经 PassProcessor 后转为 DrawCall</text>
+  <rect x="180" y="586" width="10" height="10" fill="#66BB6A" rx="2"/>
+  <text x="195" y="595" fill="#66BB6A" font-size="9">静态：缓存 MeshDrawCommand，经可见性筛选后发往 GPU</text>
+  <rect x="530" y="586" width="10" height="10" fill="#FFA726" rx="2"/>
+  <text x="545" y="595" fill="#FFA726" font-size="9">动态：每帧收集新网格，经 PassProcessor 后转为 DrawCall</text>
 </svg>
 <div class="caption">图 1-1: 几何体到 DrawCall 的静态/动态双路径全景</div>
 </div>
