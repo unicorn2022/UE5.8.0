@@ -858,18 +858,499 @@ GraphBuilder.<span class="fn">AddPass</span>(
 <section class="section-block" id="custom-pass">
   <h2>7. 自定义 RDG Pass 完整模板</h2>
   <p class="section-desc">从 Shader 参数结构体定义到 AddPass 注册，展示一个完整的自定义 RDG Pass 编写模板，包含 Shader 实现和 C++ 调度代码。</p>
+
+  <h3>7.1 光栅化 Pass 模板（Pixel Shader）</h3>
+
+  <p>下面是编写一个完整的 Raster RDG Pass 的标准步骤——从 .usf Shader 代码到 C++ 调度：</p>
+
+  <ol class="info-list">
+    <li>定义 <code>.usf</code> Shader 文件中的入口函数（<code>MainVS</code> + <code>MainPS</code>），声明输入结构体和输出语义</li>
+    <li>创建 <code>FGlobalShader</code> 派生类，绑定 Shader 文件路径和入口点</li>
+    <li>使用 <code>SHADER_PARAMETER_STRUCT</code> 宏在 <code>BEGIN</code> / <code>END</code> 之间声明所有参数（SRV/UAV/Uniform）</li>
+    <li><code>GraphBuilder.AddPass()</code> 注册 Raster Pass，通过 <code>RENDER_TARGET_BINDING_SLOTS</code> 设置 RenderTarget</li>
+    <li>Lambda 中获取 Shader、设置 PSO，调用 <code>FPixelShaderUtils::DrawFullscreenTriangle</code> 提交全屏三角形</li>
+  </ol>
+
+  <p>完整示例：</p>
+
+  <div class="code-block"><code><span class="cmt">// ===== MyFullscreenPass.usf =====</span>
+<span class="kw">void</span> <span class="fn">MainVS</span>(<span class="kw">in</span> <span class="kw">float4</span> InPosition : ATTRIBUTE0,
+              <span class="kw">in</span> <span class="kw">float2</span> InTexCoord : ATTRIBUTE1,
+              <span class="kw">out</span> <span class="kw">float4</span> OutPosition : SV_POSITION,
+              <span class="kw">out</span> <span class="kw">float2</span> OutTexCoord : TEXCOORD0)
+{
+    OutPosition = InPosition;
+    OutTexCoord = InTexCoord;
+}
+
+<span class="kw">Texture2D</span> InputTexture;
+<span class="kw">SamplerState</span> InputSampler;
+<span class="kw">float4</span> TintColor;
+
+<span class="kw">void</span> <span class="fn">MainPS</span>(<span class="kw">in</span> <span class="kw">float4</span> SvPosition : SV_POSITION,
+              <span class="kw">in</span> <span class="kw">float2</span> TexCoord : TEXCOORD0,
+              <span class="kw">out</span> <span class="kw">float4</span> OutColor : SV_Target0)
+{
+    OutColor = InputTexture.<span class="fn">Sample</span>(InputSampler, TexCoord) * TintColor;
+}
+
+<span class="cmt">// ===== MyFullscreenPass.h =====</span>
+<span class="kw">class</span> <span class="fn">FMyFullscreenPS</span> : <span class="kw">FGlobalShader</span>
+{
+    <span class="kw">public</span>:
+        <span class="fn">DECLARE_GLOBAL_SHADER</span>(FMyFullscreenPS);
+        <span class="fn">SHADER_USE_PARAMETER_STRUCT</span>(FMyFullscreenPS, FGlobalShader);
+
+        <span class="fn">BEGIN_SHADER_PARAMETER_STRUCT</span>(FParameters, )
+            <span class="fn">SHADER_PARAMETER_RDG_TEXTURE</span>(Texture2D, InputTexture)
+            <span class="fn">SHADER_PARAMETER_SAMPLER</span>(SamplerState, InputSampler)
+            <span class="fn">SHADER_PARAMETER</span>(FVector4f, TintColor)
+            <span class="fn">RENDER_TARGET_BINDING_SLOTS</span>()
+        <span class="fn">END_SHADER_PARAMETER_STRUCT</span>()
+};
+
+<span class="cmt">// 在 .cpp 中实现 Shader</span>
+<span class="fn">IMPLEMENT_GLOBAL_SHADER</span>(FMyFullscreenPS, <span class="str">"/Engine/Private/MyFullscreenPass.usf"</span>, <span class="str">"MainPS"</span>, SF_Pixel);
+
+<span class="cmt">// ===== MyRendering.cpp — 注册 &amp; 调度 =====</span>
+<span class="kw">auto</span>* PassParameters = GraphBuilder.<span class="fn">AllocParameters</span>&lt;FMyFullscreenPS::FParameters&gt;();
+PassParameters-&gt;InputTexture  = SceneColorTexture;
+PassParameters-&gt;InputSampler  = <span class="fn">TStaticSamplerState</span>&lt;SF_Bilinear&gt;::GetRHI();
+PassParameters-&gt;TintColor     = FVector4f(<span class="num">1.0f</span>, <span class="num">1.0f</span>, <span class="num">1.0f</span>, <span class="num">1.0f</span>);
+PassParameters-&gt;RenderTargets[<span class="num">0</span>] = <span class="fn">FRenderTargetBinding</span>(OutputTexture, ERenderTargetLoadAction::EClear);
+
+GraphBuilder.<span class="fn">AddPass</span>(
+    RDG_EVENT_NAME(<span class="str">"MyFullscreenPass"</span>),
+    PassParameters,
+    ERDGPassFlags::Raster,
+    [PassParameters, &amp;View](FRHICommandList&amp; RHICmdList)
+    {
+        <span class="kw">TShaderMapRef</span>&lt;FMyFullscreenPS&gt; PixelShader(View.ShaderMap);
+
+        <span class="kw">FGraphicsPipelineStateInitializer</span> GraphicsPSOInit;
+        RHICmdList.<span class="fn">ApplyCachedRenderTargets</span>(GraphicsPSOInit);
+        GraphicsPSOInit.BlendState = <span class="fn">TStaticBlendState</span>&lt;&gt;::GetRHI();
+        GraphicsPSOInit.RasterizerState = <span class="fn">TStaticRasterizerState</span>&lt;&gt;::GetRHI();
+        GraphicsPSOInit.DepthStencilState = <span class="fn">TStaticDepthStencilState</span>&lt;<span class="kw">false</span>, CF_Always&gt;::GetRHI();
+        GraphicsPSOInit.BoundShaderState.VertexDeclarationRHI = <span class="fn">GFilterVertexDeclaration</span>.VertexDeclarationRHI;
+        GraphicsPSOInit.BoundShaderState.VertexShaderRHI = View.ShaderMap-&gt;<span class="fn">GetShader</span>&lt;<span class="kw">FMyFullscreenVS</span>&gt;().GetVertexShader();
+        GraphicsPSOInit.BoundShaderState.PixelShaderRHI = PixelShader.GetPixelShader();
+
+        <span class="fn">SetGraphicsPipelineState</span>(RHICmdList, GraphicsPSOInit, <span class="num">0</span>);
+        <span class="fn">SetShaderParameters</span>(RHICmdList, PixelShader, PixelShader.GetPixelShader(), *PassParameters);
+
+        <span class="fn">FPixelShaderUtils::DrawFullscreenTriangle</span>(RHICmdList, <span class="num">1</span>);
+    });</code></div>
+
+  <h3>7.2 Compute Pass 模板（Compute Shader）</h3>
+
+  <p>Compute Pass 比 Raster Pass 更简洁——不需要 PSO 设置和全屏三角形，只需声明线程组数量和 Dispatch：</p>
+
+  <ol class="info-list">
+    <li>定义 <code>.usf</code> 入口，声明线程组大小：<code>[numthreads(8,8,1)] void MainCS(...)</code></li>
+    <li>创建 <code>FGlobalShader</code> 派生类 + <code>SHADER_PARAMETER_STRUCT</code>，包含 <code>SHADER_PARAMETER_UAV(RWTexture2D, Output)</code> 等写资源声明</li>
+    <li><code>FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("MyPass"), ComputeShader, Parameters, FIntVector(GroupCountX, GroupCountY, 1))</code> 一键注册</li>
+    <li>RDG 自动处理 UAV 屏障——Compute Pass 输出被后续 Pass 读取时自动插入 <code>UAV → SRV</code> 转换</li>
+  </ol>
+
+  <div class="code-block"><code><span class="cmt">// ===== MyComputePass.usf =====</span>
+<span class="kw">Texture2D</span> InputTexture;
+<span class="kw">RWTexture2D</span>&lt;<span class="kw">float4</span>&gt; OutputUAV;
+<span class="kw">float2</span> TextureSize;
+
+[<span class="kw">numthreads</span>(<span class="num">8</span>, <span class="num">8</span>, <span class="num">1</span>)]
+<span class="kw">void</span> <span class="fn">MainCS</span>(<span class="kw">uint3</span> DispatchThreadId : SV_DispatchThreadID)
+{
+    <span class="kw">if</span> (<span class="fn">any</span>(DispatchThreadId.xy &gt;= (<span class="kw">uint2</span>)TextureSize))
+        <span class="kw">return</span>;
+
+    <span class="kw">float2</span> UV = (DispatchThreadId.xy + <span class="num">0.5f</span>) / TextureSize;
+    <span class="kw">float4</span> Color = InputTexture.<span class="fn">Load</span>(<span class="kw">int3</span>(DispatchThreadId.xy, <span class="num">0</span>));
+    <span class="cmt">// 示例：亮度提取</span>
+    <span class="kw">float</span> Luminance = <span class="fn">dot</span>(Color.rgb, <span class="kw">float3</span>(<span class="num">0.2126f</span>, <span class="num">0.7152f</span>, <span class="num">0.0722f</span>));
+    OutputUAV[DispatchThreadId.xy] = <span class="kw">float4</span>(Luminance, Luminance, Luminance, <span class="num">1.0f</span>);
+}
+
+<span class="cmt">// ===== MyComputePass.h =====</span>
+<span class="kw">class</span> <span class="fn">FMyComputeCS</span> : <span class="kw">FGlobalShader</span>
+{
+    <span class="kw">public</span>:
+        <span class="fn">DECLARE_GLOBAL_SHADER</span>(FMyComputeCS);
+        <span class="fn">SHADER_USE_PARAMETER_STRUCT</span>(FMyComputeCS, FGlobalShader);
+
+        <span class="fn">BEGIN_SHADER_PARAMETER_STRUCT</span>(FParameters, )
+            <span class="fn">SHADER_PARAMETER_RDG_TEXTURE</span>(Texture2D, InputTexture)
+            <span class="fn">SHADER_PARAMETER_RDG_TEXTURE_UAV</span>(RWTexture2D&lt;<span class="kw">float4</span>&gt;, OutputUAV)
+            <span class="fn">SHADER_PARAMETER</span>(FVector2f, TextureSize)
+        <span class="fn">END_SHADER_PARAMETER_STRUCT</span>()
+};
+
+<span class="fn">IMPLEMENT_GLOBAL_SHADER</span>(FMyComputeCS, <span class="str">"/Engine/Private/MyComputePass.usf"</span>, <span class="str">"MainCS"</span>, SF_Compute);
+
+<span class="cmt">// ===== MyRendering.cpp — 注册 =====</span>
+<span class="kw">const</span> <span class="kw">int32</span> GroupSize = <span class="num">8</span>;
+<span class="kw">const</span> <span class="kw">int32</span> GroupCountX = <span class="fn">FMath::DivideAndRoundUp</span>(Width,  GroupSize);
+<span class="kw">const</span> <span class="kw">int32</span> GroupCountY = <span class="fn">FMath::DivideAndRoundUp</span>(Height, GroupSize);
+
+<span class="kw">auto</span>* PassParameters = GraphBuilder.<span class="fn">AllocParameters</span>&lt;FMyComputeCS::FParameters&gt;();
+PassParameters-&gt;InputTexture = InputRDGTexture;
+PassParameters-&gt;OutputUAV    = GraphBuilder.<span class="fn">CreateUAV</span>(OutputRDGTexture);
+PassParameters-&gt;TextureSize  = FVector2f(Width, Height);
+
+<span class="fn">FComputeShaderUtils::AddPass</span>(
+    GraphBuilder,
+    RDG_EVENT_NAME(<span class="str">"MyComputePass"</span>),
+    ERDGPassFlags::Compute,
+    ComputeShader,
+    PassParameters,
+    FIntVector(GroupCountX, GroupCountY, <span class="num">1</span>));</code></div>
+
+  <h3>7.3 RDG 黑板（Blackboard）跨 Pass 通信</h3>
+
+  <p><code>FRDGBlackboard</code> 是 RDG 提供的轻量级键值存储，用于在 Pass 间传递<strong>元数据</strong>——即非 GPU 资源的信息，如控制标志、统计计数、共享中间计算结果。与 <code>FRDGTextureRef</code> / <code>FRDGBufferRef</code> 等 GPU 资源不同，黑板数据仅存储在 CPU 端，不占用显存，不触发屏障。</p>
+
+  <div class="code-block"><code><span class="cmt">// 在 Pass 注册前将数据写入黑板</span>
+<span class="kw">auto</span>&amp; MyData = GraphBuilder.Blackboard.<span class="fn">Create</span>&lt;FMyPassMetadata&gt;();
+MyData.bShouldRenderSSR = bHasReflectiveSurfaces;
+MyData.NumActiveLights  = VisibleLights.<span class="fn">Num</span>();
+
+<span class="cmt">// 后续 Pass 中读取黑板数据</span>
+<span class="kw">const</span> <span class="kw">auto</span>&amp; MyData = GraphBuilder.Blackboard.<span class="fn">Get</span>&lt;FMyPassMetadata&gt;();
+<span class="kw">if</span> (!MyData.bShouldRenderSSR)
+    <span class="kw">return</span>;  <span class="cmt">// 跳过 SSR Pass 注册，节省编译和调度开销</span></code></div>
+
+  <div class="info-callout accent">
+    <strong>适用场景：</strong>黑板最适合存放三类数据：<strong>(1) 控制标志</strong>——本帧是否需要 SSR、是否需要 VSM 页面标记等；<strong>(2) 统计数据</strong>——可见光源数量、Nanite Cluster 数量、裁剪后的 DrawCall 计数；<strong>(3) 共享计算中间结果</strong>——预计算的 Tile 分布、分类后的光源列表索引。注意：黑板数据在 <code>Execute()</code> 后失效，不可跨帧持有。
+  </div>
+
+  <h3>7.4 CVar 控制开关</h3>
+
+  <p>在生产环境中，自定义 Pass 应通过 CVar 提供运行时开关，方便调试和性能分析时快速禁用/启用特定 Pass 以隔离性能热点：</p>
+
+  <div class="code-block"><code><span class="cmt">// 定义 CVar — 放在 .cpp 文件顶层</span>
+<span class="kw">static</span> TAutoConsoleVariable&lt;<span class="kw">int32</span>&gt; CVarMyCustomPass(
+    TEXT(<span class="str">"r.MyCustomPass.Enable"</span>),
+    <span class="num">1</span>,
+    TEXT(<span class="str">"Enable/Disable the MyCustomPass render pass.\n"</span>)
+    TEXT(<span class="str">"  0: Disabled\n"</span>)
+    TEXT(<span class="str">"  1: Enabled (default)\n"</span>)
+    TEXT(<span class="str">"  2: Enabled with debug visualization"</span>),
+    ECVF_RenderThreadSafe);
+
+<span class="cmt">// 在 Pass 注册前检查 CVar 值</span>
+<span class="kw">const</span> <span class="kw">int32</span> MyPassMode = CVarMyCustomPass.<span class="fn">GetValueOnRenderThread</span>();
+<span class="kw">if</span> (MyPassMode == <span class="num">0</span>)
+    <span class="kw">return</span>;  <span class="cmt">// Pass 被禁用，不注册任何 RDG Pass，零开销</span>
+
+<span class="kw">const</span> <span class="kw">bool</span> bDebugVisualize = (MyPassMode == <span class="num">2</span>);
+
+<span class="cmt">// 注册 Pass 逻辑...</span>
+<span class="kw">auto</span>* PassParameters = GraphBuilder.<span class="fn">AllocParameters</span>&lt;FMyCustomPS::FParameters&gt;();
+PassParameters-&gt;bDebugMode = bDebugVisualize ? <span class="num">1</span> : <span class="num">0</span>;
+<span class="cmt">// ...</span></code></div>
+
+  <p>标准实践：CVar 使用 <code>ECVF_RenderThreadSafe</code> 标志，通过 <code>GetValueOnRenderThread()</code> 在 RenderThread 安全读取。在 Pass 注册<strong>之前</strong>检查 CVar 值，可避免在禁用状态下创建无用的 RDG 资源和 Pass 节点，实现真正的零开销关闭。</p>
 </section>
 
 <!-- ===== 8. RDG 验证层 ===== -->
 <section class="section-block" id="validation">
   <h2>8. RDG 验证层</h2>
   <p class="section-desc">RDG 内置验证层可以检测未使用的资源声明、资源访问冲突、Pass 执行顺序错误等问题，是开发阶段定位渲染 bug 的重要工具。</p>
+
+  <h3>8.1 启用方式</h3>
+
+  <p>验证层通过在命令行或 CVar 中启用，在 <code>Execute()</code> 时对所有已注册 Pass 执行额外检查。两种等价启用方式：</p>
+
+  <div class="code-block"><code><span class="cmt">// 方式 1：命令行参数启动</span>
+UnrealEditor.exe &lt;ProjectPath&gt; <span class="kw">-rdgdebug</span>
+
+<span class="cmt">// 方式 2：运行时 CVar 设置</span>
+<span class="kw">r.RDG.Debug</span> <span class="num">1</span></code></div>
+
+  <p>验证层在 <code>GraphBuilder.Execute()</code> 阶段运行——此时所有 Pass 已注册完毕，依赖图已构建完成。验证逻辑拦截在 Pass 调度执行之前（或与执行交叉进行，取决于验证级别），对所有已注册 Pass 执行完整性检查。验证失败时不会崩溃，而是通过 <code>UE_LOG</code> 输出详细错误信息，标明出错的 Pass 名称、资源名称和错误原因。</p>
+
+  <h3>8.2 验证级别</h3>
+
+  <p><code>r.RDG.Debug</code> 支持三个验证级别，开销逐级递增：</p>
+
+  <table class="info-table">
+    <thead>
+      <tr><th style="min-width:100px">级别</th><th style="min-width:50px">值</th><th>检查内容</th><th style="min-width:80px">性能开销</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Verbose</td>
+        <td>1</td>
+        <td>打印 Pass 列表、资源使用摘要、依赖图统计（节点数、边数、Transient 分配量）</td>
+        <td>极低（仅日志）</td>
+      </tr>
+      <tr>
+        <td>Extended</td>
+        <td>2</td>
+        <td>资源生命周期追踪、未使用资源警告、Pass 间依赖验证、外部资源注册一致性检查</td>
+        <td>低</td>
+      </tr>
+      <tr>
+        <td>Max</td>
+        <td>3</td>
+        <td>所有 Pass Lambda 在启用 RHI 验证的线程执行，检查所有资源访问合法性、UAV 冲突检测、跨队列资源状态一致性</td>
+        <td>高（仅调试用）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>8.3 常见检测到的错误</h3>
+
+  <p>验证层在开发过程中能捕获以下四类最常见的 RDG 使用错误：</p>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-label">错误 1</div>
+      <div class="card-title">Resource not registered</div>
+      <div class="card-desc">
+        Pass 访问了未通过参数结构体声明的资源。这是<strong>最常见的 RDG 错误</strong>——在 Lambda 中直接使用外部纹理（如 <code>SceneTextures.Color.Target</code>）而未调用 <code>RegisterExternalTexture</code>。RDG 无法感知未注册的资源，导致依赖链不完整、屏障缺失。修复：用 <code>GraphBuilder.RegisterExternalTexture()</code> 或通过 <code>SHADER_PARAMETER_RDG_TEXTURE</code> 声明。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-label">错误 2</div>
+      <div class="card-title">Cycle detected</div>
+      <div class="card-desc">
+        Pass 依赖图中出现环。典型场景：Pass A 写资源 X 后 Pass B 读 X 并写 Y，Pass C 又写 X 并读 Y，形成 <strong>A → B → C → A</strong> 的循环依赖。DAG 不能有环——RDG 拒绝执行并报告循环涉及的 Pass 和资源链。修复：拆分 Pass、使用中间资源打破循环，或合并有冲突的 Pass。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-label">错误 3</div>
+      <div class="card-title">Read-After-Write hazard</div>
+      <div class="card-desc">
+        两个 Pass 在同一资源上存在未解决的读写冲突。RDG 正常会自动插入屏障解决 RAW/WAW/WAR 依赖，出现此错误说明验证层检测到屏障插入失败——通常由资源在不同队列（Graphics vs AsyncCompute）上的状态转换异常引发。检查 Pass Flags 和跨队列资源声明。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-label">错误 4</div>
+      <div class="card-title">Unreferenced resource</div>
+      <div class="card-desc">
+        资源已通过 <code>CreateTexture</code> / <code>CreateBuffer</code> 创建，但未被任何 Pass 引用。这通常是死代码残留——某个 Pass 被移除后其输出资源声明未清理。RDG 不会为这些资源分配显存（懒分配优化），但会在验证日志中警告，提示可能存在遗漏的参数绑定或已废弃的逻辑。
+      </div>
+    </div>
+  </div>
+
+  <p>以下是验证层报错的典型输出示例（Resource not registered 错误）：</p>
+
+  <div class="code-block"><code><span class="cmt">// ===== RDG 验证层输出示例 =====</span>
+LogRDG: <span class="kw">Error</span>: Pass [<span class="str">SSR_IndirectComposite</span>] is accessing resource
+  [<span class="str">SceneDepthZ</span>] which is not registered in the parameter struct.
+  This resource must be declared via SHADER_PARAMETER_RDG_TEXTURE
+  or registered externally via GraphBuilder.RegisterExternalTexture().
+
+  Pass Stack:
+    FDeferredShadingSceneRenderer::RenderSSR()
+    → AddScreenSpaceReflectionsPass()
+    → GraphBuilder.AddPass(SSR_IndirectComposite, ...)
+
+  Resource Trace:
+    SceneDepthZ is owned by FSceneTextures (external pool)
+    → Call GraphBuilder.RegisterExternalTexture(SceneTextures.Depth.Target, TEXT("SceneDepth"))
+    → Use the returned FRDGTextureRef in Pass parameter struct</code></div>
+
+  <div class="info-callout purple">
+    <strong>CI 建议：</strong>在持续集成（CI）的自动化测试中启用 Extended 级别验证（<code>r.RDG.Debug=2</code>）。Extended 级别的开销很低（额外日志 + 资源追踪，约 0.1~0.3ms），但能自动捕获 Resource not registered、Unreferenced resource、依赖异常等大部分 RDG 使用错误。配合自动化截图对比测试，可以在合入主干前拦截渲染管线集成问题。
+  </div>
 </section>
 
 <!-- ===== 9. RDG Dump 与调试 ===== -->
 <section class="section-block" id="dump-debug">
   <h2>9. RDG Dump 与调试</h2>
   <p class="section-desc">通过 GraphViz 导出、调试标记和 RDG Insights 等工具，可视化分析实际的渲染图依赖结构，定位性能瓶颈和依赖错误。</p>
+
+  <h3>9.1 GraphViz 可视化导出</h3>
+
+  <p>RDG 支持将当前帧的完整依赖图导出为 GraphViz DOT 格式文件，配合 <code>dot</code> 命令行工具可生成 PNG/SVG 可视化图，每个 Pass 和每条依赖边都清晰标注：</p>
+
+  <ul class="info-list">
+    <li><strong>每个节点</strong> = 一个 RDG Pass，节点标签显示 Pass 名称（来自 <code>RDG_EVENT_NAME</code>）和 Pass 类型</li>
+    <li><strong>每条有向边</strong> = 一个资源依赖，箭头从生产者指向消费者，边上标注资源名称和访问方式</li>
+    <li><strong>节点颜色</strong>表示 Pass 类型：Raster（蓝色）、Compute（绿色）、AsyncCompute（橙色）、Copy（灰色）</li>
+  </ul>
+
+  <div class="code-block"><code><span class="cmt">// 启用依赖图 Dump（控制台命令）</span>
+<span class="kw">r.RDG.DumpGraph</span> <span class="num">1</span>
+
+<span class="cmt">// 输出路径</span>
+<span class="cmt">// Windows: &lt;Project&gt;/Saved/Profiling/RDG/</span>
+<span class="cmt">// 文件命名: RDG_&lt;FrameNumber&gt;_&lt;ViewIndex&gt;.dot</span>
+
+<span class="cmt">// 转换为 PNG（需要安装 GraphViz）</span>
+<span class="fn">dot</span> -Tpng RDG_<span class="num">0000</span>_<span class="num">0</span>.dot -o RDG_Graph.png
+
+<span class="cmt">// 转换为 SVG（矢量格式，推荐用于大型图）</span>
+<span class="fn">dot</span> -Tsvg RDG_<span class="num">0000</span>_<span class="num">0</span>.dot -o RDG_Graph.svg
+
+<span class="cmt">// 限制输出规模 — 仅 Dump 前 N 个 View</span>
+<span class="kw">r.RDG.DumpGraph</span> <span class="num">1</span>          <span class="cmt">// Dump 当前帧所有 View</span>
+<span class="kw">r.RDG.DumpGraphUnknowns</span> <span class="num">1</span>  <span class="cmt">// 还包含未归类资源（排查用）</span></code></div>
+
+  <div class="info-callout accent">
+    <strong>实用建议：</strong>对于理解复杂帧的 Pass 依赖关系非常有用，建议在性能分析时定期导出 GraphViz 图。一张典型的 UE5 延迟渲染帧包含 200~400 个 Pass，手动跟踪依赖关系几乎不可能——GraphViz 可视化能直观展示 Pass 拓扑、识别不必要的串行化依赖、发现可并行化的 Pass 组。配合 <code>r.RDG.CullBadPasses</code> 裁剪无用 Pass 后再 Dump，可以得到更清晰的图。
+  </div>
+
+  <h3>9.2 RDG 依赖图 Dump 输出解读</h3>
+
+  <p>下面是一个简化的 5 节点 RDG 依赖图示例，模拟 GraphViz 输出风格，展示典型的延迟渲染帧的 Pass 依赖拓扑：</p>
+
+  <div class="svg-container" style="text-align:center">
+    <svg viewBox="0 0 1000 560" width="100%" height="auto" style="max-width:1000px;font-family:var(--font-sans),sans-serif">
+      <defs>
+        <marker id="arrowDep" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+          <polygon points="0 0, 10 4, 0 8" fill="var(--text-dim)"/>
+        </marker>
+        <filter id="glowNode" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="3" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+
+      <!-- 背景网格 -->
+      <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+        <rect width="40" height="40" fill="none" stroke="var(--border)" stroke-width="0.3"/>
+      </pattern>
+      <rect x="0" y="0" width="1000" height="560" fill="url(#grid)" opacity="0.5"/>
+
+      <!-- ===== 依赖边（先绘制，让节点覆盖在上面） ===== -->
+
+      <!-- DepthPrepass → BasePass: DepthBuffer -->
+      <line x1="185" y1="195" x2="275" y2="330" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrowDep)" opacity="0.6"/>
+      <rect x="160" y="250" width="90" height="18" rx="3" fill="var(--card)" stroke="var(--border)" stroke-width="0.8"/>
+      <text x="205" y="263" text-anchor="middle" fill="var(--accent)" font-size="9px" font-family="var(--font-mono)">SceneDepth</text>
+
+      <!-- BasePass → Lighting: GBufferA/B/C -->
+      <line x1="490" y1="330" x2="490" y2="440" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrowDep)" opacity="0.6"/>
+      <rect x="510" y="375" width="120" height="18" rx="3" fill="var(--card)" stroke="var(--border)" stroke-width="0.8"/>
+      <text x="570" y="388" text-anchor="middle" fill="var(--accent)" font-size="9px" font-family="var(--font-mono)">GBufferA/B/C</text>
+
+      <!-- Lighting → PostProcess: SceneColor -->
+      <line x1="705" y1="440" x2="705" y2="310" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrowDep)" opacity="0.6"/>
+      <rect x="720" y="365" width="100" height="18" rx="3" fill="var(--card)" stroke="var(--border)" stroke-width="0.8"/>
+      <text x="770" y="378" text-anchor="middle" fill="var(--accent)" font-size="9px" font-family="var(--font-mono)">SceneColor</text>
+
+      <!-- PostProcess → QueueExtract: FinalColor -->
+      <line x1="870" y1="240" x2="920" y2="195" stroke="var(--green)" stroke-width="2" marker-end="url(#arrowDep)" opacity="0.6"/>
+      <rect x="908" y="205" width="85" height="18" rx="3" fill="var(--card)" stroke="var(--border)" stroke-width="0.8"/>
+      <text x="950" y="218" text-anchor="middle" fill="var(--green)" font-size="9px" font-family="var(--font-mono)">FinalColor</text>
+
+      <!-- ===== 节点 ===== -->
+
+      <!-- Node 1: DepthPrepass（蓝色 Raster） -->
+      <rect x="50" y="50" width="270" height="110" rx="10" fill="rgba(79,195,247,0.1)" stroke="var(--accent)" stroke-width="2" filter="url(#glowNode)"/>
+      <text x="185" y="78" text-anchor="middle" fill="var(--accent)" font-size="14px" font-weight="700">DepthPrepass</text>
+      <text x="185" y="98" text-anchor="middle" fill="var(--text-dim)" font-size="10px" font-family="var(--font-mono)">ERDGPassFlags::Raster</text>
+      <line x1="70" y1="108" x2="300" y2="108" stroke="var(--border)" stroke-width="0.5"/>
+      <text x="185" y="122" text-anchor="middle" fill="var(--text-dim)" font-size="10px">输出: SceneDepth</text>
+      <text x="185" y="138" text-anchor="middle" fill="var(--text-dim)" font-size="10px">输出: VelocityBuffer</text>
+      <rect x="220" y="155" width="20" height="6" rx="3" fill="var(--accent)" opacity="0.5"/>
+
+      <!-- Node 2: BasePass（蓝色 Raster + 绿色 Compute） -->
+      <rect x="340" y="160" width="300" height="140" rx="10" fill="rgba(79,195,247,0.1)" stroke="var(--accent)" stroke-width="2"/>
+      <text x="490" y="188" text-anchor="middle" fill="var(--accent)" font-size="14px" font-weight="700">BasePass</text>
+      <text x="490" y="208" text-anchor="middle" fill="var(--text-dim)" font-size="10px" font-family="var(--font-mono)">Raster + Compute</text>
+      <line x1="360" y1="218" x2="620" y2="218" stroke="var(--border)" stroke-width="0.5"/>
+      <text x="490" y="232" text-anchor="middle" fill="var(--text-dim)" font-size="10px">输入: SceneDepth</text>
+      <text x="490" y="248" text-anchor="middle" fill="var(--text-dim)" font-size="10px">输出: GBufferA (WorldNormal)</text>
+      <text x="490" y="264" text-anchor="middle" fill="var(--text-dim)" font-size="10px">输出: GBufferB (Metallic/Specular/Roughness)</text>
+      <text x="490" y="280" text-anchor="middle" fill="var(--text-dim)" font-size="10px">输出: GBufferC (BaseColor)</text>
+      <rect x="520" y="295" width="20" height="6" rx="3" fill="var(--green)" opacity="0.5"/>
+
+      <!-- Node 3: Lighting（绿色 Compute） -->
+      <rect x="340" y="400" width="300" height="110" rx="10" fill="rgba(129,199,132,0.08)" stroke="var(--green)" stroke-width="2"/>
+      <text x="490" y="428" text-anchor="middle" fill="var(--green)" font-size="14px" font-weight="700">Lighting</text>
+      <text x="490" y="448" text-anchor="middle" fill="var(--text-dim)" font-size="10px" font-family="var(--font-mono)">ERDGPassFlags::Compute</text>
+      <line x1="360" y1="458" x2="620" y2="458" stroke="var(--border)" stroke-width="0.5"/>
+      <text x="490" y="472" text-anchor="middle" fill="var(--text-dim)" font-size="10px">输入: GBufferA/B/C + SceneDepth</text>
+      <text x="490" y="488" text-anchor="middle" fill="var(--text-dim)" font-size="10px">输出: SceneColor (HDR 光照结果)</text>
+      <rect x="520" y="505" width="20" height="6" rx="3" fill="var(--green)" opacity="0.5"/>
+
+      <!-- Node 4: PostProcess（蓝色 Raster） -->
+      <rect x="600" y="148" width="270" height="130" rx="10" fill="rgba(79,195,247,0.1)" stroke="var(--accent)" stroke-width="2"/>
+      <text x="735" y="176" text-anchor="middle" fill="var(--accent)" font-size="14px" font-weight="700">PostProcess</text>
+      <text x="735" y="196" text-anchor="middle" fill="var(--text-dim)" font-size="10px" font-family="var(--font-mono)">ERDGPassFlags::Raster</text>
+      <line x1="620" y1="206" x2="850" y2="206" stroke="var(--border)" stroke-width="0.5"/>
+      <text x="735" y="220" text-anchor="middle" fill="var(--text-dim)" font-size="10px">输入: SceneColor</text>
+      <text x="735" y="236" text-anchor="middle" fill="var(--text-dim)" font-size="10px">子 Pass: Bloom / Tonemap / DOF</text>
+      <text x="735" y="252" text-anchor="middle" fill="var(--text-dim)" font-size="10px">子 Pass: MotionBlur / TSR</text>
+      <text x="735" y="268" text-anchor="middle" fill="var(--text-dim)" font-size="10px">输出: FinalColor (LDR 色调映射后)</text>
+
+      <!-- Node 5: QueueExtract（灰色 Copy） -->
+      <rect x="820" y="50" width="160" height="110" rx="10" fill="rgba(255,255,255,0.03)" stroke="var(--text-dim)" stroke-width="1.5" stroke-dasharray="4,2"/>
+      <text x="900" y="78" text-anchor="middle" fill="var(--text-dim)" font-size="14px" font-weight="700">QueueExtract</text>
+      <text x="900" y="98" text-anchor="middle" fill="var(--text-dim)" font-size="10px" font-family="var(--font-mono)">Copy / Barrier</text>
+      <line x1="835" y1="108" x2="965" y2="108" stroke="var(--border)" stroke-width="0.5"/>
+      <text x="900" y="122" text-anchor="middle" fill="var(--text-dim)" font-size="10px">输入: FinalColor</text>
+      <text x="900" y="138" text-anchor="middle" fill="var(--text-dim)" font-size="10px">提取到外部 TRefCountPtr</text>
+
+      <!-- 图例 -->
+      <rect x="20" y="505" width="14" height="14" rx="3" fill="var(--accent)" opacity="0.5"/>
+      <text x="38" y="517" fill="var(--text-dim)" font-size="10px">Raster</text>
+      <rect x="95" y="505" width="14" height="14" rx="3" fill="var(--green)" opacity="0.5"/>
+      <text x="113" y="517" fill="var(--text-dim)" font-size="10px">Compute</text>
+      <rect x="185" y="505" width="14" height="14" rx="3" fill="rgba(255,255,255,0.05)" stroke="var(--text-dim)" stroke-dasharray="3,2"/>
+      <text x="203" y="517" fill="var(--text-dim)" font-size="10px">Copy / Extract</text>
+      <line x1="280" y1="512" x2="310" y2="512" stroke="var(--accent)" stroke-width="2" opacity="0.5"/>
+      <text x="315" y="517" fill="var(--text-dim)" font-size="10px">依赖边（标注资源名）</text>
+
+      <!-- 标题 -->
+      <text x="500" y="545" text-anchor="middle" fill="var(--text-dim)" font-size="11px" font-family="var(--font-mono)">RDG Graph Dump — 简化示例（真实帧含 200~400 个 Pass）</text>
+    </svg>
+  </div>
+
+  <h3>9.3 Unreal Insights 集成</h3>
+
+  <p>RDG Pass 自动生成 Unreal Insights Trace Event——通过 <code>RDG_EVENT_NAME("MyPass")</code> 宏定义的名称会直接显示在 Insights 的 CPU/GPU 时间线中。无需额外插桩，无需手动 Trace 宏，所有通过 <code>AddPass</code> 注册的 Pass 自动出现在 Trace 中：</p>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-title">Timing 视图</div>
+      <div class="card-desc">
+        <strong>CPU 轨道</strong>显示每个 Pass 的注册时间（窄条，<code>AddPass</code> 调用本身的 CPU 耗时）和执行时间（宽条，Lambda 内 RHI 命令录制耗时）。<strong>GPU 轨道</strong>显示 Pass 的 GPU 执行时长（从 Dispatch 到 GPU 完成信号）。通过对比 CPU 和 GPU 轨道可判断瓶颈类型：CPU 轨道长于 GPU 轨道 → CPU Bound（Pass 注册或录制开销过大）；GPU 轨道远长于 CPU 轨道 → GPU Bound（Shader 计算瓶颈）。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">RDG 专用轨道</div>
+      <div class="card-desc">
+        Insights 5.5+ 版本提供了 RDG 专用可视化面板，展示：<strong>Pass 依赖 DAG</strong>（交互式选中 Pass 高亮其上下游依赖）、<strong>每个 Pass 的资源进出列表</strong>（列出该 Pass 读取/写入的所有 RDG 纹理和 Buffer）、<strong>Transient 分配热图</strong>（显示帧内显存分配的峰值时刻和分配/释放事件序列）。通过专用面板可以精确定位资源生命周期异常和屏障风暴。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">常见瓶颈定位</div>
+      <div class="card-desc">
+        <strong>Pass 注册 CPU 开销过高</strong> → 合并微小 Pass（将多个相邻小 Pass 的逻辑合并到单个 Shader），或减少 <code>AddPass</code> 调用频率（通过 Indirection Map 批量处理）。<strong>屏障风暴</strong> → 检查不必要的 UAV ↔ SRV 转换，考虑将频繁转换的资源的不同使用阶段合并到同一 Pass 内。<strong>Transient 分配峰值</strong> → 检查资源生命周期异常（某资源因缺少 <code>QueueTextureExtraction</code> 而生命周期过长）。
+      </div>
+    </div>
+  </div>
+
+  <p>调试相关的完整 CVar 列表，配合使用可全面诊断 RDG 运行时行为：</p>
+
+  <table class="info-table">
+    <thead>
+      <tr><th>CVar</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>r.RDG.DumpGraph</td>
+        <td>导出当前帧依赖图为 GraphViz DOT 格式，输出到 <code>Saved/Profiling/RDG/</code> 目录</td>
+      </tr>
+      <tr>
+        <td>r.RDG.DumpGraphUnknowns</td>
+        <td>Dump 时还包含类型未知的资源（External 未注册、参数类型不完整），用于排查依赖缺失</td>
+      </tr>
+      <tr>
+        <td>r.RDG.ImmediateMode</td>
+        <td>立即执行模式：Pass 注册后立即提交执行而非批量延迟。严重降低性能，仅用于调试 Pass 级崩溃时的崩溃点定位</td>
+      </tr>
+      <tr>
+        <td>r.RDG.ClobberResources</td>
+        <td>在 Pass 执行后填充已释放的 Transient 资源为特殊标记值（如 0xDEADBEEF），用于检测后续 Pass 是否误读了已释放资源——如果读到标记值则说明存在 Use-After-Free 错误</td>
+      </tr>
+    </tbody>
+  </table>
 </section>
 
 <!-- ===== 10. 性能与陷阱 ===== -->
