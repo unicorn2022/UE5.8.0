@@ -388,18 +388,470 @@ PassParameters-&gt;TextureSize = FVector2f(Width, Height);
 <section class="section-block" id="resource-lifecycle">
   <h2>4. 资源生命周期</h2>
   <p class="section-desc">RDG 资源由 FRDGBuilder 统一管理生命周期，从创建到最后一次被引用结束后自动释放，避免手动资源管理的内存泄漏和使用后释放（UAF）问题。</p>
+
+  <h3>4.1 资源状态机</h3>
+  <p>每个 RDG 资源（<code>FRDGTextureRef</code> / <code>FRDGBufferRef</code>）在图中经历五个生命周期阶段。下图展示了从声明到释放的完整状态流转：</p>
+
+  <div class="svg-container" style="text-align:center">
+    <svg viewBox="0 0 1050 280" width="100%" height="auto" style="max-width:1050px;font-family:var(--font-sans),sans-serif">
+      <defs>
+        <marker id="arrow4" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="var(--text-dim)"/></marker>
+        <linearGradient id="gradCreate" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(79,195,247,0.3)"/><stop offset="1" stop-color="rgba(79,195,247,0.08)"/></linearGradient>
+        <linearGradient id="gradRegister" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(206,147,216,0.3)"/><stop offset="1" stop-color="rgba(206,147,216,0.08)"/></linearGradient>
+        <linearGradient id="gradAllocate" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(255,183,77,0.3)"/><stop offset="1" stop-color="rgba(255,183,77,0.08)"/></linearGradient>
+        <linearGradient id="gradUse" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(129,199,132,0.3)"/><stop offset="1" stop-color="rgba(129,199,132,0.08)"/></linearGradient>
+        <linearGradient id="gradRelease" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(144,144,144,0.25)"/><stop offset="1" stop-color="rgba(144,144,144,0.06)"/></linearGradient>
+      </defs>
+
+      <!-- 连接箭头 -->
+      <!-- Create → Register -->
+      <line x1="165" y1="140" x2="255" y2="140" stroke="var(--text-dim)" stroke-width="2" marker-end="url(#arrow4)"/>
+      <!-- Register → Allocate -->
+      <line x1="385" y1="140" x2="475" y2="140" stroke="var(--text-dim)" stroke-width="2" marker-end="url(#arrow4)"/>
+      <!-- Allocate → Use -->
+      <line x1="605" y1="140" x2="695" y2="140" stroke="var(--text-dim)" stroke-width="2" marker-end="url(#arrow4)"/>
+      <!-- Use → Release -->
+      <line x1="825" y1="140" x2="915" y2="140" stroke="var(--text-dim)" stroke-width="2" marker-end="url(#arrow4)"/>
+
+      <!-- 阶段标签 -->
+      <text x="82" y="210" text-anchor="middle" fill="var(--text-dim)" font-size="11px">编译阶段</text>
+      <text x="320" y="210" text-anchor="middle" fill="var(--text-dim)" font-size="11px">编译阶段</text>
+      <text x="540" y="210" text-anchor="middle" fill="var(--text-dim)" font-size="11px">Execute 阶段</text>
+      <text x="760" y="210" text-anchor="middle" fill="var(--text-dim)" font-size="11px">Execute 阶段</text>
+      <text x="970" y="210" text-anchor="middle" fill="var(--text-dim)" font-size="11px">Execute/析构</text>
+
+      <!-- 阶段分隔线 -->
+      <line x1="220" y1="20" x2="220" y2="185" stroke="var(--border)" stroke-dasharray="4,4"/>
+      <line x1="440" y1="20" x2="440" y2="185" stroke="var(--border)" stroke-dasharray="4,4"/>
+
+      <!-- Node 1: Create（青色） -->
+      <rect x="15" y="60" width="150" height="160" rx="10" fill="url(#gradCreate)" stroke="var(--accent)" stroke-width="1.5"/>
+      <text x="90" y="95" text-anchor="middle" fill="var(--accent)" font-size="14px" font-weight="700">Create</text>
+      <text x="90" y="118" text-anchor="middle" fill="var(--text-dim)" font-size="10px">GraphBuilder</text>
+      <text x="90" y="135" text-anchor="middle" fill="var(--text-dim)" font-size="10px">.CreateTexture()</text>
+      <text x="90" y="152" text-anchor="middle" fill="var(--text-dim)" font-size="10px">.CreateBuffer()</text>
+      <text x="90" y="175" text-anchor="middle" fill="var(--text-dim)" font-size="9px">仅声明，不分配</text>
+      <text x="90" y="195" text-anchor="middle" fill="var(--text-dim)" font-size="9px" font-style="italic">返回句柄</text>
+
+      <!-- Node 2: Register（紫色） -->
+      <rect x="265" y="60" width="120" height="160" rx="10" fill="url(#gradRegister)" stroke="var(--purple)" stroke-width="1.5"/>
+      <text x="325" y="95" text-anchor="middle" fill="var(--purple)" font-size="14px" font-weight="700">Register</text>
+      <text x="325" y="118" text-anchor="middle" fill="var(--text-dim)" font-size="10px">注册到图</text>
+      <text x="325" y="135" text-anchor="middle" fill="var(--text-dim)" font-size="10px">建立跟踪</text>
+      <text x="325" y="155" text-anchor="middle" fill="var(--text-dim)" font-size="10px">记录引用</text>
+      <text x="325" y="175" text-anchor="middle" fill="var(--text-dim)" font-size="9px">Pass 参数绑定</text>
+      <text x="325" y="195" text-anchor="middle" fill="var(--text-dim)" font-size="9px" font-style="italic">自动</text>
+
+      <!-- Node 3: Allocate（橙色） -->
+      <rect x="485" y="60" width="120" height="160" rx="10" fill="url(#gradAllocate)" stroke="var(--warn)" stroke-width="1.5"/>
+      <text x="545" y="95" text-anchor="middle" fill="var(--warn)" font-size="14px" font-weight="700">Allocate</text>
+      <text x="545" y="118" text-anchor="middle" fill="var(--text-dim)" font-size="10px">TransientRes.</text>
+      <text x="545" y="135" text-anchor="middle" fill="var(--text-dim)" font-size="10px">分配器分配</text>
+      <text x="545" y="155" text-anchor="middle" fill="var(--text-dim)" font-size="10px">GPU 内存</text>
+      <text x="545" y="175" text-anchor="middle" fill="var(--text-dim)" font-size="9px">实际分配</text>
+      <text x="545" y="195" text-anchor="middle" fill="var(--text-dim)" font-size="9px" font-style="italic">堆/独立分配</text>
+
+      <!-- Node 4: Use（绿色） -->
+      <rect x="705" y="60" width="120" height="160" rx="10" fill="url(#gradUse)" stroke="var(--green)" stroke-width="1.5"/>
+      <text x="765" y="95" text-anchor="middle" fill="var(--green)" font-size="14px" font-weight="700">Use</text>
+      <text x="765" y="118" text-anchor="middle" fill="var(--text-dim)" font-size="10px">Pass Lambda</text>
+      <text x="765" y="135" text-anchor="middle" fill="var(--text-dim)" font-size="10px">内访问</text>
+      <text x="765" y="155" text-anchor="middle" fill="var(--text-dim)" font-size="10px">SRV/UAV/RTV</text>
+      <text x="765" y="175" text-anchor="middle" fill="var(--text-dim)" font-size="9px">读写操作</text>
+      <text x="765" y="195" text-anchor="middle" fill="var(--text-dim)" font-size="9px" font-style="italic">Lambda 中</text>
+
+      <!-- Node 5: Release（灰色） -->
+      <rect x="925" y="60" width="110" height="160" rx="10" fill="url(#gradRelease)" stroke="var(--text-dim)" stroke-width="1.5"/>
+      <text x="980" y="95" text-anchor="middle" fill="var(--text-dim)" font-size="14px" font-weight="700">Release</text>
+      <text x="980" y="118" text-anchor="middle" fill="var(--text-dim)" font-size="10px">析构 / Extract</text>
+      <text x="980" y="135" text-anchor="middle" fill="var(--text-dim)" font-size="10px">释放 GPU</text>
+      <text x="980" y="155" text-anchor="middle" fill="var(--text-dim)" font-size="10px">内存</text>
+      <text x="980" y="175" text-anchor="middle" fill="var(--text-dim)" font-size="9px">引用计数归零</text>
+      <text x="980" y="195" text-anchor="middle" fill="var(--text-dim)" font-size="9px" font-style="italic">或移出图</text>
+
+      <!-- 图例 -->
+      <rect x="15" y="245" width="10" height="10" rx="2" fill="var(--accent)" opacity="0.6"/>
+      <text x="30" y="254" fill="var(--text-dim)" font-size="10px">Create</text>
+      <rect x="110" y="245" width="10" height="10" rx="2" fill="var(--purple)" opacity="0.6"/>
+      <text x="125" y="254" fill="var(--text-dim)" font-size="10px">Register</text>
+      <rect x="215" y="245" width="10" height="10" rx="2" fill="var(--warn)" opacity="0.6"/>
+      <text x="230" y="254" fill="var(--text-dim)" font-size="10px">Allocate</text>
+      <rect x="320" y="245" width="10" height="10" rx="2" fill="var(--green)" opacity="0.6"/>
+      <text x="335" y="254" fill="var(--text-dim)" font-size="10px">Use</text>
+      <rect x="400" y="245" width="10" height="10" rx="2" fill="var(--text-dim)" opacity="0.4"/>
+      <text x="415" y="254" fill="var(--text-dim)" font-size="10px">Release</text>
+    </svg>
+  </div>
+
+  <h3>4.2 External 资源注册</h3>
+
+  <p>RDG 并不是孤立的资源管理系统——引擎中已存在大量"外部"纹理和缓冲区（如 <code>SceneTextures.Color.Target</code>、<code>SceneDepthZ</code> 等池化渲染目标）。<code>RegisterExternalTexture()</code> 和 <code>RegisterExternalBuffer()</code> 将已有 RHI 资源"借入"RDG 图，使得 RDG Pass 可以像使用内部资源一样引用它们，但<strong>不负责其生命周期管理</strong>。</p>
+
+  <p>关键规则：</p>
+  <ul class="info-list">
+    <li>External 资源<strong>不受 RDG 分配/释放管理</strong>——RDG 仅持有引用，不会在 Pass 执行后释放它们</li>
+    <li>必须确保 External 资源在 RDG 图执行期间<strong>持续有效</strong>——析构前必须先 <code>GraphBuilder.Execute()</code></li>
+    <li>如果 RDG 内部创建的资源需要在 <code>Execute()</code> 后继续使用（非 Transient），必须通过 <code>QueueTextureExtraction()</code> 将其"提取"回外部世界</li>
+    <li>提取后 RDG 不再管理该资源——调用方负责最终释放</li>
+  </ul>
+
+  <div class="code-block"><code><span class="cmt">// 将 SceneTextures 池化纹理注册到 RDG</span>
+<span class="kw">FRDGTextureRef</span> SceneColorRDG = GraphBuilder.<span class="fn">RegisterExternalTexture</span>(
+    SceneTextures.Color.Target,
+    TEXT(<span class="str">"SceneColor"</span>));
+<span class="kw">FRDGTextureRef</span> SceneDepthRDG = GraphBuilder.<span class="fn">RegisterExternalTexture</span>(
+    SceneTextures.Depth.Target,
+    TEXT(<span class="str">"SceneDepth"</span>));
+
+<span class="cmt">// ... 在 RDG Pass 中使用 SceneColorRDG / SceneDepthRDG ...</span>
+
+<span class="cmt">// Execute 后提取回外部 TRefCountPtr</span>
+<span class="kw">TRefCountPtr</span>&lt;IPooledRenderTarget&gt; ExtractedColor;
+GraphBuilder.<span class="fn">QueueTextureExtraction</span>(SceneColorRDG, &amp;ExtractedColor);
+
+GraphBuilder.<span class="fn">Execute</span>(RHICmdList);
+
+<span class="cmt">// Execute 后 ExtractedColor 指向更新后的纹理，可继续使用</span>
+RHICmdList.<span class="fn">CopyTexture</span>(..., ExtractedColor-&gt;GetRHI(), ...);</code></div>
+
+  <h3>4.3 Upload 与 Readback</h3>
+
+  <p>RDG 提供两个专用辅助 Pass 用于 GPU 数据传输，分别处理 CPU→GPU 和 GPU→CPU 方向：</p>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-title"><code>AddUploadPass</code> — CPU → GPU</div>
+      <div class="card-desc">
+        将 CPU 端数据异步上传到 RDG Buffer。RDG 自动创建 staging buffer，复制数据，然后 GPU 端使用该 buffer。典型场景：逐帧更新的 Shader 参数常量、蒙皮矩阵数组、实例化变换数据。
+        <code style="display:block;margin-top:8px">FRDGBufferRef UploadedBuf = GraphBuilder.CreateBuffer(...);
+GraphBuilder.AddUploadPass(UploadedBuf, &amp;CpuData, SizeInBytes);</code>
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title"><code>AddReadbackPass</code> — GPU → CPU</div>
+      <div class="card-desc">
+        从 GPU Buffer 异步回读到 CPU 内存。RDG 内部创建 staging buffer，GPU 端复制完成后通知 CPU。典型场景：GPU 剔除结果回读、统计数据收集、调试可视化数据输出。
+        <code style="display:block;margin-top:8px">GraphBuilder.AddReadbackPass(GPUBuffer, &amp;CpuReadbackData);</code>
+      </div>
+    </div>
+  </div>
+
+  <div class="info-callout green">
+    <strong>Readback 是异步的：</strong><code>AddReadbackPass</code> 提交的 GPU→CPU 回读不会在 <code>Execute()</code> 返回后立即完成。CPU 端需要在后续帧（通常通过 <code>FRHIGPUBufferReadback</code> 或 Fence 轮询）等待 GPU 完成回读后再读取数据。直接在 <code>Execute()</code> 之后访问回读目标是未定义行为——数据可能尚未传输完成。正确处理模式：每帧检查上一帧的回读 Fence，就绪后再读取。
+  </div>
 </section>
 
 <!-- ===== 5. Transient 资源分配 ===== -->
 <section class="section-block" id="transient-allocation">
   <h2>5. Transient 资源分配</h2>
   <p class="section-desc">TransientResourceAllocator 负责临时资源的池化分配与别名复用，通过分析资源活跃区间（Live Range）将不重叠的资源分配到同一物理显存块，显著降低显存占用。</p>
+
+  <h3>5.1 声明与分配分离</h3>
+
+  <p><code>CreateTexture()</code> 和 <code>CreateBuffer()</code> 调用只是<strong>声明意图</strong>——告诉 RDG "我需要一个具有这些描述信息的资源"。此时并没有任何 GPU 内存被分配，返回值 <code>FRDGTextureRef</code> / <code>FRDGBufferRef</code> 仅是一个轻量级的引用计数句柄（约 32 字节），用于后续 Pass 的参数绑定。</p>
+
+  <p>真正的 GPU 内存分配发生在 <code>GraphBuilder.Execute()</code> 阶段，由 <code>FRHITransientResourceAllocator</code>（或 RHI 层的具体实现）统一决策和分配。这种分离机制带来三个核心优势：</p>
+
+  <ul class="info-list">
+    <li><strong>延迟决策：</strong>分配器在 Execute 时已掌握所有资源的完整生命周期信息，可以全局优化分配策略</li>
+    <li><strong>别名复用：</strong>生命周期不重叠的资源可以分配到同一块物理内存（见 5.2 节），大幅减少显存峰值占用</li>
+    <li><strong>按需分配：</strong>从未被任何 Pass 引用的资源根本不会触发分配，消除了无用资源的浪费</li>
+  </ul>
+
+  <p>分配策略上，RDG 根据资源尺寸和使用模式选择两类路径：<strong>堆分配</strong>（适合 GBuffer/SceneColor 等大纹理，环形缓冲区式复用）和<strong>独立分配</strong>（适合小纹理/中间结果，独立创建与销毁）。</p>
+
+  <h3>5.2 别名分析（Aliasing）</h3>
+
+  <div class="svg-container" style="text-align:center">
+    <svg viewBox="0 0 920 520" width="100%" height="auto" style="max-width:920px;font-family:var(--font-sans),sans-serif">
+      <defs>
+        <marker id="arrow5" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="var(--text-dim)"/></marker>
+        <linearGradient id="resA" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="var(--accent)"/><stop offset="1" stop-color="rgba(79,195,247,0.4)"/></linearGradient>
+        <linearGradient id="resB" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="var(--purple)"/><stop offset="1" stop-color="rgba(206,147,216,0.4)"/></linearGradient>
+        <linearGradient id="resC" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="var(--warn)"/><stop offset="1" stop-color="rgba(255,183,77,0.4)"/></linearGradient>
+        <linearGradient id="resD" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="var(--green)"/><stop offset="1" stop-color="rgba(129,199,132,0.4)"/></linearGradient>
+      </defs>
+
+      <!-- === 上半部分：未启用别名 === -->
+      <text x="460" y="22" text-anchor="middle" fill="var(--warn)" font-size="13px" font-weight="700">未启用别名 — 显存占用 = A + B + C + D</text>
+
+      <!-- Pass 标签行 -->
+      <text x="90" y="48" text-anchor="middle" fill="var(--text-dim)" font-size="10px">Pass 1</text>
+      <line x1="180" y1="51" x2="290" y2="51" stroke="var(--border)" stroke-width="1"/>
+      <text x="235" y="48" text-anchor="middle" fill="var(--text-dim)" font-size="10px">Pass 2</text>
+      <line x1="310" y1="51" x2="420" y2="51" stroke="var(--border)" stroke-width="1"/>
+      <text x="365" y="48" text-anchor="middle" fill="var(--text-dim)" font-size="10px">Pass 3</text>
+
+      <!-- 时间轴 -->
+      <line x1="20" y1="62" x2="420" y2="62" stroke="var(--text-dim)" stroke-width="1" marker-end="url(#arrow5)"/>
+      <text x="430" y="66" fill="var(--text-dim)" font-size="9px">时间</text>
+
+      <!-- 资源 A: Pass1~Pass2 跨度 -->
+      <rect x="40" y="78" width="280" height="28" rx="4" fill="url(#resA)" opacity="0.85"/>
+      <text x="180" y="97" text-anchor="middle" fill="#fff" font-size="11px" font-weight="600">Resource A（场景深度）</text>
+
+      <!-- 资源 B: Pass1 内部 -->
+      <rect x="40" y="114" width="160" height="28" rx="4" fill="url(#resB)" opacity="0.85"/>
+      <text x="120" y="133" text-anchor="middle" fill="#fff" font-size="11px" font-weight="600">Resource B（中间结果）</text>
+
+      <!-- 资源 C: Pass2 内部 -->
+      <rect x="200" y="150" width="160" height="28" rx="4" fill="url(#resC)" opacity="0.85"/>
+      <text x="280" y="169" text-anchor="middle" fill="#fff" font-size="11px" font-weight="600">Resource C（中间结果）</text>
+
+      <!-- 资源 D: Pass3 -->
+      <rect x="300" y="186" width="120" height="28" rx="4" fill="url(#resD)" opacity="0.85"/>
+      <text x="360" y="205" text-anchor="middle" fill="#fff" font-size="11px" font-weight="600">Resource D</text>
+
+      <!-- 物理内存框图 — 未别名 -->
+      <rect x="480" y="70" width="420" height="155" rx="8" fill="rgba(255,255,255,0.02)" stroke="var(--border)" stroke-width="1.5"/>
+      <text x="690" y="93" text-anchor="middle" fill="var(--text-dim)" font-size="11px">物理 GPU 显存布局</text>
+
+      <rect x="500" y="106" width="130" height="30" rx="4" fill="var(--accent)" opacity="0.5" stroke="var(--accent)" stroke-width="1"/>
+      <text x="565" y="126" text-anchor="middle" fill="#fff" font-size="11px">256 MB — A</text>
+
+      <rect x="640" y="106" width="80" height="30" rx="4" fill="var(--purple)" opacity="0.5" stroke="var(--purple)" stroke-width="1"/>
+      <text x="680" y="126" text-anchor="middle" fill="#fff" font-size="11px">64 MB B</text>
+
+      <rect x="730" y="106" width="80" height="30" rx="4" fill="var(--warn)" opacity="0.5" stroke="var(--warn)" stroke-width="1"/>
+      <text x="770" y="126" text-anchor="middle" fill="#fff" font-size="11px">64 MB C</text>
+
+      <rect x="820" y="106" width="60" height="30" rx="4" fill="var(--green)" opacity="0.5" stroke="var(--green)" stroke-width="1"/>
+      <text x="850" y="126" text-anchor="middle" fill="#fff" font-size="11px">32 MB D</text>
+
+      <text x="690" y="165" text-anchor="middle" fill="var(--warn)" font-size="12px" font-weight="600">总计: 416 MB</text>
+
+      <!-- 分隔线 -->
+      <line x1="20" y1="260" x2="900" y2="260" stroke="var(--border)" stroke-width="1" stroke-dasharray="6,3"/>
+
+      <!-- === 下半部分：启用别名 === -->
+      <text x="460" y="280" text-anchor="middle" fill="var(--green)" font-size="13px" font-weight="700">启用别名 — 显存占用 = A + B + C（D 复用 B 的物理内存）</text>
+
+      <!-- 与上面相同的生命周期条 -->
+      <rect x="40" y="298" width="280" height="28" rx="4" fill="url(#resA)" opacity="0.85"/>
+      <text x="180" y="317" text-anchor="middle" fill="#fff" font-size="11px" font-weight="600">Resource A（场景深度）</text>
+
+      <rect x="40" y="334" width="160" height="28" rx="4" fill="url(#resB)" opacity="0.85"/>
+      <text x="120" y="353" text-anchor="middle" fill="#fff" font-size="11px" font-weight="600">Resource B（中间结果）</text>
+
+      <rect x="200" y="370" width="160" height="28" rx="4" fill="url(#resC)" opacity="0.85"/>
+      <text x="280" y="389" text-anchor="middle" fill="#fff" font-size="11px" font-weight="600">Resource C（中间结果）</text>
+
+      <rect x="300" y="406" width="120" height="28" rx="4" fill="url(#resD)" opacity="0.85"/>
+      <text x="360" y="425" text-anchor="middle" fill="#fff" font-size="11px" font-weight="600">Resource D</text>
+
+      <!-- 别名标注 -->
+      <line x1="380" y1="352" x2="425" y2="414" stroke="var(--text-dim)" stroke-width="1" stroke-dasharray="3,3"/>
+      <text x="440" y="390" fill="var(--accent)" font-size="10px" font-weight="600">D 别名复用</text>
+      <text x="440" y="404" fill="var(--accent)" font-size="10px" font-weight="600">B 的物理内存</text>
+
+      <!-- 物理内存框图 — 别名后 -->
+      <rect x="480" y="290" width="420" height="155" rx="8" fill="rgba(255,255,255,0.02)" stroke="var(--green)" stroke-width="1.5"/>
+      <text x="690" y="313" text-anchor="middle" fill="var(--text-dim)" font-size="11px">物理 GPU 显存布局（别名优化后）</text>
+
+      <rect x="500" y="326" width="130" height="30" rx="4" fill="var(--accent)" opacity="0.5" stroke="var(--accent)" stroke-width="1"/>
+      <text x="565" y="346" text-anchor="middle" fill="#fff" font-size="11px">256 MB — A</text>
+
+      <rect x="640" y="326" width="80" height="42" rx="4" fill="var(--purple)" opacity="0.5" stroke="var(--purple)" stroke-width="1" stroke-dasharray="4,2"/>
+      <text x="680" y="344" text-anchor="middle" fill="#fff" font-size="11px">64 MB</text>
+      <text x="680" y="360" text-anchor="middle" fill="var(--purple)" font-size="9px">B → D 别名</text>
+
+      <rect x="730" y="326" width="80" height="30" rx="4" fill="var(--warn)" opacity="0.5" stroke="var(--warn)" stroke-width="1"/>
+      <text x="770" y="346" text-anchor="middle" fill="#fff" font-size="11px">64 MB C</text>
+
+      <rect x="500" y="368" width="130" height="28" rx="4" fill="rgba(129,199,132,0.12)" stroke="var(--green)" stroke-width="1" stroke-dasharray="4,2"/>
+      <text x="565" y="386" text-anchor="middle" fill="var(--green)" font-size="10px">D 逻辑层存在</text>
+      <text x="565" y="398" text-anchor="middle" fill="var(--green)" font-size="9px" font-style="italic">物理映射到 B 地址</text>
+
+      <text x="690" y="420" text-anchor="middle" fill="var(--green)" font-size="12px" font-weight="600">总计: 384 MB（节省 32 MB）</text>
+
+      <!-- 图例 -->
+      <rect x="20" y="468" width="12" height="12" rx="2" fill="var(--accent)" opacity="0.7"/>
+      <text x="36" y="479" fill="var(--text-dim)" font-size="10px">A</text>
+      <rect x="65" y="468" width="12" height="12" rx="2" fill="var(--purple)" opacity="0.7"/>
+      <text x="81" y="479" fill="var(--text-dim)" font-size="10px">B</text>
+      <rect x="110" y="468" width="12" height="12" rx="2" fill="var(--warn)" opacity="0.7"/>
+      <text x="126" y="479" fill="var(--text-dim)" font-size="10px">C</text>
+      <rect x="155" y="468" width="12" height="12" rx="2" fill="var(--green)" opacity="0.7"/>
+      <text x="171" y="479" fill="var(--text-dim)" font-size="10px">D</text>
+    </svg>
+  </div>
+
+  <p>别名分析的核心原理是<strong>生命周期区间分析</strong>：RDG 在 <code>Execute()</code> 编译阶段扫描所有资源在每个 Pass 中的首次使用和最后使用时间点，建立每个资源的 <strong>Live Range</strong>（活跃区间）。任意两个 Live Range 不重叠的资源可以被分配到同一块物理内存——因为它们在时间线上不会同时存在。上图中 Resource B（紫色）在 Pass1 结束后释放，Resource D（绿色）在 Pass3 才开始使用，两者的生命周期完全隔离，因此 RDG 可以将 D 映射到 B 之前占用的物理地址空间，节省了 32 MB 显存。</p>
+
+  <p>别名复用的实际收益取决于 Pass 依赖链的深度和中间资源的体积。一个典型的 UE5 延迟渲染帧中，Transient 别名优化可以节省 <strong>25%~40%</strong> 的中间纹理显存峰值占用。</p>
+
+  <h3>5.3 堆分配策略</h3>
+
+  <p>RDG 底层使用两类 RHI 分配器处理不同尺寸和用途的 Transient 资源：</p>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-title"><code>FRHITransientHeapAllocator</code> — 大纹理堆</div>
+      <div class="card-desc">
+        为大纹理（GBuffer、SceneColor、SceneDepth 等）提供<strong>环形缓冲区式</strong>堆分配。预分配一块大显存区域（通常数百 MB），按 Pass 顺序线性分配，帧末整体回收。类似帧分配器的思想——每帧从头开始分配，无需逐资源释放，帧结束整帧回收。适合生命周期覆盖整帧或大部分帧的持久资源，以及单帧内体积巨大的中间渲染目标。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title"><code>FRHITransientResourceHeapAllocator</code> — 小资源页</div>
+      <div class="card-desc">
+        为小资源（UAV 中间缓冲区、Staging Buffer、小纹理等）提供<strong>页式分配</strong>。将内存划分为固定大小的页（通常 4 KB~64 KB），通过自由链表跟踪可用页，支持按需分配和即时回收。适合数量多、个体小、生命周期短的小型中间资源，避免外部碎片化。
+      </div>
+    </div>
+  </div>
+
+  <p>可通过以下 CVar 控制 Transient 分配行为：</p>
+
+  <table class="info-table">
+    <thead>
+      <tr><th style="min-width:240px">CVar</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>r.TransientAllocator.TextureCacheSize</td>
+        <td>Transient 纹理缓存最大大小（MB），默认 512。控制环形堆的预分配容量</td>
+      </tr>
+      <tr>
+        <td>r.TransientAllocator.BufferCacheSize</td>
+        <td>Transient Buffer 缓存最大大小（MB），默认 64</td>
+      </tr>
+      <tr>
+        <td>r.TransientAllocator.GarbageCollectInterval</td>
+        <td>垃圾回收间隔帧数，默认 60。控制页式分配器中未使用页的回收频率</td>
+      </tr>
+    </tbody>
+  </table>
 </section>
 
 <!-- ===== 6. 依赖分析与自动屏障 ===== -->
 <section class="section-block" id="dependency-barriers">
   <h2>6. 依赖分析与自动屏障</h2>
   <p class="section-desc">RDG 根据 Pass 间资源的读写关系自动插入 RHI 屏障（UAV Barrier、Render Target Transition 等），确保正确的 GPU 数据依赖和缓存一致性。</p>
+
+  <h3>6.1 依赖图构建流</h3>
+
+  <p>依赖图的构建完全自动化——Pass 只需声明"我需要读 Texture A、写 Texture B"，RDG 在注册阶段自动记录这些引用，并在 <code>Compile()</code> 阶段完成完整的依赖分析：</p>
+
+  <div class="svg-container" style="text-align:center">
+    <svg viewBox="0 0 930 160" width="100%" height="auto" style="max-width:930px;font-family:var(--font-sans),sans-serif">
+      <defs>
+        <marker id="arrow6" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="var(--accent)"/></marker>
+      </defs>
+
+      <!-- Node 1: 资源引用收集 -->
+      <rect x="10" y="35" width="200" height="100" rx="10" fill="var(--accent-dim)" stroke="var(--accent)" stroke-width="1.5"/>
+      <text x="110" y="68" text-anchor="middle" fill="var(--accent)" font-size="14px" font-weight="700">资源引用收集</text>
+      <text x="110" y="90" text-anchor="middle" fill="var(--text-dim)" font-size="10px">AddPass 反射遍历参数</text>
+      <text x="110" y="108" text-anchor="middle" fill="var(--text-dim)" font-size="10px">提取 SRV/UAV/RTV 引用</text>
+
+      <!-- Arrow 1→2 -->
+      <line x1="210" y1="85" x2="275" y2="85" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrow6)"/>
+      <text x="243" y="78" text-anchor="middle" fill="var(--text-dim)" font-size="9px">读/写分析</text>
+
+      <!-- Node 2: 依赖边建立 -->
+      <rect x="285" y="35" width="200" height="100" rx="10" fill="var(--warn-dim)" stroke="var(--warn)" stroke-width="1.5"/>
+      <text x="385" y="68" text-anchor="middle" fill="var(--warn)" font-size="14px" font-weight="700">依赖边建立</text>
+      <text x="385" y="90" text-anchor="middle" fill="var(--text-dim)" font-size="10px">Write→Read 建立有向边</text>
+      <text x="385" y="108" text-anchor="middle" fill="var(--text-dim)" font-size="10px">RAW / WAR / WAW 依赖</text>
+
+      <!-- Arrow 2→3 -->
+      <line x1="485" y1="85" x2="550" y2="85" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrow6)"/>
+      <text x="518" y="78" text-anchor="middle" fill="var(--text-dim)" font-size="9px">编译 DAG</text>
+
+      <!-- Node 3: 拓扑排序 + 调度 -->
+      <rect x="560" y="35" width="200" height="100" rx="10" fill="var(--green-dim)" stroke="var(--green)" stroke-width="1.5"/>
+      <text x="660" y="68" text-anchor="middle" fill="var(--green)" font-size="14px" font-weight="700">拓扑排序 + 调度</text>
+      <text x="660" y="90" text-anchor="middle" fill="var(--text-dim)" font-size="10px">Kahn 算法拓扑排序</text>
+      <text x="660" y="108" text-anchor="middle" fill="var(--text-dim)" font-size="10px">Pass 按序发射 + 屏障插入</text>
+
+      <!-- 最终 DAG -->
+      <line x1="760" y1="85" x2="810" y2="85" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrow6)"/>
+      <rect x="820" y="55" width="100" height="60" rx="8" fill="rgba(79,195,247,0.08)" stroke="var(--accent)" stroke-width="1" stroke-dasharray="3,2"/>
+      <text x="870" y="82" text-anchor="middle" fill="var(--accent)" font-size="12px" font-weight="600">DAG</text>
+      <text x="870" y="100" text-anchor="middle" fill="var(--text-dim)" font-size="9px">可执行图</text>
+
+      <!-- 底部说明 -->
+      <text x="465" y="150" text-anchor="middle" fill="var(--text-dim)" font-size="11px">每个 Pass 只声明资源的读/写意图 → RDG 自动推导全局依赖拓扑 → 插入屏障确保 GPU 缓存一致性</text>
+    </svg>
+  </div>
+
+  <p>依赖分析的输入是每个 Pass 的资源访问声明（SRV = 读、UAV = 写、RTV = 写），RDG 内部建立三类标准依赖关系：<strong>RAW</strong>（Read After Write — Pass B 读的内容由 Pass A 写入）、<strong>WAR</strong>（Write After Read — Pass B 覆写前 Pass A 必须先读完）、<strong>WAW</strong>（Write After Write — 两次写入需严格排序）。这些依赖边共同构成一个有向无环图（DAG），拓扑排序后即可确定 Pass 的合法执行顺序。</p>
+
+  <h3>6.2 自动屏障插入</h3>
+
+  <p>在确定 Pass 执行顺序后，RDG 在每个需要资源转换的相邻 Pass 之间自动插入 RHI 转换屏障。以下是最常见的三种屏障场景：</p>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-title">UAV → SRV 转换</div>
+      <div class="card-desc">
+        Pass A 通过 <strong>UAV</strong>（Unordered Access View）写入 Buffer，后续 Pass B 通过 <strong>SRV</strong>（Shader Resource View）读取同一 Buffer。RDG 自动在两个 Pass 之间插入 <code>UAV → SRV</code> 转换屏障，确保 Pass B 读取到的是 Pass A 完整写入后的结果。这是 Compute Shader 管线中最常见的屏障类型——忘记手动插入 UAV Barrier 会导致 Pass B 读到不完整或陈旧的数据。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">RTV → SRV 转换</div>
+      <div class="card-desc">
+        Pass A 以 <strong>RTV</strong>（Render Target View）写入纹理（例如 GBuffer 写入），后续 Pass B 以 <strong>SRV</strong> 采样同一纹理（例如延迟光照 Pass 采样 GBuffer A~E）。RDG 自动插入 <code>RenderTarget → ShaderResource</code> 转换屏障，确保像素着色器写入在采样前完成并刷新到一致缓存。延迟渲染管线中几乎每一帧都在发生这类转换。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">同 Pass 内隐式串行</div>
+      <div class="card-desc">
+        同一 Pass 内对同一资源的<strong>多次访问不插入额外屏障</strong>。GPU 的同一 CommandList（或同一 Dispatch/DrawCall）内，硬件保证先提交的指令先完成——无需显式 Barrier。RDG 仅在跨 Pass 边界（即不同 Pass 之间）插入屏障。将多个依赖操作合并在一个 Pass 中可以减少屏障开销，但代价是可能的并行度损失。
+      </div>
+    </div>
+  </div>
+
+  <h3>6.3 底层 D3D12 ResourceBarrier 生成</h3>
+
+  <p>RDG 的自动屏障最终翻译为平台 API 的原生资源屏障调用。这一翻译过程经历两层抽象：</p>
+
+  <ul class="info-list">
+    <li><strong>RDG Barrier → RHI 抽象 Barrier：</strong>RDG 内部的资源状态转换（如 <code>ERHIAccess::UAVCompute → ERHIAccess::SRVCompute</code>）先翻译为 RHI 层的 <code>FRHITransitionInfo</code> 结构体，描述资源的 Before/After 状态</li>
+    <li><strong>RHI Barrier → D3D12/Vulkan 原生 Barrier：</strong>RHI 层根据平台（D3D12 或 Vulkan）将 <code>FRHITransitionInfo</code> 映射为 <code>D3D12_RESOURCE_BARRIER</code> 或 <code>VkImageMemoryBarrier</code> / <code>VkBufferMemoryBarrier</code></li>
+    <li><strong>Barrier 批处理（Batching）：</strong>相邻的多个屏障被合并为一个数组，通过单次 API 调用提交——D3D12 的 <code>ResourceBarrier(NumBarriers, pBarriers)</code> 可批量处理，减少 CPU 端 API 调用开销</li>
+    <li><strong>Split Barrier 机制：</strong>对于跨队列（Graphics → AsyncCompute → Graphics）的资源转换，D3D12 支持 <code>D3D12_RESOURCE_BARRIER_FLAG_BEGIN_ONLY</code> / <code>END_ONLY</code> 标志。Begin Barrier 由源队列发出，End Barrier 由目标队列发出，中间的间隔可让两个队列并行执行无冲突的操作，提升并行粒度</li>
+  </ul>
+
+  <div class="code-block"><code><span class="cmt">// RDG 自动屏障插入示意 — 三 Pass 依赖链的 Barrier 插入位置</span>
+
+<span class="cmt">// 资源声明：PassA 写入 Texture T，PassB 读取 T，PassC 再次写入 T</span>
+<span class="kw">FRDGTextureRef</span> T = GraphBuilder.<span class="fn">CreateTexture</span>(Desc, TEXT(<span class="str">"Intermediate"</span>));
+
+<span class="cmt">// Pass A: UAV 写入 T</span>
+GraphBuilder.<span class="fn">AddPass</span>(
+    RDG_EVENT_NAME(<span class="str">"PassA_Write"</span>),
+    PassParamsA,  <span class="cmt">// SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D, T)</span>
+    ERDGPassFlags::Compute,
+    [](FRHIComputeCommandList&amp; RHICmdList) { <span class="cmt">/* UAV 写入 ... */</span> });
+
+<span class="cmt">// ★ RDG 自动插入 UAV→SRV 屏障</span>
+<span class="cmt">//   D3D12: ResourceBarrier(T, UAV → SRV)</span>
+<span class="cmt">//   Vulkan: vkCmdPipelineBarrier(</span>
+<span class="cmt">//     srcStageMask  = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,</span>
+<span class="cmt">//     dstStageMask  = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,</span>
+<span class="cmt">//     srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,</span>
+<span class="cmt">//     dstAccessMask = VK_ACCESS_SHADER_READ_BIT);</span>
+
+<span class="cmt">// Pass B: SRV 读取 T</span>
+GraphBuilder.<span class="fn">AddPass</span>(
+    RDG_EVENT_NAME(<span class="str">"PassB_Read"</span>),
+    PassParamsB,  <span class="cmt">// SHADER_PARAMETER_RDG_TEXTURE(Texture2D, T)</span>
+    ERDGPassFlags::Compute,
+    [](FRHIComputeCommandList&amp; RHICmdList) { <span class="cmt">/* SRV 采样 ... */</span> });
+
+<span class="cmt">// ★ RDG 自动插入 SRV→UAV 屏障</span>
+<span class="cmt">//   D3D12: ResourceBarrier(T, SRV → UAV)</span>
+
+<span class="cmt">// Pass C: UAV 再次写入 T</span>
+GraphBuilder.<span class="fn">AddPass</span>(
+    RDG_EVENT_NAME(<span class="str">"PassC_Rewrite"</span>),
+    PassParamsC,  <span class="cmt">// SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D, T)</span>
+    ERDGPassFlags::Compute,
+    [](FRHIComputeCommandList&amp; RHICmdList) { <span class="cmt">/* UAV 写入 ... */</span> });</code></div>
+
+  <div class="info-callout warn">
+    <strong>手动屏障是 GPU 崩溃的头号原因：</strong>在直接使用 RHI 编写渲染代码时，忘记插入 UAV→SRV 转换屏障、误用 Barrier 顺序、或未正确处理跨队列资源状态转换，是 GPU 崩溃和渲染错误的最高频原因。RDG 通过<strong>声明式资源访问 + 自动屏障推导</strong>完全消除了这一类问题——开发者不再需要手动编写任何 <code>RHICmdList.TransitionResource()</code> 或 D3D12 <code>ResourceBarrier()</code> 调用。这是 RDG 相对于传统命令式渲染框架质的飞跃。
+  </div>
 </section>
 
 <!-- ===== 7. 自定义 RDG Pass 完整模板 ===== -->
