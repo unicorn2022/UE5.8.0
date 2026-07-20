@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>光照系统 — UE5.8.0 渲染流程解读</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --card: #131318;
+  --code: #09090d;
+  --accent: #4FC3F7;
+  --accent-dim: rgba(79,195,247,0.12);
+  --text: #e0e0e0;
+  --text-dim: #909090;
+  --border: rgba(255,255,255,0.06);
+  --font-sans: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  --font-mono: 'Cascadia Code','Fira Code','Consolas',monospace;
+  --warn: #FFB74D;
+  --warn-dim: rgba(255,183,77,0.08);
+  --warn-border: rgba(255,183,77,0.2);
+  --green: #81C784;
+  --green-dim: rgba(129,199,132,0.08);
+  --green-border: rgba(129,199,132,0.2);
+  --purple: #CE93D8;
+  --purple-dim: rgba(206,147,216,0.08);
+  --purple-border: rgba(206,147,216,0.2);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:15px}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--text);line-height:1.72;min-height:100vh}
+a{color:var(--accent);text-decoration:none;transition:0.2s}
+a:hover{text-decoration:underline}
+
+/* ===== 面包屑导航 ===== */
+.breadcrumb{max-width:1200px;margin:0 auto;padding:16px 24px 0;font-size:0.85rem;color:var(--text-dim)}
+.breadcrumb a{color:var(--text-dim)}
+.breadcrumb a:hover{color:var(--accent)}
+.breadcrumb span{color:var(--text)}
+
+/* ===== Hero ===== */
+.hero{text-align:center;padding:60px 24px 48px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:800px;height:400px;background:radial-gradient(ellipse at center,rgba(79,195,247,0.08) 0%,transparent 70%);pointer-events:none}
+.hero h1{font-size:2.4rem;font-weight:800;letter-spacing:0.5px;position:relative}
+.hero h1 span{color:var(--accent)}
+.hero .subtitle{margin-top:12px;font-size:1.05rem;color:var(--text-dim);max-width:720px;margin-inline:auto;position:relative}
+.hero .meta{margin-top:20px;display:flex;gap:16px;justify-content:center;flex-wrap:wrap;position:relative}
+.hero .meta .tag{font-family:var(--font-mono);font-size:0.8rem;padding:4px 14px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-dim)}
+
+/* ===== 概述段 ===== */
+.overview-section{max-width:1000px;margin:0 auto 56px;padding:0 24px}
+.overview-section h2{font-size:1.5rem;color:var(--accent);margin-bottom:16px}
+.overview-section p{color:var(--text-dim);margin-bottom:12px;font-size:0.95rem}
+.overview-section .callout{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:16px 20px;margin-top:16px;font-size:0.9rem}
+.overview-section .callout strong{color:var(--accent)}
+
+/* ===== 章节通用 ===== */
+.section-block{max-width:1100px;margin:0 auto 56px;padding:0 24px}
+.section-block h2{font-size:1.5rem;color:var(--accent);margin-bottom:8px}
+.section-block h3{font-size:1.15rem;color:#fff;margin:24px 0 10px}
+.section-block h4{font-size:0.95rem;color:var(--accent);margin:16px 0 8px}
+.section-block p{color:var(--text-dim);margin-bottom:10px;font-size:0.92rem}
+.section-block .section-desc{color:var(--text-dim);margin-bottom:20px;font-size:0.92rem}
+
+/* ===== 代码块 ===== */
+.code-block{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:12px 0;font-size:0.8rem;line-height:1.65}
+.code-block code{font-family:var(--font-mono);color:#c8ccd4}
+.code-block .kw{color:#c586c0}
+.code-block .fn{color:#7ec8e3}
+.code-block .cmt{color:#6a9955}
+.code-block .num{color:#b5cea8}
+.code-block .str{color:#ce9178}
+
+/* ===== 表格 ===== */
+.info-table{width:100%;border-collapse:collapse;font-size:0.88rem;margin:12px 0}
+.info-table th{text-align:left;padding:10px 14px;background:var(--card);color:var(--accent);border-bottom:2px solid rgba(255,255,255,0.08);font-weight:600;font-family:var(--font-mono);font-size:0.78rem}
+.info-table td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top;color:var(--text-dim)}
+.info-table tr:hover td{background:var(--accent-dim)}
+.info-table td code{font-family:var(--font-mono);font-size:0.8rem;background:rgba(79,195,247,0.08);padding:1px 6px;border-radius:3px;color:var(--accent)}
+.info-table td:first-child{font-family:var(--font-mono);font-size:0.8rem;color:var(--accent);white-space:nowrap}
+
+/* ===== 阶段定位卡片 ===== */
+.stage-loc-card{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin:16px 0}
+.stage-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:18px;transition:all 0.2s}
+.stage-card:hover{border-color:rgba(79,195,247,0.3)}
+.stage-card .stage-num{font-family:var(--font-mono);font-size:0.7rem;color:var(--accent);letter-spacing:1px;margin-bottom:4px}
+.stage-card .stage-title{font-size:1rem;font-weight:700;color:#fff;margin-bottom:6px}
+.stage-card .stage-func{font-family:var(--font-mono);font-size:0.72rem;color:rgba(79,195,247,0.6);margin-bottom:8px}
+.stage-card .stage-desc{font-size:0.85rem;color:var(--text-dim);line-height:1.5}
+
+/* ===== 代码调用链 ===== */
+.call-chain{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:16px 20px;margin:14px 0;font-size:0.85rem;line-height:1.7}
+.call-chain .chain-main{font-family:var(--font-mono);color:var(--accent);font-weight:600;margin-bottom:6px}
+.call-chain .chain-step{font-family:var(--font-mono);font-size:0.8rem;color:var(--text-dim);padding-left:16px;margin-bottom:3px}
+.call-chain .chain-arrow{color:var(--text-dim);margin:0 4px}
+
+/* ===== 三桶卡片 ===== */
+.bucket-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:16px 0}
+.bucket-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:18px;transition:all 0.2s}
+.bucket-card:hover{border-color:rgba(79,195,247,0.3)}
+.bucket-card h4{font-size:0.95rem;color:#fff;margin-bottom:8px}
+.bucket-card .bucket-range{font-family:var(--font-mono);font-size:0.72rem;color:var(--accent);margin-bottom:8px}
+.bucket-card p{font-size:0.85rem;color:var(--text-dim);line-height:1.55}
+
+/* ===== 特性提示框 ===== */
+.info-callout{margin:14px 0;padding:14px 18px;border-radius:8px;font-size:0.88rem}
+.info-callout.warn{background:var(--warn-dim);border:1px solid var(--warn-border);color:var(--text-dim)}
+.info-callout.warn strong{color:var(--warn)}
+.info-callout.green{background:var(--green-dim);border:1px solid var(--green-border);color:var(--text-dim)}
+.info-callout.green strong{color:var(--green)}
+.info-callout.purple{background:var(--purple-dim);border:1px solid var(--purple-border);color:var(--text-dim)}
+.info-callout.purple strong{color:var(--purple)}
+
+/* ===== SVG 容器 ===== */
+.svg-section{max-width:1300px;margin:0 auto 56px;padding:0 24px}
+.svg-section h2{text-align:center;font-size:1.5rem;color:var(--accent);margin-bottom:8px}
+.svg-section .section-desc{text-align:center;color:var(--text-dim);margin-bottom:24px;font-size:0.92rem}
+.svg-container{overflow-x:auto;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px 16px}
+
+/* ===== CVar 表格 ===== */
+.cvar-table-wrap{overflow-x:auto;margin:12px 0}
+.cvar-table{width:100%;border-collapse:collapse;font-size:0.85rem}
+.cvar-table th{text-align:left;padding:8px 12px;background:var(--card);color:var(--accent);border-bottom:2px solid rgba(255,255,255,0.08);font-weight:600;font-family:var(--font-mono);font-size:0.78rem}
+.cvar-table td{padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:top;color:var(--text-dim)}
+.cvar-table tr:hover td{background:var(--accent-dim)}
+.cvar-table td:first-child{font-family:var(--font-mono);font-size:0.78rem;color:var(--accent);white-space:nowrap}
+.cvar-table .cvar-default{font-family:var(--font-mono);font-size:0.75rem;color:rgba(129,199,132,0.8)}
+
+/* ===== 源码索引 ===== */
+.source-index{display:flex;flex-direction:column;gap:10px;margin:12px 0}
+.source-item{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 18px;transition:all 0.2s}
+.source-item:hover{border-color:rgba(79,195,247,0.3)}
+.source-item .src-path{font-family:var(--font-mono);font-size:0.76rem;color:var(--accent);margin-bottom:4px;word-break:break-all}
+.source-item .src-funcs{font-size:0.82rem;color:var(--text-dim)}
+
+/* ===== 列表 ===== */
+.info-list{padding-left:1.4em;font-size:0.9rem;color:var(--text-dim);margin:8px 0}
+.info-list li{margin-bottom:5px}
+.info-list li code{font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 6px;border-radius:3px;color:var(--accent)}
+
+/* ===== Footer ===== */
+.footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);color:var(--text-dim);font-size:0.83rem}
+
+/* ===== 回到顶部 ===== */
+.back-top{position:fixed;bottom:32px;right:32px;width:40px;height:40px;border-radius:50%;background:var(--card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--text-dim);transition:all 0.2s;z-index:100}
+.back-top:hover{color:var(--accent);border-color:var(--accent);text-decoration:none}
+
+/* ===== 响应式 ===== */
+@media(max-width:768px){
+  .hero{padding:40px 18px 32px}
+  .hero h1{font-size:1.6rem}
+  .stage-loc-card{grid-template-columns:1fr}
+  .bucket-grid{grid-template-columns:1fr}
+  .svg-container{padding:12px 8px}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 面包屑导航 ===== -->
+<nav class="breadcrumb">
+  <a href="../../index.html">首页</a> &nbsp;&rsaquo;&nbsp;
+  <a href="../01-管线总览/index.html">管线总览</a> &nbsp;&rsaquo;&nbsp;
+  <span>光照系统</span>
+</nav>
+
+<!-- ===== Hero ===== -->
+<section class="hero">
+  <h1>光照系统<span>深度解读</span></h1>
+  <p class="subtitle">深入剖析 UE5.8.0 光照全流程 —— 从光源收集（<code style="font-family:var(--font-mono);background:var(--code);padding:2px 6px;border-radius:4px;font-size:0.9rem">GatherAndSortLights</code>）、聚簇延迟着色（Clustered Deferred Shading），到 MegaLights 随机采样、虚拟阴影贴图（VSM）、间接光照与反射。</p>
+  <div class="meta">
+    <span class="tag">Clustered Deferred Shading</span>
+    <span class="tag">MegaLights</span>
+    <span class="tag">VSM</span>
+    <span class="tag">间接光照</span>
+    <span class="tag">半透明光照体积</span>
+  </div>
+</section>
+
+<!-- ===== 1. 管线中的位置 ===== -->
+<section class="section-block" id="pipeline-position">
+  <h2>1. 管线中的位置</h2>
+  <p class="section-desc">光照相关逻辑贯穿 <code>FDeferredShadingSceneRenderer::Render()</code> 的多个阶段，主要集中在 Phase 3（光源准备）和 Phase 6（光照计算与合成）。</p>
+
+  <div class="stage-loc-card">
+    <div class="stage-card">
+      <div class="stage-num">Phase 3 早期</div>
+      <div class="stage-title">光源收集与排序（异步）</div>
+      <div class="stage-func">GatherAndSortLightsTask</div>
+      <div class="stage-desc">DeferredShadingRenderer.cpp L2325-L2368。通过 UE::Tasks 异步启动，收集场景可见光源，按三桶分类（Batched / Unbatched / MegaLights），分配 SortedLightSet 结果。</div>
+    </div>
+    <div class="stage-card">
+      <div class="stage-num">Phase 3 中段</div>
+      <div class="stage-title">前向光照数据准备</div>
+      <div class="stage-func">PrepareForwardLightData</div>
+      <div class="stage-desc">DeferredShadingRenderer.cpp L2826-L2857。等待 GatherAndSortLights 完成，将光源注入 3D 聚簇网格（Clustered Grid），渲染光照函数图集。</div>
+    </div>
+    <div class="stage-card">
+      <div class="stage-num">Phase 3 后期</div>
+      <div class="stage-title">MegaLights 帧资源初始化</div>
+      <div class="stage-func">CreateMegaLightsFrameTemporaries</div>
+      <div class="stage-desc">DeferredShadingRenderer.cpp L3053-L3088。创建 MegaLights 帧临时资源，异步调度 MegaLights 体积 Pass。</div>
+    </div>
+    <div class="stage-card">
+      <div class="stage-num">Phase 6</div>
+      <div class="stage-title">延迟光照 + 间接光照合成</div>
+      <div class="stage-func">RenderLights / RenderMegaLights</div>
+      <div class="stage-desc">DeferredShadingRenderer.cpp L3507-L3612。执行聚簇延迟着色、MegaLights 渲染、半透明光照体积、间接漫反射与 AO、天空反射。</div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>异步流水线特征：</strong><code>GatherAndSortLights</code> 作为异步任务在 Phase 3 早期启动，<code>PrepareForwardLightData</code> 在 Phase 3 中段显式 <code>Wait()</code> 等待结果。VSM 页面标记与 MegaLights 体积 Pass 也在 Phase 5/6 以异步 Compute 方式并行执行。
+  </div>
+</section>
+
+<!-- ===== 2. 核心概念 ===== -->
+<section class="section-block" id="core-concepts">
+  <h2>2. 核心概念</h2>
+
+  <h3>2.1 延迟光照 vs 前向光照</h3>
+  <p>UE5.8 默认使用 <strong>延迟渲染（Deferred Shading）</strong> 管线。在延迟渲染中，Base Pass 将几何体属性（法线、粗糙度、材质 ID 等）写入 G-Buffer，光照计算推迟到 <code>RenderLights</code> 阶段统一进行。每种光源类型至少写入一个全屏或 Tile 限定区域的光照贡献，最终累加到场景颜色。</p>
+  <p>前向渲染（Forward Shading）仅作为可选路径用于特定平台或启用 <code>r.ForwardShading</code> 时，其光照在 Base Pass 中逐像素计算，不需要 G-Buffer。</p>
+
+  <h3>2.2 Clustered Deferred Shading — 3D 聚簇网格原理</h3>
+  <p>Clustered Deferred Shading 是 UE5.8 延迟光照计算的核心技术。其核心思想是将相机视锥空间沿 X（屏幕宽）、Y（屏幕高）、Z（深度）三个维度剖分为规则的 3D Tile 网格，每个 Tile（称为一个 Cluster）维护一份对该 Tile 有贡献的光源列表。</p>
+  <p>相对于传统的 Tiled Deferred（仅 2D 屏幕划分），Clustered 方法在深度维度也做剖分，有效解决了大深度范围内光源过多导致的 culling 效率低下问题。</p>
+
+  <div class="code-block"><code><span class="cmt">// ClusteredDeferredShadingPass.cpp:59 — 启用条件检查</span>
+<span class="kw">bool</span> <span class="fn">FDeferredShadingSceneRenderer::ShouldUseClusteredDeferredShading</span>(EShaderPlatform InPlatform) <span class="kw">const</span></code></div>
+
+  <p>以下 SVG 图示展示 3D 聚簇网格的剖分原理：</p>
+</section>
+
+<!-- SVG: 3D 聚簇网格 -->
+<section class="svg-section">
+  <h2>Clustered Deferred 聚簇网格原理</h2>
+  <p class="section-desc">相机视锥沿 X/Y/Z 三维剖分为 Tile 网格，每个 Tile（Cluster）维护独立的光源列表</p>
+  <div class="svg-container">
+    <svg viewBox="0 0 1000 400" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="frustumGrad" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0%" stop-color="#4FC3F7" stop-opacity="0.12"/>
+          <stop offset="100%" stop-color="#4FC3F7" stop-opacity="0.04"/>
+        </linearGradient>
+        <marker id="arrowHead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 Z" fill="#4FC3F7" opacity="0.7"/>
+        </marker>
+      </defs>
+
+      <!-- 标题 -->
+      <text x="500" y="24" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">相机视锥 → 3D Tile 网格剖分 → 每 Tile 光源列表</text>
+
+      <!-- 视锥体（透视） -->
+      <!-- 近平面 -->
+      <rect x="60" y="260" width="140" height="90" rx="2" fill="url(#frustumGrad)" stroke="#4FC3F7" stroke-width="0.8" stroke-opacity="0.5"/>
+      <!-- 远平面 -->
+      <rect x="220" y="110" width="520" height="280" rx="2" fill="url(#frustumGrad)" stroke="#4FC3F7" stroke-width="0.8" stroke-opacity="0.5"/>
+      <!-- 连线 -->
+      <line x1="60" y1="260" x2="220" y2="110" stroke="#4FC3F7" stroke-width="0.5" stroke-opacity="0.3"/>
+      <line x1="200" y1="260" x2="740" y2="110" stroke="#4FC3F7" stroke-width="0.5" stroke-opacity="0.3"/>
+      <line x1="60" y1="350" x2="220" y2="390" stroke="#4FC3F7" stroke-width="0.5" stroke-opacity="0.3"/>
+      <line x1="200" y1="350" x2="740" y2="390" stroke="#4FC3F7" stroke-width="0.5" stroke-opacity="0.3"/>
+
+      <!-- X/Y 网格线（近平面） -->
+      <line x1="106" y1="260" x2="106" y2="350" stroke="#4FC3F7" stroke-width="0.4" stroke-opacity="0.25"/>
+      <line x1="153" y1="260" x2="153" y2="350" stroke="#4FC3F7" stroke-width="0.4" stroke-opacity="0.25"/>
+      <line x1="60" y1="290" x2="200" y2="290" stroke="#4FC3F7" stroke-width="0.4" stroke-opacity="0.25"/>
+      <line x1="60" y1="320" x2="200" y2="320" stroke="#4FC3F7" stroke-width="0.4" stroke-opacity="0.25"/>
+
+      <!-- X/Y 网格线（远平面） -->
+      <line x1="350" y1="110" x2="350" y2="390" stroke="#4FC3F7" stroke-width="0.4" stroke-opacity="0.25"/>
+      <line x1="480" y1="110" x2="480" y2="390" stroke="#4FC3F7" stroke-width="0.4" stroke-opacity="0.25"/>
+      <line x1="610" y1="110" x2="610" y2="390" stroke="#4FC3F7" stroke-width="0.4" stroke-opacity="0.25"/>
+      <line x1="220" y1="180" x2="740" y2="180" stroke="#4FC3F7" stroke-width="0.4" stroke-opacity="0.25"/>
+      <line x1="220" y1="250" x2="740" y2="250" stroke="#4FC3F7" stroke-width="0.4" stroke-opacity="0.25"/>
+      <line x1="220" y1="320" x2="740" y2="320" stroke="#4FC3F7" stroke-width="0.4" stroke-opacity="0.25"/>
+
+      <!-- Z 深度切片虚线 -->
+      <line x1="130" y1="230" x2="480" y2="155" stroke="#FFB74D" stroke-width="0.6" stroke-dasharray="6,4" stroke-opacity="0.4"/>
+      <line x1="130" y1="205" x2="480" y2="140" stroke="#FFB74D" stroke-width="0.6" stroke-dasharray="6,4" stroke-opacity="0.4"/>
+
+      <!-- 相机标记 -->
+      <circle cx="30" cy="400" r="12" fill="none" stroke="#4FC3F7" stroke-width="1.2"/>
+      <text x="30" y="420" text-anchor="middle" fill="var(--text-dim)" font-size="10">相机</text>
+
+      <!-- 标签 -->
+      <text x="130" y="252" text-anchor="middle" fill="var(--text-dim)" font-size="9">近平面</text>
+      <text x="480" y="102" text-anchor="middle" fill="var(--text-dim)" font-size="9">远平面</text>
+      <text x="220" y="104" text-anchor="middle" fill="#FFB74D" font-size="9" opacity="0.7">Z 深度切片</text>
+
+      <!-- ===== 右侧：单个 Tile 放大 ===== -->
+      <rect x="820" y="145" width="160" height="95" rx="3" fill="var(--code)" stroke="#4FC3F7" stroke-width="1" stroke-opacity="0.6"/>
+      <text x="900" y="165" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">单个 Tile (Cluster)</text>
+      <text x="900" y="183" text-anchor="middle" fill="var(--text-dim)" font-size="9">X 分块索引: i</text>
+      <text x="900" y="198" text-anchor="middle" fill="var(--text-dim)" font-size="9">Y 分块索引: j</text>
+      <text x="900" y="213" text-anchor="middle" fill="var(--text-dim)" font-size="9">Z 深度切片: k</text>
+      <text x="900" y="231" text-anchor="middle" fill="var(--accent)" font-size="9">光源列表: [L3, L7, L12]</text>
+
+      <!-- 箭头：视锥 → Tile -->
+      <line x1="740" y1="190" x2="815" y2="190" stroke="#4FC3F7" stroke-width="1" stroke-opacity="0.5" marker-end="url(#arrowHead)"/>
+
+      <!-- 底部流程 -->
+      <line x1="100" y1="375" x2="900" y2="375" stroke="var(--border)" stroke-width="0.5"/>
+
+      <rect x="140" y="355" width="130" height="28" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="0.8"/>
+      <text x="205" y="373" text-anchor="middle" fill="var(--text-dim)" font-size="9">光源收集 (GatherAndSortLights)</text>
+
+      <text x="340" y="373" fill="var(--accent)" font-size="12" opacity="0.6">&#8594;</text>
+
+      <rect x="380" y="355" width="130" height="28" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="0.8"/>
+      <text x="445" y="373" text-anchor="middle" fill="var(--text-dim)" font-size="9">光源剔除 (CullLightsToGrid)</text>
+
+      <text x="565" y="373" fill="var(--accent)" font-size="12" opacity="0.6">&#8594;</text>
+
+      <rect x="600" y="355" width="135" height="28" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="0.8"/>
+      <text x="667" y="373" text-anchor="middle" fill="var(--text-dim)" font-size="9">光源注入 (InjectLightsToGrid)</text>
+
+      <text x="750" y="373" fill="var(--accent)" font-size="12" opacity="0.6">&#8594;</text>
+
+      <rect x="775" y="355" width="110" height="28" rx="4" fill="var(--accent-dim)" stroke="#4FC3F7" stroke-width="0.8" stroke-opacity="0.4"/>
+      <text x="830" y="373" text-anchor="middle" fill="var(--accent)" font-size="9">像素着色查表</text>
+    </svg>
+  </div>
+</section>
+
+<section class="section-block">
+  <h3>2.3 光源分类四段式排序</h3>
+  <p>在 <code>FSortedLightSetSceneInfo</code> 中，光源按 SortKey 排序后形成四段区间，由五个边界变量划分：</p>
+
+  <table class="info-table">
+    <thead>
+      <tr><th>边界变量</th><th>含义</th><th>区间说明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>SortedLights[0]</td><td>SimpleLights + Clustered 范围起点</td><td>简单光源（粒子光）和聚簇支持的光源</td></tr>
+      <tr><td>SimpleLightsEnd</td><td>简单光源结束位置</td><td>Simple Light 区间结束</td></tr>
+      <tr><td>ClusteredSupportedEnd</td><td>聚类支持光源结束</td><td>可注入聚簇网格的光源（无阴影/光照函数的路灯）</td></tr>
+      <tr><td>UnbatchedLightStart</td><td>非批处理光源起点</td><td>需要独立渲染的有阴影/特殊光源</td></tr>
+      <tr><td>MegaLightsLightStart</td><td>MegaLights 光源起点</td><td>交由 MegaLights 系统处理的动态可投影光源</td></tr>
+      <tr><td>MegaLightsSimpleLightsEnd</td><td>MegaLights 简单光结束</td><td>MegaLights 处理的简单光源范围</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===== 3. 光源收集与排序 ===== -->
+<section class="section-block" id="gather-and-sort">
+  <h2>3. 光源收集与排序</h2>
+
+  <h3>3.1 异步任务启动</h3>
+  <p><code>GatherAndSortLights</code> 是光源准备流程的总入口。它通过 <code>LaunchSceneRenderTask</code> 作为异步任务启动，与后续的深度 PrePass、Nanite Visibility 等阶段并行执行，仅在需要光照数据时（<code>PrepareForwardLightData</code>）才调用 <code>Wait()</code> 同步。</p>
+
+  <div class="code-block"><code><span class="cmt">// DeferredShadingRenderer.cpp L2354-L2368</span>
+<span class="kw">auto</span>* SortedLightSet = GraphBuilder.<span class="fn">AllocObject</span>&lt;FSortedLightSetSceneInfo&gt;();
+<span class="kw">const bool</span> bShadowedLightsInClustered = <span class="fn">ShouldUseClusteredDeferredShading</span>(...)
+    && <span class="fn">IsVSMOnePassProjectionEnabled</span>(...)
+    && VirtualShadowMapArray.<span class="fn">IsEnabled</span>();
+
+<span class="kw">auto</span> GatherAndSortLightsTask = <span class="fn">LaunchSceneRenderTask</span>&lt;FSortedLightSetSceneInfo*&gt;(
+    [<span class="kw">this</span>, SortedLightSet, bShadowedLightsInClustered] {
+        <span class="fn">GatherAndSortLights</span>(*SortedLightSet, bShadowedLightsInClustered);
+        <span class="kw">return</span> SortedLightSet;
+    }, IssuedTasksCompletionEvents);</code></div>
+
+  <p>异步任务的依赖链：<code>GetGatherAndSortLightsPrerequisiteTask</code>（等待 Dynamic Shadows 初始化完成）+ <code>UpdateLightFunctionAtlasTask</code>（等待光照函数图集更新完成）。</p>
+
+  <h3>3.2 GatherAndSortLights 内部逻辑</h3>
+  <p>定义于 <code>LightRendering.cpp L1409</code>，核心流程如下：</p>
+
+  <div class="call-chain">
+    <div class="chain-main">GatherAndSortLights(OutSortedLights, bShadowedLightsInClustered)</div>
+    <div class="chain-step">1. <span class="fn">GatherSimpleLights</span>(ViewFamily, Views, OutSimpleLights) — 收集场景中的简单光源（粒子光）</div>
+    <div class="chain-step">2. 遍历 Scene->Lights，对每个 FLightSceneInfoCompact 检查 ShouldRenderLight</div>
+    <div class="chain-step">3. 为每个可见光源创建 FSortedLightSceneInfo，填充 SortKey 字段：
+      <span style="color:var(--text-dim);font-size:0.82rem">LightType / bShadowed / bLightFunction / bIESProfile / bUsesLightingChannels / bClusteredDeferredNotSupported / bHandledByMegaLights</span></div>
+    <div class="chain-step">4. 判断 bClusteredDeferredSupported — 无阴影/无光照函数/非方向光/无接触阴影/非 MegaLights → 可批处理</div>
+    <div class="chain-step">5. 调用 <span class="fn">MegaLights::GetMegaLightsMode</span>() 判断是否由 MegaLights 处理 → 设置 bHandledByMegaLights</div>
+    <div class="chain-step">6. 添加 SimpleLights 到 SortedLights 数组（SimpleLightIndex）</div>
+    <div class="chain-step">7. 对 SortedLights 按 SortKey.Packed 排序 → 自然形成 [Simple | Clustered | Unbatched | MegaLights] 四段</div>
+    <div class="chain-step">8. 二分查找确定 SimpleLightsEnd / ClusteredSupportedEnd / UnbatchedLightStart / MegaLightsLightStart 边界</div>
+  </div>
+
+  <h3>3.3 三桶分类结果</h3>
+  <div class="bucket-grid">
+    <div class="bucket-card">
+      <h4>Batched（批处理光源）</h4>
+      <div class="bucket-range">SimpleLights[0] ~ UnbatchedLightStart</div>
+      <p>包含 Simple Lights 和满足聚类条件的光源（无阴影、无光照函数、非方向光）。通过 Clustered Deferred Shading 单 Pass 批量计算，或者回退到传统逐光源渲染。</p>
+    </div>
+    <div class="bucket-card">
+      <h4>Unbatched（非批处理光源）</h4>
+      <div class="bucket-range">UnbatchedLightStart ~ MegaLightsLightStart</div>
+      <p>包含带阴影、光照函数、IES 配置文件等特殊光源。每个光源独立渲染一个全屏或限定区域的光照 Pass。方向光（Directional Light）始终在此区间。</p>
+    </div>
+    <div class="bucket-card">
+      <h4>MegaLights（随机采样光源）</h4>
+      <div class="bucket-range">MegaLightsLightStart ~ SortedLights.Num()</div>
+      <p>UE5.8 新增的大量动态可投影光源系统。由 <code>MegaLights::GetMegaLightsMode()</code> 判定，使用随机采样策略高效处理大量阴影投射光源。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 4. Clustered Deferred ===== -->
+<section class="section-block" id="clustered-deferred">
+  <h2>4. Clustered Deferred Shading</h2>
+
+  <h3>4.1 三阶段流水线</h3>
+  <p>Clustered Deferred 光照计算在源码中由三个关键函数按序完成：</p>
+
+  <div class="call-chain">
+    <div class="chain-main">PrepareForwardLightData(GraphBuilder, true, SortedLightSet) → ComputeLightGridOutput</div>
+    <div class="chain-step"><span class="fn">ComputeLightGrid</span>(GraphBuilder, bCullLightsToGrid, SortedLightSet, ...) — LightGridInjection.cpp L1913</div>
+    <div class="chain-step">&nbsp;&nbsp;&#x21B3; 对各视图创建 Froxel（Frustum Voxel）网格数据，执行光源剔除</div>
+    <div class="chain-step">&nbsp;&nbsp;&#x21B3; 将剔除后的光源列表注入 3D 聚簇网格纹理（LightGrid）</div>
+    <div class="chain-step">&nbsp;&nbsp;&#x21B3; 生成 ForwardLightUniformParameters UB（Uniform Buffer）供 Shader 访问</div>
+    <div class="chain-step" style="color:var(--accent);margin-top:8px;"><span class="fn">LightFunctionAtlas.RenderLightFunctionAtlas</span>(GraphBuilder, Views) — LightFunctionAtlas.cpp L580</div>
+    <div class="chain-step">&nbsp;&nbsp;&#x21B3; 将光照函数材质渲染到 2D 图集纹理，供批处理光源采样</div>
+  </div>
+
+  <div class="call-chain" style="margin-top:16px;">
+    <div class="chain-main">RenderLights(GraphBuilder, SceneTextures, LightingChannelsTexture, SortedLightSet)</div>
+    <div class="chain-step"><span class="fn">RenderVirtualShadowMapProjectionMaskBits</span>(...) — VSM 投影遮罩位渲染</div>
+    <div class="chain-step"><span class="fn">AddClusteredDeferredShadingPass</span>(...) — 执行 Clustered Deferred 主 Pass</div>
+    <div class="chain-step">&nbsp;&nbsp;&#x21B3; Shader 遍历屏幕 Tile，从 LightGrid 纹理读取光源列表</div>
+    <div class="chain-step">&nbsp;&nbsp;&#x21B3; 对每个光源评估 BRDF，累加漫反射 + 高光贡献</div>
+    <div class="chain-step"><span class="fn">RenderSimpleLightsStandardDeferred</span>(...) — 简单光源标准延迟渲染</div>
+    <div class="chain-step"><span class="fn">RenderLight</span>(...) — 对 Unbatched 区间光源逐光源渲染（带阴影/光照函数）</div>
+  </div>
+
+  <h3>4.2 LightGridInjection 核心机制</h3>
+  <p><code>LightGridInjection.cpp</code> 中的 <code>ComputeLightGrid</code> 函数是 Clustered Deferred 的 CPU 端核心。它使用 Froxel 网格工具（<code>FroxelGridUtils.h</code>）创建每个视图的 3D 体素化光照网格：</p>
+  <ul class="info-list">
+    <li><strong>CullLightsToGrid：</strong>对每个 Froxel Cell，测试所有 Batched 聚类光源的包围球/包围盒，剔除不可见光源</li>
+    <li><strong>InjectLightsToGrid：</strong>将剔除后保留的光源索引写入 GPU 可访问的 Structured Buffer 和查找表</li>
+    <li><strong>Light Grid 纹理：</strong>每个 Cell 存储 "起始偏移 + 光源数量"，Shader 端通过 <code>GetLightGridCell()</code> 查询</li>
+    <li><strong>CSV 统计：</strong><code>CSV_CUSTOM_STAT(LightCount, Batched, ...)</code> 和 <code>CSV_CUSTOM_STAT(LightCount, Unbatched, ...)</code> 输出调试指标</li>
+  </ul>
+
+  <h3>4.3 光照函数图集（LightFunctionAtlas）</h3>
+  <p>光照函数（Light Function）是一种材质驱动的光源遮罩/衰减自定义机制。传统方式需要为每个带光照函数的光源单独渲染，无法批处理。UE5.8 的光照函数图集机制（<code>FLightFunctionAtlas</code>）将多个光照函数材质渲染到一张 2D 图集纹理中，使得支持图集的光源也能被 Clustered Deferred 批处理。</p>
+  <div class="code-block"><code><span class="cmt">// LightFunctionAtlas.h:151 — 图集渲染入口</span>
+<span class="kw">void</span> <span class="fn">FLightFunctionAtlas::RenderLightFunctionAtlas</span>(FRDGBuilder& GraphBuilder, TArray&lt;FViewInfo&gt;& Views);
+
+<span class="cmt">// DeferredShadingRenderer.cpp L1951-L1961 — 图集异步更新</span>
+UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<span class="str">"UpdateLightFunctionAtlas"</span>, [<span class="kw">this</span>] {
+    <span class="fn">UpdateLightFunctionAtlasTaskFunction</span>();
+});</code></div>
+</section>
+
+<!-- ===== 5. MegaLights ===== -->
+<section class="section-block" id="megalights">
+  <h2>5. MegaLights</h2>
+
+  <h3>5.1 系统概述</h3>
+  <p>MegaLights 是 UE5.8 引入的实验性大量动态可投影光源系统。它使用 <strong>随机光源采样（Stochastic Light Sampling）</strong> 策略，每像素仅采样少量光源而非遍历所有可见光源，从而支持场景中数十甚至数百个投射阴影的动态光源，同时保持可预测的低 GPU 成本。</p>
+
+  <div class="info-callout warn">
+    <strong>关键限制：</strong>MegaLights 需要 Hardware Ray Tracing 支持，且不适用于 Directional Light（方向光）。启用后通过 Post Process Volume 或光源级别（bAllowMegaLights）逐光源控制。
+  </div>
+
+  <h3>5.2 三种运行模式</h3>
+  <p>由 <code>MegaLights::GetMegaLightsMode()</code> 为每个光源判定运行模式：</p>
+  <table class="info-table">
+    <thead>
+      <tr><th>模式</th><th>枚举值</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Disabled</td><td>EMegaLightsMode::Disabled</td><td>不走 MegaLights，走传统光源路径</td></tr>
+      <tr><td>EnabledRT</td><td>EMegaLightsMode::EnabledRT</td><td>使用 Hardware Ray Tracing 计算阴影</td></tr>
+      <tr><td>EnabledVSM</td><td>EMegaLightsMode::EnabledVSM</td><td>使用 Virtual Shadow Maps 计算阴影（回退路径）</td></tr>
+    </tbody>
+  </table>
+
+  <h3>5.3 随机光源采样算法</h3>
+  <p>MegaLights 的核心采样策略（<code>MegaLightsSampling.cpp</code>）包含以下关键步骤：</p>
+  <ol class="info-list" style="list-style-type:decimal">
+    <li><strong>Tile Classification（Tile 分类）</strong> — <code>MegaLights::SetupTileClassifyParameters()</code>：将屏幕划分为 Tile，对每个 Tile 评估哪些光源可能对像素产生有意义的贡献。使用历史帧信息（<code>MegaLightsHistoryDistanceThreshold</code>）引导分类。</li>
+    <li><strong>Sample Generation（采样生成）</strong> — <code>GenerateMegaLightsSamples()</code>：在每个像素使用 Blue Noise 序列随机选择 N 个光源（<code>r.MegaLights.NumSamplesPerPixel</code>，默认 4）。通过重要性采样优先选择亮度高、距离近的光源。</li>
+    <li><strong>Shadow Evaluation（阴影评估）</strong> — <code>MegaLightsRayTracing.cpp</code>：对每个采样光源发射光线追踪射线评估可见性（HWRT 路径）或查询 VSM 页面（VSM 路径）。支持 Global SDF 回退（<code>MegaLights::IsUsingGlobalSDF()</code>）。</li>
+    <li><strong>Lighting Accumulation（光照累积）</strong> — Shader 中对每个可见光源评估 BRDF，加权累加漫反射和高光贡献。</li>
+  </ol>
+
+  <h3>5.4 HWRT / SDF 双路径</h3>
+  <div class="bucket-grid">
+    <div class="bucket-card">
+      <h4>HWRT（Hardware Ray Tracing）</h4>
+      <div class="bucket-range">MegaLights::UseHardwareRayTracing()</div>
+      <p>主要路径。使用内联光追（Inline Ray Tracing）直接对 BVH 加速结构发射阴影射线，精度最高。通过 <code>MegaLights::UseInlineHardwareRayTracing()</code> 控制内联模式。</p>
+    </div>
+    <div class="bucket-card">
+      <h4>VSM（Virtual Shadow Maps）</h4>
+      <div class="bucket-range">EMegaLightsMode::EnabledVSM</div>
+      <p>回退路径，适用于不支持 HWRT 的平台。使用虚拟阴影贴图的预渲染深度信息查询可见性，精度受 VSM 页面分辨率限制。</p>
+    </div>
+    <div class="bucket-card">
+      <h4>Global SDF（全局有符号距离场）</h4>
+      <div class="bucket-range">MegaLights::IsUsingGlobalSDF()</div>
+      <p>辅助路径。使用全局距离场的 SDF 追踪作为 HWRT 的补充，主要用于远距离或非精确阴影查询。通过 <code>MegaLights::IsUsingClosestHZB()</code> 可启用最近 HZB 辅助遮挡。</p>
+    </div>
+  </div>
+
+  <h3>5.5 时序降噪策略</h3>
+  <p>MegaLights 使用两层时序降噪（<code>MegaLightsDenoising.cpp</code>）：</p>
+  <ul class="info-list">
+    <li><strong>时间累积：</strong>使用 <code>MegaLightsHistoryDistanceThreshold</code> 结合重投影，将当前帧的稀疏采样结果与历史帧累积结果混合。历史引导采样（<code>r.MegaLights.GuideByHistory</code>，默认开启）减少对前一帧被遮挡光源的采样概率，降低高对比度阴影区域的噪声。</li>
+    <li><strong>空间滤波：</strong>对直接光照结果应用边缘保持的空间滤波，利用 G-Buffer 的法线和深度信息控制滤波核范围。半透明光照体积也有独立的空间滤波（<code>MegaLights::IsTranslucencyVolumeSpatialFilterEnabled()</code>）。</li>
+    <li><strong>降采样优化：</strong>支持 <code>r.MegaLights.DownsampleMode</code>（0=全分辨率 / 1=棋盘格 2x1 / 2=半分辨率 2x2），在降采样空间做采样和追踪，再上采样融合回全分辨率。</li>
+  </ul>
+
+  <h3>5.6 帧级调用流程</h3>
+  <div class="call-chain">
+    <div class="chain-main">MegaLights 帧级调用链（DeferredShadingRenderer.cpp）</div>
+    <div class="chain-step"><span class="fn">CreateMegaLightsFrameTemporaries</span>(GraphBuilder, SceneTextures) — L3059：创建帧内临时资源（Tile 分类、光照体积纹理等）</div>
+    <div class="chain-step"><span class="fn">ComputeMegaLightsLightPowerDelta</span>(GraphBuilder) — L2857：计算光源能量变化（用于检测哪些光源需要更新）</div>
+    <div class="chain-step"><span class="fn">DispatchAsyncMegaLightsVolumePasses</span>(GraphBuilder, MegaLightsContext) — L3088：异步调度体积 Pass</div>
+    <div class="chain-step"><span class="fn">GenerateMegaLightsSamples</span>(GraphBuilder, ...) — L3319：生成随机光源采样</div>
+    <div class="chain-step"><span class="fn">RenderMegaLights</span>(GraphBuilder, MegaLightsContext, SceneTextures, LightingChannelsTexture) — L3515：主渲染 Pass</div>
+    <div class="chain-step"><span class="fn">RenderMegaLightsFrontLayerTranslucency</span>(...) — L3549：半透明前层 MegaLights 光照</div>
+  </div>
+
+  <h3>5.7 关键 CVar</h3>
+  <table class="info-table">
+    <thead>
+      <tr><th>CVar</th><th>默认值</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>r.MegaLights.EnableForProject</td><td>0</td><td>项目级启用开关（实验性功能）</td></tr>
+      <tr><td>r.MegaLights.Allowed</td><td>1</td><td>可伸缩性与设备配置文件允许开关</td></tr>
+      <tr><td>r.MegaLights.NumSamplesPerPixel</td><td>4</td><td>每像素（降采样后）光源采样数，支持 1/2/4</td></tr>
+      <tr><td>r.MegaLights.DownsampleMode</td><td>2</td><td>降采样模式：0=1x1, 1=2x1 棋盘, 2=2x2 半分辨率</td></tr>
+      <tr><td>r.MegaLights.GuideByHistory</td><td>true</td><td>历史帧引导采样（减少被遮挡光源的采样概率）</td></tr>
+      <tr><td>r.MegaLights.MinSampleWeight</td><td>0.001</td><td>最小采样权重，低于此值的光源被跳过</td></tr>
+      <tr><td>r.MegaLights.LightAttenuationFalloff</td><td>0.18</td><td>光源衰减剔除的平均基础色亮度估计</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===== 6. 虚拟阴影贴图 ===== -->
+<section class="section-block" id="vsm">
+  <h2>6. 虚拟阴影贴图（VSM）</h2>
+
+  <h3>6.1 VSM 在光照管线中的定位</h3>
+  <p>虚拟阴影贴图（Virtual Shadow Maps）是 UE5.5+ 默认的阴影系统，用于替代传统的级联阴影贴图（CSM）。VSM 使用虚拟化纹理技术，只分配被屏幕像素实际需要的阴影页面（Page），从而实现极高分辨率的阴影（每 Page <code>VSM_PAGE_SIZE</code> = 128x128 像素）同时控制内存开销。</p>
+  <p>在光照管线中，VSM 与 MegaLights、Clustered Deferred 紧密集成：<code>BeginMarkVirtualShadowMapPages</code> 标记需要渲染的阴影页面，<code>RenderShadowDepthMaps</code> 渲染阴影深度，后续的 <code>RenderVirtualShadowMapProjectionMaskBits</code> 生成投影遮罩供光照 Pass 使用。</p>
+
+  <h3>6.2 调用流程</h3>
+  <div class="call-chain">
+    <div class="chain-main">VSM 标记与渲染调用链</div>
+    <div class="chain-step"><span class="fn">ShadowSceneRenderer.BeginMarkVirtualShadowMapPages</span>(GraphBuilder, ...) — L3312：页面标记开始</div>
+    <div class="chain-step">&nbsp;&nbsp;&#x21B3; 包括 SingleLayerWater 前 Pass 和半透明前层的 VSM 页面标记</div>
+    <div class="chain-step"><span class="fn">GenerateMegaLightsSamples</span>(GraphBuilder, ...) — L3319：MegaLights 采样（在 VSM 页面渲染前执行以允许特殊化）</div>
+    <div class="chain-step"><span class="fn">RenderShadowDepthMaps</span>(GraphBuilder, DynamicShadowsTaskData, ...) — L3330：渲染阴影深度贴图</div>
+    <div class="chain-step">&nbsp;&nbsp;&#x21B3; ShadowDepthRendering.cpp L1836：支持 Nanite 几何体 + 传统几何体双路径</div>
+    <div class="chain-step">&nbsp;&nbsp;&#x21B3; VSM 缓存管理：<code>FVirtualShadowMapCacheManager</code> 负责页面分配与回收</div>
+    <div class="chain-step"><span class="fn">RenderVirtualShadowMapProjectionMaskBits</span>(GraphBuilder, SceneTextures) — L1674：投影遮罩位生成</div>
+  </div>
+
+  <div class="info-callout green">
+    <strong>前置条件：</strong>VSM 支持 <code>r.Shadow.Virtual.Enable</code>（默认开启）且 <code>VirtualShadowMapArray.IsEnabled()</code> 返回 true。前向着色路径和 <code>r.shadow.ShadowMapsRenderEarly</code> 模式下 VSM 被禁用。
+  </div>
+
+  <h3>6.3 关键参数</h3>
+  <table class="info-table">
+    <thead>
+      <tr><th>参数</th><th>值</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>VSM_PAGE_SIZE</td><td>128</td><td>每页 128x128 像素</td></tr>
+      <tr><td>VSM_LOG2_PAGE_SIZE</td><td>7</td><td>log2(128)</td></tr>
+      <tr><td>VSM_LEVEL0_DIM_PAGES_XY</td><td>128</td><td>Level 0 每维 128 页，虚拟地址空间 128x128 = 16k</td></tr>
+      <tr><td>VSM_VIRTUAL_MAX_RESOLUTION_XY</td><td>16384</td><td>虚拟最大分辨率 16k x 16k</td></tr>
+      <tr><td>VSM_MAX_MIP_LEVELS</td><td>8</td><td>最大 Mip 级别（16k → 8k → ... → 128）</td></tr>
+      <tr><td>VSM_RASTER_WINDOW_PAGES</td><td>--</td><td>光栅化窗口页面数</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===== 7. 间接光照与 AO ===== -->
+<section class="section-block" id="indirect-lighting">
+  <h2>7. 间接光照与 AO</h2>
+
+  <h3>7.1 函数签名</h3>
+  <div class="code-block"><code><span class="cmt">// DeferredShadingRenderer.h:633</span>
+<span class="kw">void</span> <span class="fn">RenderDiffuseIndirectAndAmbientOcclusion</span>(
+    FRDGBuilder& GraphBuilder,
+    FSceneTextures& SceneTextures,
+    FLumenSceneFrameTemporaries& FrameTemporaries,
+    FRDGTextureRef LightingChannelsTexture,
+    <span class="kw">bool</span> bCompositeRegularLumenOnly,
+    <span class="kw">bool</span> bIsVisualizePass,
+    FAsyncLumenIndirectLightingOutputs& AsyncLumenIndirectLightingOutputs);</code></div>
+
+  <h3>7.2 调用时机与职责</h3>
+  <p>该函数在 Phase 6 延迟光照阶段被调用（L3562），位于 <code>RenderLights</code> 之后、<code>RenderDeferredReflectionsAndSkyLighting</code> 之前。设计意图是让异步 Lumen 工作与直接光照计算时间重叠：</p>
+
+  <div class="call-chain">
+    <div class="chain-main">RenderDiffuseIndirectAndAmbientOcclusion 内部流程</div>
+    <div class="chain-step">1. 检查 DiffuseIndirectMethod 管道状态（Lumen / SSGI / RTGI / Plugin）</div>
+    <div class="chain-step">2. <strong>Lumen 路径：</strong>合成 <code>AsyncLumenIndirectLightingOutputs</code>（异步计算的间接光照 + AO）</div>
+    <div class="chain-step">3. <strong>SSAO 路径：</strong>渲染屏幕空间环境光遮蔽 Pass（距离场 AO 或 SSRT AO）</div>
+    <div class="chain-step">4. <strong>天空光照间接漫反射：</strong>对非 Lumen 视图合成天空光照贡献</div>
+    <div class="chain-step">5. <strong>Bent Normal AO：</strong>生成 <code>DynamicBentNormalAOTextures</code> 供后续反射 Pass 使用</div>
+    <div class="chain-step">6. <strong>Subsurface Scattering：</strong>添加次表面散射 Pass</div>
+  </div>
+
+  <h3>7.3 间接光照方法</h3>
+  <table class="info-table">
+    <thead>
+      <tr><th>方法</th><th>枚举</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Lumen</td><td>EDiffuseIndirectMethod::Lumen</td><td>UE5 默认全局光照系统，使用 Surface Cache + Radiance Cache</td></tr>
+      <tr><td>SSAO</td><td>EDiffuseIndirectMethod::SSAO</td><td>屏幕空间环境光遮蔽，配合天空光照间接漫反射</td></tr>
+      <tr><td>RTGI</td><td>EDiffuseIndirectMethod::RTGI</td><td>光线追踪全局光照</td></tr>
+      <tr><td>Plugin</td><td>EDiffuseIndirectMethod::Plugin</td><td>第三方 GI 插件接口</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===== 8. 反射与天空光 ===== -->
+<section class="section-block" id="reflections-skylight">
+  <h2>8. 反射与天空光</h2>
+
+  <h3>8.1 函数签名</h3>
+  <div class="code-block"><code><span class="cmt">// DeferredShadingRenderer.h:643</span>
+<span class="kw">void</span> <span class="fn">RenderDeferredReflectionsAndSkyLighting</span>(
+    FRDGBuilder& GraphBuilder,
+    <span class="kw">const</span> FSceneTextures& SceneTextures,
+    FLumenSceneFrameTemporaries& LumenFrameTemporaries,
+    TArray&lt;FRDGTextureRef&gt;& DynamicBentNormalAOTextures);</code></div>
+
+  <h3>8.2 调用时机与职责</h3>
+  <p>在 <code>RenderDiffuseIndirectAndAmbientOcclusion</code> 之后调用（L3573），仅作用于不透明像素：</p>
+
+  <div class="call-chain">
+    <div class="chain-main">RenderDeferredReflectionsAndSkyLighting 内部流程</div>
+    <div class="chain-step">1. 检查 ReflectionsMethod 管道状态（Lumen / SSR / RT Reflections）</div>
+    <div class="chain-step">2. <strong>Lumen 反射：</strong>使用 Lumen Radiance Cache + Surface Cache 追踪反射光线</div>
+    <div class="chain-step">3. <strong>SSR（屏幕空间反射）：</strong>屏幕空间光线步进（Screen Space Ray Tracing）</div>
+    <div class="chain-step">4. <strong>天空光照合成：</strong>将 Sky Light 的漫反射和高光贡献合成到场景颜色（仅不透明像素）</div>
+    <div class="chain-step">5. <strong>Bent Normal AO 集成：</strong>使用 <code>DynamicBentNormalAOTextures</code> 增强反射方向精度</div>
+    <div class="chain-step">6. <strong>光追天空光：</strong>如果启用且非 Lumen GI 模式，执行 <code>RenderRayTracingSkyLight</code> + <code>CompositeRayTracingSkyLight</code></div>
+  </div>
+
+  <h3>8.3 反射方法</h3>
+  <table class="info-table">
+    <thead>
+      <tr><th>方法</th><th>枚举</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Lumen</td><td>EReflectionsMethod::Lumen</td><td>Lumen 反射追踪，支持 HWRT 和 SDF 双路径</td></tr>
+      <tr><td>SSR</td><td>EReflectionsMethod::SSR</td><td>屏幕空间反射</td></tr>
+      <tr><td>RT Reflections</td><td>--</td><td>完整光线追踪反射（可选）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===== 9. 半透明光照体积 ===== -->
+<section class="section-block" id="translucency-lighting">
+  <h2>9. 半透明光照体积</h2>
+
+  <h3>9.1 函数签名</h3>
+  <div class="code-block"><code><span class="cmt">// DeferredShadingRenderer.h:835</span>
+<span class="kw">void</span> <span class="fn">RenderTranslucencyLightingVolume</span>(
+    FRDGBuilder& GraphBuilder,
+    FTranslucencyLightingVolumeTextures& Textures,
+    <span class="kw">const</span> FSortedLightSetSceneInfo& SortedLightSet);</code></div>
+
+  <h3>9.2 体素标记机制</h3>
+  <p>半透明光照体积（Translucency Lighting Volume）是 UE5 用于加速半透明物体光照计算的 3D 体素化结构。它在相机周围创建一张 3D 网格，每个体素存储该位置的环境光照和方向光照信息。半透明渲染阶段从此体积采样，避免对每个半透明像素执行昂贵的光照计算。</p>
+
+  <div class="call-chain">
+    <div class="chain-main">半透明光照体积处理流程</div>
+    <div class="chain-step">1. <span class="fn">MarkUsedTranslucencyVolumeVoxels</span>() — 标记哪些体素需要处理</div>
+    <div class="chain-step">&nbsp;&nbsp;&#x21B3; 使用 <code>MegaLights::UseTranslucencyVolumeMarkTexture()</code> 判断是否由 MegaLights 驱动标记</div>
+    <div class="chain-step">2. <span class="fn">GatherTranslucencyVolumeMarkedVoxels</span>(GraphBuilder, SortedLightSet) — 收集标记的体素</div>
+    <div class="chain-step">&nbsp;&nbsp;&#x21B3; 如果 <code>bGatheredTranslucencyVolumeMarkedVoxels</code> 为 false，在 Phase 6 延迟光照前补充收集</div>
+    <div class="chain-step">3. <span class="fn">RenderTranslucencyLightingVolume</span>(GraphBuilder, TranslucencyLightingVolumeTextures, SortedLightSet) — 渲染体积光照</div>
+    <div class="chain-step">&nbsp;&nbsp;&#x21B3; 对每个标记的体素，评估 SortedLightSet 中相应光源的贡献</div>
+    <div class="chain-step">&nbsp;&nbsp;&#x21B3; 输出 <code>TranslucencyAmbient[TVC_MAX]</code> 和 <code>TranslucencyDirectional[TVC_MAX]</code> 纹理</div>
+  </div>
+
+  <div class="info-callout purple">
+    <strong>MegaLights 与半透明体积：</strong><code>MegaLights::UseTranslucencyVolume()</code> 控制是否使用 MegaLights 处理半透明光照体积。如果启用，<code>FMegaLightsVolume</code> 输出 <code>TranslucencyAmbient</code> 和 <code>TranslucencyDirectional</code> 纹理阵列（<code>TVC_MAX</code> 级联），支持空间滤波（<code>IsTranslucencyVolumeSpatialFilterEnabled()</code>）和时间滤波（<code>IsTranslucencyVolumeTemporalFilterEnabled()</code>）。
+  </div>
+</section>
+
+<!-- ===== 10. CVar 速查 ===== -->
+<section class="section-block" id="cvar-reference">
+  <h2>10. CVar 速查</h2>
+
+  <h3>10.1 光源管理</h3>
+  <div class="cvar-table-wrap">
+    <table class="cvar-table">
+      <thead>
+        <tr><th>CVar</th><th>默认值</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>r.AllowDepthBoundsTest</td><td class="cvar-default">1</td><td>延迟光照渲染时启用深度边界测试优化</td></tr>
+        <tr><td>r.AllowSimpleLights</td><td class="cvar-default">1</td><td>允许简单光源（粒子光）参与光照计算</td></tr>
+        <tr><td>r.LightCulling.Quality</td><td class="cvar-default">--</td><td>光源剔除质量（影响聚簇网格精度）</td></tr>
+        <tr><td>r.Light.MaxDrawDistanceScale</td><td class="cvar-default">--</td><td>光源最大绘制距离缩放</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>10.2 MegaLights</h3>
+  <div class="cvar-table-wrap">
+    <table class="cvar-table">
+      <thead>
+        <tr><th>CVar</th><th>默认值</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>r.MegaLights.Supported</td><td class="cvar-default">1</td><td>项目级 MegaLights 支持（只读，控制 Shader 编译）</td></tr>
+        <tr><td>r.MegaLights.EnableForProject</td><td class="cvar-default">0</td><td>项目默认启用 MegaLights（可由后处理体积覆盖，实验性功能）</td></tr>
+        <tr><td>r.MegaLights.Allowed</td><td class="cvar-default">1</td><td>可伸缩性与设备配置文件允许开关</td></tr>
+        <tr><td>r.MegaLights.NumSamplesPerPixel</td><td class="cvar-default">4</td><td>每像素光源采样数（1/2/4）</td></tr>
+        <tr><td>r.MegaLights.DownsampleMode</td><td class="cvar-default">2</td><td>降采样：0=1x1, 1=2x1棋盘, 2=2x2半分辨率</td></tr>
+        <tr><td>r.MegaLights.GuideByHistory</td><td class="cvar-default">1</td><td>历史帧引导采样（减少被遮挡光源采样概率）</td></tr>
+        <tr><td>r.MegaLights.MinSampleWeight</td><td class="cvar-default">0.001</td><td>最小采样权重</td></tr>
+        <tr><td>r.MegaLights.LightAttenuationFalloff</td><td class="cvar-default">0.18</td><td>光源衰减剔除亮度估计</td></tr>
+        <tr><td>r.MegaLights.LightingDataFormat</td><td class="cvar-default">0</td><td>光照数据格式：0=R11G11B10, 1=Float16_RGBA, 2=Float32_RGBA</td></tr>
+        <tr><td>r.MegaLights.WaveOps</td><td class="cvar-default">1</td><td>使用 Wave 操作优化采样</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>10.3 阴影</h3>
+  <div class="cvar-table-wrap">
+    <table class="cvar-table">
+      <thead>
+        <tr><th>CVar</th><th>默认值</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>r.shadow.ShadowMapsRenderEarly</td><td class="cvar-default">--</td><td>提前渲染阴影贴图（与 VSM 不兼容）</td></tr>
+        <tr><td>r.Shadow.Virtual.Enable</td><td class="cvar-default">1</td><td>启用虚拟阴影贴图</td></tr>
+        <tr><td>r.Shadow.Virtual.ResolutionLodBias</td><td class="cvar-default">--</td><td>VSM 分辨率 LOD 偏移</td></tr>
+        <tr><td>r.Shadow.Virtual.MarkPages</td><td class="cvar-default">--</td><td>VSM 页面标记相关</td></tr>
+        <tr><td>r.Shadow.Virtual.OnePassProjection</td><td class="cvar-default">--</td><td>VSM 单 Pass 投影（允许阴影光进入 Clustered 批处理）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>10.4 间接光照</h3>
+  <div class="cvar-table-wrap">
+    <table class="cvar-table">
+      <thead>
+        <tr><th>CVar</th><th>默认值</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>r.AmbientOcclusion.Method</td><td class="cvar-default">--</td><td>AO 方法选择</td></tr>
+        <tr><td>r.Reflections.Method</td><td class="cvar-default">--</td><td>反射方法选择</td></tr>
+        <tr><td>r.SkyLight.RealTimeReflectionCapture</td><td class="cvar-default">--</td><td>天空光实时反射捕获</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== 11. 核心源码索引 ===== -->
+<section class="section-block" id="source-index">
+  <h2>11. 核心源码索引</h2>
+
+  <div class="source-index">
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/DeferredShadingRenderer.cpp</div>
+      <div class="src-funcs">
+        <strong>总入口与调度：</strong>
+        L1951-L1961 UpdateLightFunctionAtlasTask 异步启动,
+        L2325-L2368 GatherAndSortLightsTask 异步启动 + SortedLightSet 分配,
+        L2826-L2857 PrepareForwardLightData + ComputeLightGridOutput + RenderLightFunctionAtlas,
+        L3053-L3088 CreateMegaLightsFrameTemporaries + DispatchAsyncMegaLightsVolumePasses,
+        L3311-L3330 BeginMarkVirtualShadowMapPages + GenerateMegaLightsSamples + RenderShadowDepthMaps,
+        L3507-L3523 RenderLights + RenderMegaLights + RenderTranslucencyLightingVolume,
+        L3562-L3612 RenderDiffuseIndirectAndAmbientOcclusion + RenderDeferredReflectionsAndSkyLighting
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/LightRendering.cpp</div>
+      <div class="src-funcs">
+        <strong>光源渲染核心：</strong>
+        GatherAndSortLights(L1409) — 光源收集与四段式排序,
+        RenderLights(L1630) — 延迟光照渲染入口（Batched + Unbatched + Clustered）
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/LightGridInjection.cpp</div>
+      <div class="src-funcs">
+        <strong>聚簇网格注入：</strong>
+        PrepareForwardLightData(L1913) — 前向光照数据准备,
+        ComputeLightGrid — 3D 聚簇网格计算
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/LightFunctionAtlas.cpp</div>
+      <div class="src-funcs">
+        <strong>光照函数图集：</strong>
+        FLightFunctionAtlas::RenderLightFunctionAtlas(L580) — 光照函数图集渲染,
+        UpdateLightFunctionAtlasTaskFunction — 图集异步更新回调
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/ClusteredDeferredShadingPass.cpp</div>
+      <div class="src-funcs">
+        <strong>聚簇延迟着色：</strong>
+        ShouldUseClusteredDeferredShading(L59) — 聚类启用条件检查,
+        AddClusteredDeferredShadingPass — 聚类延迟着色 Pass
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/MegaLights/MegaLights.cpp</div>
+      <div class="src-funcs">
+        <strong>MegaLights 主模块：</strong>
+        CreateMegaLightsFrameTemporaries(L2247) — 帧临时资源创建,
+        CVarMegaLights* 系列控制台变量定义,
+        MegaLights::IsEnabled() / GetMegaLightsMode() / UseHardwareRayTracing() 等公共接口
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/MegaLights/MegaLightsSampling.cpp</div>
+      <div class="src-funcs">
+        <strong>随机光源采样：</strong>光源重要性采样、Tile 分类、采样生成
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/MegaLights/MegaLightsRayTracing.cpp</div>
+      <div class="src-funcs">
+        <strong>光线追踪阴影：</strong>HWRT 内联光追阴影射线发射与结果评估
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/MegaLights/MegaLightsDenoising.cpp</div>
+      <div class="src-funcs">
+        <strong>时序降噪：</strong>时间累积 + 空间滤波降噪
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/VirtualShadowMaps/VirtualShadowMapArray.cpp</div>
+      <div class="src-funcs">
+        <strong>VSM 数组管理：</strong>页面分配、物理页池管理、缓存查询
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/VirtualShadowMaps/VirtualShadowMapProjection.cpp</div>
+      <div class="src-funcs">
+        <strong>VSM 投影：</strong>RenderVirtualShadowMapProjectionMaskBits — 生成投影遮罩供光照 Pass
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/Shadows/ShadowSceneRenderer.cpp</div>
+      <div class="src-funcs">
+        <strong>阴影场景渲染：</strong>
+        BeginMarkVirtualShadowMapPages(L866) — VSM 页面标记入口
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/ShadowDepthRendering.cpp</div>
+      <div class="src-funcs">
+        <strong>阴影深度渲染：</strong>
+        RenderShadowDepthMaps(L1836) — 阴影深度贴图渲染（支持 Nanite）
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/IndirectLightRendering.cpp</div>
+      <div class="src-funcs">
+        <strong>间接光照：</strong>
+        RenderDiffuseIndirectAndAmbientOcclusion — 间接漫反射 + AO 合成入口,
+        Lumen 路径间接光合成、SSAO、天空光照漫反射
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/LightSceneInfo.h</div>
+      <div class="src-funcs">
+        <strong>数据结构：</strong>
+        FSortedLightSceneInfo(L115) — 单个排序光源信息,
+        FSortedLightSetSceneInfo(L145) — 排序光源集合（含四段边界变量）
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/SceneRendering.h</div>
+      <div class="src-funcs">
+        <strong>接口声明：</strong>
+        GatherAndSortLights(L2743),
+        PrepareForwardLightData(L2761),
+        RenderShadowDepthMaps(L2647)
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Footer ===== -->
+<footer class="footer">
+  <p>UE5.8.0 渲染流程解读 — 光照系统深度解读 | 基于 DeferredShadingRenderer.cpp 源码分析</p>
+  <p style="margin-top:6px;font-size:0.78rem">Clustered Deferred Shading &middot; MegaLights &middot; VSM &middot; Indirect Lighting</p>
+</footer>
+
+<!-- 回到顶部 -->
+<a href="#" class="back-top" title="回到顶部">&#9650;</a>
+
+</body>
+</html>
