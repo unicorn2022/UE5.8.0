@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>材质体系 — UE5.8.0 渲染流程解读</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --card: #131318;
+  --code: #09090d;
+  --accent: #4FC3F7;
+  --accent-dim: rgba(79,195,247,0.12);
+  --text: #e0e0e0;
+  --text-dim: #909090;
+  --border: rgba(255,255,255,0.06);
+  --font-sans: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  --font-mono: 'Cascadia Code','Fira Code','Consolas',monospace;
+  --warn: #FFB74D;
+  --warn-dim: rgba(255,183,77,0.08);
+  --warn-border: rgba(255,183,77,0.2);
+  --green: #81C784;
+  --green-dim: rgba(129,199,132,0.12);
+  --green-border: rgba(129,199,132,0.2);
+  --purple: #CE93D8;
+  --purple-dim: rgba(206,147,216,0.08);
+  --purple-border: rgba(206,147,216,0.2);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:15px}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--text);line-height:1.72;min-height:100vh}
+a{color:var(--accent);text-decoration:none;transition:0.2s}
+a:hover{text-decoration:underline}
+
+/* ===== 面包屑导航 ===== */
+.breadcrumb{max-width:1200px;margin:0 auto;padding:16px 24px 0;font-size:0.85rem;color:var(--text-dim)}
+.breadcrumb a{color:var(--text-dim)}
+.breadcrumb a:hover{color:var(--accent)}
+.breadcrumb span{color:var(--text)}
+
+/* ===== Hero ===== */
+.hero{text-align:center;padding:60px 24px 48px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:800px;height:400px;background:radial-gradient(ellipse at center,rgba(79,195,247,0.08) 0%,transparent 70%);pointer-events:none}
+.hero h1{font-size:2.4rem;font-weight:800;letter-spacing:0.5px;position:relative}
+.hero h1 span{color:var(--accent)}
+.hero .subtitle{margin-top:12px;font-size:1.05rem;color:var(--text-dim);max-width:720px;margin-inline:auto;position:relative}
+.hero .meta{margin-top:20px;display:flex;gap:16px;justify-content:center;flex-wrap:wrap;position:relative}
+.hero .meta .tag{font-family:var(--font-mono);font-size:0.8rem;padding:4px 14px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-dim)}
+
+/* ===== 章节通用 ===== */
+.section-block{max-width:1100px;margin:0 auto 56px;padding:0 24px}
+.section-block h2{font-size:1.5rem;color:var(--accent);margin-bottom:8px}
+.section-block h3{font-size:1.15rem;color:#fff;margin:24px 0 10px}
+.section-block h4{font-size:0.95rem;color:var(--accent);margin:16px 0 8px;font-weight:600}
+.section-block p{color:var(--text-dim);margin-bottom:10px;font-size:0.92rem}
+.section-block .section-desc{color:var(--text-dim);margin-bottom:20px;font-size:0.92rem}
+.section-block code{font-family:var(--font-mono);font-size:0.85rem;background:var(--code);padding:1px 6px;border-radius:3px;color:var(--accent)}
+
+/* ===== 代码块 ===== */
+.code-block{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:12px 0;font-size:0.8rem;line-height:1.65}
+.code-block code{font-family:var(--font-mono);color:#c8ccd4}
+.code-block .kw{color:#c586c0}
+.code-block .fn{color:#7ec8e3}
+.code-block .cmt{color:#6a9955}
+.code-block .num{color:#b5cea8}
+.code-block .str{color:#ce9178}
+.code-block .arrow{color:var(--text-dim)}
+
+/* ===== 表格 ===== */
+.info-table{width:100%;border-collapse:collapse;font-size:0.88rem;margin:12px 0}
+.info-table th{text-align:left;padding:10px 14px;background:var(--card);color:var(--accent);border-bottom:2px solid rgba(255,255,255,0.08);font-weight:600;font-family:var(--font-mono);font-size:0.78rem}
+.info-table td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top;color:var(--text-dim)}
+.info-table tr:hover td{background:var(--accent-dim)}
+.info-table td code{font-family:var(--font-mono);font-size:0.8rem;background:rgba(79,195,247,0.08);padding:1px 6px;border-radius:3px;color:var(--accent)}
+.info-table td:first-child{font-family:var(--font-mono);font-size:0.8rem;color:var(--accent);white-space:nowrap}
+
+/* ===== CVar 表格 ===== */
+.cvar-table-wrap{overflow-x:auto;margin:12px 0}
+.cvar-table{width:100%;border-collapse:collapse;font-size:0.85rem}
+.cvar-table th{text-align:left;padding:8px 12px;background:var(--card);color:var(--accent);border-bottom:2px solid rgba(255,255,255,0.08);font-weight:600;font-family:var(--font-mono);font-size:0.78rem}
+.cvar-table td{padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:top;color:var(--text-dim)}
+.cvar-table tr:hover td{background:var(--accent-dim)}
+.cvar-table td:first-child{font-family:var(--font-mono);font-size:0.78rem;color:var(--accent);white-space:nowrap}
+.cvar-table .cvar-default{font-family:var(--font-mono);font-size:0.75rem;color:rgba(129,199,132,0.8)}
+
+/* ===== 调用链 ===== */
+.call-chain{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:16px 20px;margin:14px 0;font-size:0.85rem;line-height:1.7}
+.call-chain .chain-main{font-family:var(--font-mono);color:var(--accent);font-weight:600;margin-bottom:6px}
+.call-chain .chain-step{font-family:var(--font-mono);font-size:0.8rem;color:var(--text-dim);padding-left:16px;margin-bottom:3px}
+.call-chain .chain-arrow{color:var(--text-dim);margin:0 4px}
+
+/* ===== 卡片网格 ===== */
+.card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:16px 0}
+.info-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:18px;transition:all 0.2s}
+.info-card:hover{border-color:rgba(79,195,247,0.3)}
+.info-card .card-title{font-size:0.95rem;font-weight:700;color:#fff;margin-bottom:8px}
+.info-card .card-desc{font-size:0.85rem;color:var(--text-dim);line-height:1.55}
+.info-card .card-desc code{font-size:0.78rem}
+.info-card .card-label{font-family:var(--font-mono);font-size:0.72rem;color:var(--warn);letter-spacing:0.5px;margin-bottom:4px}
+
+/* ===== 提示框 ===== */
+.info-callout{margin:14px 0;padding:14px 18px;border-radius:8px;font-size:0.88rem;line-height:1.65}
+.info-callout.accent{background:var(--accent-dim);border:1px solid rgba(79,195,247,0.2);color:var(--text-dim)}
+.info-callout.accent strong{color:var(--accent)}
+.info-callout.warn{background:var(--warn-dim);border:1px solid var(--warn-border);color:var(--text-dim)}
+.info-callout.warn strong{color:var(--warn)}
+.info-callout.green{background:var(--green-dim);border:1px solid var(--green-border);color:var(--text-dim)}
+.info-callout.green strong{color:var(--green)}
+.info-callout.purple{background:var(--purple-dim);border:1px solid var(--purple-border);color:var(--text-dim)}
+.info-callout.purple strong{color:var(--purple)}
+
+/* ===== SVG 容器 ===== */
+.svg-section{max-width:1300px;margin:0 auto 56px;padding:0 24px}
+.svg-section h2{text-align:center;font-size:1.5rem;color:var(--accent);margin-bottom:8px}
+.svg-section .section-desc{text-align:center;color:var(--text-dim);margin-bottom:24px;font-size:0.92rem}
+.svg-container{overflow-x:auto;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px 16px}
+
+/* ===== 列表 ===== */
+.info-list{padding-left:1.4em;font-size:0.9rem;color:var(--text-dim);margin:8px 0}
+.info-list li{margin-bottom:5px}
+.info-list li code{font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 6px;border-radius:3px;color:var(--accent)}
+
+/* ===== 源码索引 ===== */
+.source-index{display:flex;flex-direction:column;gap:10px;margin:12px 0}
+.source-item{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 18px;transition:all 0.2s}
+.source-item:hover{border-color:rgba(79,195,247,0.3)}
+.source-item .src-path{font-family:var(--font-mono);font-size:0.76rem;color:var(--accent);margin-bottom:4px;word-break:break-all}
+.source-item .src-funcs{font-size:0.82rem;color:var(--text-dim)}
+
+/* ===== Footer ===== */
+.footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);color:var(--text-dim);font-size:0.83rem}
+
+/* ===== 回到顶部 ===== */
+.back-top{position:fixed;bottom:32px;right:32px;width:40px;height:40px;border-radius:50%;background:var(--card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--text-dim);transition:all 0.2s;z-index:100}
+.back-top:hover{color:var(--accent);border-color:var(--accent);text-decoration:none}
+
+/* ===== 响应式 ===== */
+@media(max-width:768px){
+  .hero{padding:40px 18px 32px}
+  .hero h1{font-size:1.6rem}
+  .card-grid{grid-template-columns:1fr}
+  .svg-container{padding:12px 8px}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 面包屑导航 ===== -->
+<nav class="breadcrumb">
+  <a href="../../index.html">首页</a> &nbsp;&rsaquo;&nbsp;
+  <a href="../01-管线总览/index.html">管线总览</a> &nbsp;&rsaquo;&nbsp;
+  <span>材质体系</span>
+</nav>
+
+<!-- ===== Hero ===== -->
+<section class="hero">
+  <h1>材质<span>体系</span></h1>
+  <p class="subtitle">从 UMaterial 蓝图到 GPU Shader 的全路径转化：材质编译（ShaderMap）、渲染代理（MaterialRenderProxy）、MeshDrawCommand 排序与批处理、GBuffer 编码写入、Nanite 延迟材质着色、Substrate 材质分类框架。</p>
+  <div class="meta">
+    <span class="tag">Material.cpp / MaterialRenderProxy.cpp</span>
+    <span class="tag">BasePassRendering.cpp</span>
+    <span class="tag">MeshPassProcessor.cpp</span>
+    <span class="tag">GBuffer 五通道编码</span>
+    <span class="tag">Substrate</span>
+    <span class="tag">MeshDrawCommand</span>
+  </div>
+</section>
+
+<!-- ===== 1. 管线中的位置 ===== -->
+<section class="section-block" id="pipeline-position">
+  <h2>1. 管线中的位置</h2>
+  <p class="section-desc">材质贯穿 UE5.8 渲染管线的多个核心阶段，从 BasePass 的 GBuffer 写入到延迟光照的 BRDF 计算，再到半透明前向着色和 Nanite 延迟材质着色。每一个渲染阶段都需要通过 <code>FMaterialRenderProxy</code> 和 <code>FMaterial</code> 获取材质属性。</p>
+
+  <p>在 <code>FDeferredShadingSceneRenderer::Render()</code> 中，材质相关的关键节点如下：</p>
+
+  <table class="info-table">
+    <thead>
+      <tr><th>阶段 / 行号</th><th>关键函数</th><th>材质作用</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Phase 3 — L2241</td>
+        <td><code>FinishGatherDynamicMeshElements</code></td>
+        <td>完成所有动态网格元素收集，生成 MeshDrawCommand 列表。每个命令包含材质排序键（SortKey）、PSO 初始状态、Shader 绑定。</td>
+      </tr>
+      <tr>
+        <td>Phase 4 — L2516</td>
+        <td><code>RenderNanite</code></td>
+        <td>Nanite 光栅化阶段不直接使用材质，但为后续着色阶段准备 VisBuffer64（三角形 ID 编码），供材质查询使用。</td>
+      </tr>
+      <tr>
+        <td>Phase 4-5 间隙 — L2729</td>
+        <td><code>Nanite::BuildShadingCommands</code></td>
+        <td>CPU 端提前构建 Nanite 着色命令，将 VisBuffer 像素按材质分组（Material Bin），为 Compute Shader 着色做准备。</td>
+      </tr>
+      <tr>
+        <td>Phase 5 — L3098</td>
+        <td><code>RenderBasePass</code></td>
+        <td>BasePass 核心入口：传统几何通过 FMeshDrawCommand 硬件光栅化写入 GBuffer；Nanite 通过 Compute Shader 遍历 ShadingBin 写入 GBuffer。</td>
+      </tr>
+      <tr>
+        <td>Phase 5 — L3216</td>
+        <td><code>Substrate::AddSubstrateDBufferBasePass</code></td>
+        <td>Substrate 框架下的 DBuffer 贴花材质投影到 GBuffer。</td>
+      </tr>
+      <tr>
+        <td>Phase 5 — L3223</td>
+        <td><code>Substrate::AddSubstrateMaterialClassificationPass</code></td>
+        <td>Substrate 材质分类 Pass（像素级材质分类），为随机光照分类提供分类图。</td>
+      </tr>
+      <tr>
+        <td>Phase 6 — L3507</td>
+        <td><code>RenderLights</code></td>
+        <td>延迟光照计算阶段：读取 GBuffer 中的材质属性（法线、粗糙度、金属度、BaseColor），评估每个光源的 BRDF 贡献。</td>
+      </tr>
+      <tr>
+        <td>Phase 7 — L4057</td>
+        <td><code>RenderTranslucency</code></td>
+        <td>半透明渲染：使用前向渲染路径，按混合模式排序，支持折射扭曲和 OIT 乱序透明。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-callout accent">
+    <strong>关键理解：</strong>材质不是单独的一个"Pass"，而是贯穿全管线的<strong>数据源</strong>。每条 MeshDrawCommand 绑定一组材质 Shader + Uniform Buffer，GPU 在每次 DrawCall 时根据绑定的材质资源计算像素着色结果。材质决定了每个像素写入 GBuffer 的 bit 级内容、BRDF 计算中的响应函数、混合模式下的颜色合成方式。
+  </div>
+</section>
+
+<!-- ===== 2. 核心概念 ===== -->
+<section class="section-block" id="core-concepts">
+  <h2>2. 核心概念</h2>
+  <p class="section-desc">理解 UE5.8 材质系统需要掌握从 UObject 到 GPU Shader 的完整数据转化路径。</p>
+
+  <h3>2.1 材质全路径转化链</h3>
+
+  <!-- SVG: 材质转化流程图 -->
+  <div class="svg-container" style="margin-bottom:28px">
+    <svg viewBox="0 0 1100 560" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrowA" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 Z" fill="#4FC3F7" opacity="0.7"/>
+        </marker>
+        <linearGradient id="boxGrad1" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="rgba(79,195,247,0.15)" stop-opacity="1"/>
+          <stop offset="100%" stop-color="rgba(79,195,247,0.04)" stop-opacity="1"/>
+        </linearGradient>
+        <linearGradient id="boxGrad2" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="rgba(255,183,77,0.15)" stop-opacity="1"/>
+          <stop offset="100%" stop-color="rgba(255,183,77,0.04)" stop-opacity="1"/>
+        </linearGradient>
+        <linearGradient id="boxGrad3" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="rgba(129,199,132,0.15)" stop-opacity="1"/>
+          <stop offset="100%" stop-color="rgba(129,199,132,0.04)" stop-opacity="1"/>
+        </linearGradient>
+      </defs>
+
+      <!-- 第一列：GameThread 层 -->
+      <text x="180" y="28" text-anchor="middle" font-size="13" font-weight="bold" fill="#4FC3F7">GameThread (CPU)</text>
+
+      <rect x="30" y="42" width="300" height="56" rx="8" fill="url(#boxGrad1)" stroke="rgba(79,195,247,0.25)"/>
+      <text x="180" y="66" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">UMaterial / UMaterialInstance</text>
+      <text x="180" y="86" text-anchor="middle" font-size="10" fill="var(--text-dim)">材质蓝图资源：节点图 &#8594; HLSL 代码</text>
+
+      <line x1="180" y1="98" x2="180" y2="130" stroke="#4FC3F7" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowA)"/>
+
+      <rect x="30" y="136" width="300" height="56" rx="8" fill="url(#boxGrad1)" stroke="rgba(79,195,247,0.25)"/>
+      <text x="180" y="160" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">FMaterialResource</text>
+      <text x="180" y="180" text-anchor="middle" font-size="10" fill="var(--text-dim)">编译后 ShaderMap + QualityLevel 参数</text>
+
+      <line x1="180" y1="192" x2="180" y2="224" stroke="#4FC3F7" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowA)"/>
+
+      <rect x="30" y="230" width="300" height="56" rx="8" fill="url(#boxGrad1)" stroke="rgba(79,195,247,0.25)"/>
+      <text x="180" y="254" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">FMaterialShaderMap</text>
+      <text x="180" y="274" text-anchor="middle" font-size="10" fill="var(--text-dim)">FMaterialShaderType → FShader Hash</text>
+
+      <!-- 跨线程箭头 -->
+      <text x="440" y="160" text-anchor="middle" font-size="11" fill="var(--warn)">RenderThread</text>
+      <line x1="330" y1="200" x2="460" y2="200" stroke="#FFB74D" stroke-width="1.2" opacity="0.6" marker-end="url(#arrowA)"/>
+
+      <!-- 第二列：RenderThread 层 -->
+      <text x="700" y="28" text-anchor="middle" font-size="13" font-weight="bold" fill="#FFB74D">RenderThread (CPU/GPU)</text>
+
+      <rect x="520" y="42" width="360" height="56" rx="8" fill="url(#boxGrad2)" stroke="rgba(255,183,77,0.25)"/>
+      <text x="700" y="66" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">FMaterialRenderProxy</text>
+      <text x="700" y="86" text-anchor="middle" font-size="10" fill="var(--text-dim)">UMaterial &#8594; FMaterial 桥接；支持 MID 参数覆盖</text>
+
+      <line x1="700" y1="98" x2="700" y2="130" stroke="#FFB74D" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowA)"/>
+
+      <rect x="520" y="136" width="360" height="56" rx="8" fill="url(#boxGrad2)" stroke="rgba(255,183,77,0.25)"/>
+      <text x="700" y="160" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">Uniform Expression Cache</text>
+      <text x="700" y="180" text-anchor="middle" font-size="10" fill="var(--text-dim)">FillUniformBuffer → MaterialUB (GPU CB)</text>
+
+      <line x1="700" y1="192" x2="700" y2="224" stroke="#FFB74D" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowA)"/>
+
+      <rect x="520" y="230" width="360" height="56" rx="8" fill="url(#boxGrad2)" stroke="rgba(255,183,77,0.25)"/>
+      <text x="700" y="254" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">FMeshDrawCommand</text>
+      <text x="700" y="274" text-anchor="middle" font-size="10" fill="var(--text-dim)">排序键 + PSO + Shader 绑定 → DrawCall</text>
+
+      <!-- 箭头到 GPU 执行 -->
+      <line x1="700" y1="286" x2="700" y2="322" stroke="#81C784" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowA)"/>
+
+      <!-- 第三部分：GPU 执行 -->
+      <text x="700" y="350" text-anchor="middle" font-size="13" font-weight="bold" fill="#81C784">GPU 执行阶段</text>
+
+      <rect x="430" y="368" width="540" height="56" rx="8" fill="url(#boxGrad3)" stroke="rgba(129,199,132,0.25)"/>
+      <text x="700" y="392" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">Pixel Shader / Compute Shader</text>
+      <text x="700" y="412" text-anchor="middle" font-size="10" fill="var(--text-dim)">采样 MaterialUB + 纹理 → 计算 BaseColor/Normal/Roughness → 写入 GBuffer</text>
+
+      <line x1="700" y1="424" x2="700" y2="460" stroke="#81C784" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowA)"/>
+
+      <!-- GBuffer 输出 -->
+      <rect x="30" y="466" width="1040" height="48" rx="8" fill="rgba(79,195,247,0.03)" stroke="rgba(79,195,247,0.08)"/>
+      <text x="550" y="486" text-anchor="middle" font-size="12" font-weight="bold" fill="var(--accent)">GBuffer 输出：A(WorldNormal) | B(Metallic/Specular/Roughness/ShadingModel) | C(BaseColor) | D(CustomData) | E(Emissive/ShadowFactor)</text>
+      <text x="550" y="504" text-anchor="middle" font-size="10" fill="var(--text-dim)">传统路径 (PS 写入) 与 Nanite 路径 (CS 写入) 输出格式完全一致，延迟光照统一读取</text>
+
+      <!-- 侧边标注 -->
+      <text x="915" y="68" font-size="10" font-family="monospace" fill="var(--text-dim)">Material.cpp:184</text>
+      <text x="915" y="88" font-size="10" font-family="monospace" fill="var(--text-dim)">FMaterialResource</text>
+      <line x1="900" y1="80" x2="330" y2="75" stroke="var(--text-dim)" stroke-width="0.5" opacity="0.3"/>
+
+      <text x="915" y="164" font-size="10" font-family="monospace" fill="var(--text-dim)">MaterialRenderProxy.cpp</text>
+      <text x="915" y="184" font-size="10" font-family="monospace" fill="var(--text-dim)">UpdateUniformExpressionCacheIfNeeded</text>
+      <line x1="900" y1="175" x2="520" y2="165" stroke="var(--text-dim)" stroke-width="0.5" opacity="0.3"/>
+
+      <text x="915" y="258" font-size="10" font-family="monospace" fill="var(--text-dim)">MeshPassProcessor.cpp</text>
+      <text x="915" y="278" font-size="10" font-family="monospace" fill="var(--text-dim)">FMeshDrawCommandSortKey</text>
+      <line x1="900" y1="270" x2="520" y2="260" stroke="var(--text-dim)" stroke-width="0.5" opacity="0.3"/>
+    </svg>
+  </div>
+
+  <h3>2.2 核心数据结构关系</h3>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-title">UMaterial (GameThread)</div>
+      <div class="card-desc">
+        材质蓝图资源，存储在 <code>Material.cpp</code>。包含材质表达式节点图（<code>UMaterialExpression*</code>），通过 <code>FMaterialCompiler</code> 翻译为 HLSL 代码。<code>MaterialDomain</code> 属性决定材质用途：Surface / DeferredDecal / LightFunction / Volume / PostProcess。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">FMaterialRenderProxy (RenderThread)</div>
+      <div class="card-desc">
+        材质渲染代理，位于 <code>MaterialRenderProxy.cpp</code>。GameThread 与 RenderThread 之间的桥接层。维护 <code>UniformExpressionCache</code>（每 FeatureLevel 一份），通过 <code>UpdateUniformExpressionCacheIfNeeded</code> 将材质参数填充到 GPU Uniform Buffer。支持 <code>FColoredMaterialRenderProxy</code> 等派生类。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">FMaterial / FMaterialResource</div>
+      <div class="card-desc">
+        编译后的运行时材质表示。包含 <code>FMaterialShaderMap</code>（材质类型→Shader 映射），通过 <code>GetRenderingThreadShaderMap()</code> 获取。提供 BRDF 查询接口（GetShadingModel、GetBlendMode 等）供渲染管线决策。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">FMeshDrawCommand</div>
+      <div class="card-desc">
+        渲染器内部的 DrawCall 封装，位于 <code>MeshPassProcessor.cpp</code>。包含 <code>FMeshDrawCommandSortKey</code>（排序键）、<code>FGraphicsMinimalPipelineStateId</code>（PSO 缓存）、Shader 绑定列表、顶点/索引缓冲区引用。Renderer 通过此结构提交最终的 GPU DrawCall。
+      </div>
+    </div>
+  </div>
+
+  <h3>2.3 材质域（MaterialDomain）分类</h3>
+
+  <table class="info-table">
+    <thead>
+      <tr><th>枚举值</th><th>适用场景</th><th>涉及的渲染 Pass</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>MD_Surface</code></td><td>标准 3D 表面材质（不透明/半透明）</td><td>BasePass (GBuffer)、Translucency Pass、Nanite Shading</td></tr>
+      <tr><td><code>MD_DeferredDecal</code></td><td>延迟贴花材质</td><td>DBuffer 渲染投影到 GBuffer</td></tr>
+      <tr><td><code>MD_LightFunction</code></td><td>光照函数材质（光源遮罩/衰减）</td><td>LightFunctionAtlas 渲染 → Clustered 采样</td></tr>
+      <tr><td><code>MD_Volume</code></td><td>体积材质（雾、云等）</td><td>体积渲染 Pass</td></tr>
+      <tr><td><code>MD_PostProcess</code></td><td>后处理材质</td><td>后处理管线（Bloom、Tonemap、色彩分级等）</td></tr>
+    </tbody>
+  </table>
+
+  <div class="info-callout accent">
+    <strong>MaterialDomain 定义位置：</strong><code>Engine/Source/Runtime/Engine/Public/MaterialDomain.h</code>（UENUM 声明）。<code>UMaterial::MaterialDomain</code> 属性在蓝图编辑器中由用户设置，编译时决定材质的入口 Shader 类型。
+  </div>
+</section>
+
+<!-- ===== 3. 材质与 MeshDrawCommand ===== -->
+<section class="section-block" id="mesh-draw-command">
+  <h2>3. 材质与 MeshDrawCommand</h2>
+  <p class="section-desc">MeshDrawCommand 是渲染器内部的 DrawCall 原子封装，每条命令都绑定了一套完整的材质 Shader + 渲染状态。理解 MeshDrawCommand 的结构是理解材质渲染的关键。</p>
+
+  <h3>3.1 FMeshDrawCommand 结构</h3>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-label">组件 1</div>
+      <div class="card-title">FMeshDrawCommandSortKey</div>
+      <div class="card-desc">
+        64 位排序键，分为三种布局：
+        <br/><strong>Opaque（不透明）：</strong>16-bit VertexShaderHash + 32-bit PixelShaderHash + 16-bit MeshPass
+        <br/><strong>Translucent（半透明）：</strong>16-bit Priority + 16-bit MeshPass + 32-bit Distance（从远到近或从近到远）
+        <br/><strong>Generic：</strong>32-bit VertexShaderHash + 32-bit PixelShaderHash
+        <br/>位于 <code>MeshPassProcessor.h:1536</code>。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-label">组件 2</div>
+      <div class="card-title">FGraphicsMinimalPipelineStateId</div>
+      <div class="card-desc">
+        PSO（Pipeline State Object）最小描述符的唯一 ID。基于 RasterizerState + BlendState + DepthStencilState 哈希生成的索引，存储在全局 <code>PersistentIdTable</code> 中。同一 PSO 的 DrawCall 可以合并批处理，大幅减少 GPU 状态切换。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-label">组件 3</div>
+      <div class="card-title">Shader 绑定</div>
+      <div class="card-desc">
+        Vertex Shader + Pixel Shader（或 Compute Shader）的 <code>FRHIShader</code> 引用 + Shader Resource 参数绑定表。每个命令绑定一个 <code>MaterialUB</code>（Uniform Buffer），包含材质常数、纹理 SRV、采样器状态等。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-label">组件 4</div>
+      <div class="card-title">几何数据</div>
+      <div class="card-desc">
+        Index Buffer + Vertex Buffer 引用、图元数量、顶点工厂类型（<code>FLocalVertexFactory</code> 等）。通过 <code>FVisibleMeshDrawCommand</code> 包裹，在 <code>InitViews</code> 阶段确定可见性后提交到 Pass。
+      </div>
+    </div>
+  </div>
+
+  <h3>3.2 FinishGatherDynamicMeshElements 的作用</h3>
+
+  <p><code>FinishGatherDynamicMeshElements</code> 在可见性计算完成后调用（DeferredShadingRenderer.cpp L2241），负责：</p>
+
+  <div class="call-chain">
+    <div class="chain-main">InitViewTaskDatas.VisibilityTaskData->FinishGatherDynamicMeshElements(BasePassDepthStencilAccess, InstanceCullingManager, VirtualTextureUpdater.Get())</div>
+    <div class="chain-step">1. 遍历所有可见图元，对每个 Section 调用 <code>FMeshPassProcessor::AddMeshBatch</code>（BasePass / DepthPass / 等 EMeshPass）</div>
+    <div class="chain-step">2. 对每个 FMeshBatch，通过 <code>BuildMeshDrawCommands</code> 生成 <code>FMeshDrawCommand</code>：绑定材质 Shader、计算 SortKey、创建或查找 PSO ID</div>
+    <div class="chain-step">3. 将生成的 FMeshDrawCommand 添加到 Pass 对应的 <code>FDynamicMeshDrawCommandStorage</code> 中</div>
+    <div class="chain-step">4. 实例裁剪管理器（InstanceCullingManager）收集所有图元的 MeshDrawCommand，准备 GPU 端的实例裁剪</div>
+    <div class="chain-step">5. 虚拟纹理更新器（VirtualTextureUpdater）提交本帧需要的 VT 页面请求</div>
+  </div>
+
+  <div class="info-callout accent">
+    <strong>设计要点：</strong>FinishGatherDynamicMeshElements 是 CPU 端渲染任务中最昂贵的一环。它需要为每个可见的材质 Section 调用 Shader 编译器生成的 Shader 绑定代码。UE5.8 通过 PSO 缓存（跳过已编译的 PSO）、StateBucket 合批（相同 SortKey + PSO 的 DrawCall 合并为 Instancing）、以及延迟队列（异步生成命令）来优化此阶段。
+  </div>
+
+  <h3>3.3 DrawCall 排序与批处理策略</h3>
+
+  <p>生成的 FMeshDrawCommand 按 SortKey 排序后形成三个处理区间，与光照系统三桶分类类似：</p>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-title">Opaque（不透明）</div>
+      <div class="card-desc">
+        按 VertexShaderHash + PixelShaderHash + MeshPass 排序。相同 Shader 的 DrawCall 聚集在一起，最大化 PSO 复用。不透明物体从前到后渲染（利用 Early-Z），不需要逐像素排序。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">Masked（遮罩）</div>
+      <div class="card-desc">
+        与 Opaque 相同的排序键布局，但需要执行 Alpha Test（discard）。在 Opaque 之后渲染以确保遮罩像素不会错误遮挡半透明物体。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">Translucent（半透明）</div>
+      <div class="card-desc">
+        按 Priority + MeshPass + Distance 排序。支持从远到近（BackToFront）或从近到远（FrontToBack）两种排序模式，取决于混合操作的类型（加法混合通常从远到近，乘法混合从近到远）。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 4. BasePass 中的材质 ===== -->
+<section class="section-block" id="basepass-material">
+  <h2>4. BasePass 中的材质</h2>
+  <p class="section-desc">BasePass 是材质属性的"写入"阶段。传统几何体通过 FMeshDrawCommand 硬件光栅化写入 GBuffer，Nanite 几何体通过 Compute Shader 着色路径写入同一组 GBuffer。</p>
+
+  <h3>4.1 RenderBasePass 函数签名</h3>
+
+  <div class="code-block"><code><span class="cmt">// DeferredShadingRenderer.cpp L3094-L3098</span>
+<span class="fn">RenderBasePass</span>(*this, GraphBuilder, Views, SceneTextures,
+    BasePassDepthStencilAccess,
+    ForwardScreenSpaceShadowMaskTexture,
+    InstanceCullingManager,
+    bNaniteEnabled,
+    Scene-&gt;NaniteShadingCommands[ENaniteMeshPass::BasePass],
+    NaniteRasterResults);</code></div>
+
+  <p>在内部，BasePass 遍历所有 <code>EMeshPass::BasePass</code> 的可见 MeshDrawCommand（由 FinishGatherDynamicMeshElements 生成），执行两组独立的渲染：</p>
+
+  <div class="call-chain">
+    <div class="chain-main">RenderBasePass 内部双路径</div>
+    <div class="chain-step"><strong>路径 1（传统几何）：</strong>通过 <code>FBasePassMeshProcessor</code> 遍历可见 MeshDrawCommand，使用硬件光栅化管线（IA → VS → PS）。Pixel Shader 计算材质属性并写入 GBuffer。</div>
+    <div class="chain-step"><strong>路径 2（Nanite 几何）：</strong>通过 <code>Scene->NaniteShadingCommands[ENaniteMeshPass::BasePass]</code> 传入预构建的 Nanite 着色命令。Compute Shader 按 ShadingBin 分组执行，从 VisBuffer64 解码三角形 ID，计算材质属性并写入 GBuffer。</div>
+  </div>
+
+  <h3>4.2 GBuffer 通道编码详解</h3>
+
+  <p>GBuffer 是延迟渲染的核心数据结构，共五张 RT（A/B/C/D/E），加上 <code>LightingChannelsTexture</code> 和 <code>SceneDepth</code> 构成完整的材质数据输出。以下表格为 UE5.8 默认模式的编码格式：</p>
+
+  <table class="info-table">
+    <thead>
+      <tr><th>通道</th><th>格式</th><th>存储内容</th><th>位级编码说明</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>GBufferA</td>
+        <td>R10G10B10A2 UNorm</td>
+        <td>WorldNormal.xyz + PerObjectGBufferData</td>
+        <td><strong>RGB:</strong> 世界空间法线（编码为 R10G10B10）<br/><strong>A(2bit):</strong> PerObjectGBufferData（HasShadowCast 标志）</td>
+      </tr>
+      <tr>
+        <td>GBufferB</td>
+        <td>R8G8B8A8 UNorm</td>
+        <td>Metallic + Specular + Roughness + ShadingModelID</td>
+        <td><strong>R:</strong> Metallic（金属度 0-1）<br/><strong>G:</strong> Specular（高光度 0-1）<br/><strong>B:</strong> Roughness（粗糙度 0-1）<br/><strong>A:</strong> ShadingModelID（着色模型选择，4bit） + SelectiveOutputMask（4bit）</td>
+      </tr>
+      <tr>
+        <td>GBufferC</td>
+        <td>R8G8B8A8 sRGB</td>
+        <td>BaseColor.rgb + IndirectIrradiance</td>
+        <td><strong>RGB(sRGB):</strong> BaseColor（基础色）<br/><strong>A:</strong> IndirectIrradiance（间接辐照度，预烘焙时有效）</td>
+      </tr>
+      <tr>
+        <td>GBufferD</td>
+        <td>R8G8B8A8 UNorm</td>
+        <td>CustomData (Subsurface / ClearCoat / etc.)</td>
+        <td>内容取决于 ShadingModel：<br/>Subsurface: SubsurfaceColor + Opacity<br/>ClearCoat: ClearCoat + ClearCoatRoughness<br/>Hair: 发丝散射/高光参数<br/>Default: 未使用</td>
+      </tr>
+      <tr>
+        <td>GBufferE</td>
+        <td>R8G8B8A8 UNorm</td>
+        <td>PrecomputedShadowFactors + Emissive</td>
+        <td><strong>R:</strong> PrecomputedShadowFactor（预计算阴影因子）<br/><strong>GB:</strong> CustomData 扩展或未使用<br/><strong>A:</strong> Emissive（自发光强度）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-callout green">
+    <strong>Nanite 与传统路径兼容性：</strong>Nanite Compute Shader 写入的 GBuffer 格式与传统 Pixel Shader 写入的格式完全一致。延迟光照阶段无需区分几何体来源——GBuffer 统一采样器同时适用于两条路径。这是 Nanite 与现有管线无缝集成的核心设计保证。
+  </div>
+
+  <h3>4.3 材质属性与 ShadingModel 选择</h3>
+
+  <p><code>GBufferB.A</code> 中的 <code>ShadingModelID</code> 是决定延迟光照如何解释 GBuffer 数据的关键。每个 ShadingModel 在 BasePass Pixel Shader 中有独立的编码路径，在延迟光照阶段有对应的 BRDF 解码路径：</p>
+
+  <ul class="info-list">
+    <li><strong>ShadingModelID 编码：</strong>BasePass 的 Pixel Shader 根据材质选择的 ShadingModel 将对应的属性（CustomData、Specular 等）写入 GBufferD/GBufferE</li>
+    <li><strong>ShadingModelID 解码：</strong>延迟光照 BRDF 评估时，先读取 <code>GBufferB.A</code> 获取 ShadingModelID，再按对应路径解码 GBufferD/GBufferE 中的自定义数据</li>
+    <li><strong>Substrate 扩展：</strong>启用 Substrate 后，GBuffer 布局可能不同（分类图优先），但原理相同——<code>Substrate::AddSubstrateMaterialClassificationPass</code> 在 BasePass 后添加材质分类 Pass</li>
+  </ul>
+</section>
+
+<!-- ===== 5. Nanite 中的材质 ===== -->
+<section class="section-block" id="nanite-material">
+  <h2>5. Nanite 中的材质</h2>
+  <p class="section-desc">Nanite 采用延迟材质着色（Deferred Material Shading）方案：先将所有可见三角形 ID 记录到 VisBuffer，再将像素按材质分组（Material Bin），最后用 Compute Shader 批量计算材质属性。</p>
+
+  <h3>5.1 从 BuildShadingCommands 到 GBuffer 的全流程</h3>
+
+  <!-- SVG: Nanite 材质着色流程 -->
+  <div class="svg-container" style="margin-bottom:28px">
+    <svg viewBox="0 0 1000 420" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrowA2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 Z" fill="#4FC3F7" opacity="0.7"/>
+        </marker>
+        <marker id="arrowW" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 Z" fill="#FFB74D" opacity="0.5"/>
+        </marker>
+      </defs>
+
+      <text x="500" y="24" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">Nanite 延迟材质着色：Material Bin → Shading Command → Compute Shader → GBuffer Write</text>
+
+      <!-- 阶段 1: VisBuffer -->
+      <rect x="40" y="48" width="200" height="60" rx="8" fill="var(--card)" stroke="rgba(79,195,247,0.2)"/>
+      <text x="140" y="72" text-anchor="middle" font-size="12" font-weight="bold" fill="var(--accent)">VisBuffer64</text>
+      <text x="140" y="94" text-anchor="middle" font-size="10" fill="var(--text-dim)">Depth(32bit) | TriID(29bit) | Flags(3bit)</text>
+
+      <line x1="240" y1="78" x2="278" y2="78" stroke="#4FC3F7" stroke-width="1.2" opacity="0.6" marker-end="url(#arrowA2)"/>
+
+      <!-- 阶段 2: ShadingMask -->
+      <rect x="285" y="48" width="200" height="60" rx="8" fill="var(--card)" stroke="rgba(255,183,77,0.2)"/>
+      <text x="385" y="72" text-anchor="middle" font-size="12" font-weight="bold" fill="var(--warn)">ShadeBinning</text>
+      <text x="385" y="94" text-anchor="middle" font-size="10" fill="var(--text-dim)">Scan VisBuffer → Assign ShadingBin</text>
+
+      <line x1="485" y1="78" x2="523" y2="78" stroke="#FFB74D" stroke-width="1.2" opacity="0.6" marker-end="url(#arrowW)"/>
+
+      <!-- 阶段 3: Material Bins -->
+      <rect x="530" y="48" width="200" height="60" rx="8" fill="var(--card)" stroke="rgba(129,199,132,0.2)"/>
+      <text x="630" y="72" text-anchor="middle" font-size="12" font-weight="bold" fill="var(--green)">Material Bin 分组</text>
+      <text x="630" y="94" text-anchor="middle" font-size="10" fill="var(--text-dim)">ShadingBin Reserve → ShadingGroup CS</text>
+
+      <line x1="730" y1="78" x2="768" y2="78" stroke="#81C784" stroke-width="1.2" opacity="0.6" marker-end="url(#arrowA2)"/>
+
+      <!-- 阶段 4: Shading Commands -->
+      <rect x="775" y="48" width="195" height="60" rx="8" fill="var(--card)" stroke="rgba(79,195,247,0.2)"/>
+      <text x="872" y="72" text-anchor="middle" font-size="12" font-weight="bold" fill="var(--accent)">Shading Dispatch</text>
+      <text x="872" y="94" text-anchor="middle" font-size="10" fill="var(--text-dim)">RecordParams → Indirect CS Dispatch</text>
+
+      <!-- 下行数据流 -->
+      <line x1="500" y1="108" x2="500" y2="146" stroke="#4FC3F7" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowA2)"/>
+
+      <!-- 阶段 5: Compute Shader -->
+      <rect x="140" y="154" width="720" height="60" rx="8" fill="rgba(79,195,247,0.05)" stroke="rgba(79,195,247,0.12)"/>
+      <text x="500" y="178" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">Compute Shader 着色 (FNaniteShadingPassParameters)</text>
+      <text x="500" y="200" text-anchor="middle" font-size="10" fill="var(--text-dim)">SV_DispatchThreadID → ShadingMask[XY] → Decode TriID → Material Param CB → Evaluate BRDF → Write GBuffer</text>
+
+      <!-- 输出 -->
+      <line x1="500" y1="214" x2="500" y2="252" stroke="#81C784" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowA2)"/>
+
+      <rect x="40" y="258" width="920" height="48" rx="8" fill="rgba(129,199,132,0.05)" stroke="rgba(129,199,132,0.12)"/>
+      <text x="500" y="278" text-anchor="middle" font-size="12" font-weight="bold" fill="var(--green)">GBuffer(A/B/C/D/E) + LightingChannelsTexture</text>
+      <text x="500" y="298" text-anchor="middle" font-size="10" fill="var(--text-dim)">与传统 BasePass 产出格式完全一致，延迟光照统一读取</text>
+
+      <!-- 底部对比区域 -->
+      <rect x="40" y="326" width="440" height="84" rx="8" fill="rgba(79,195,247,0.03)" stroke="rgba(79,195,247,0.08)"/>
+      <text x="260" y="350" text-anchor="middle" font-size="13" font-weight="bold" fill="var(--accent)">传统路径 (Pixel Shader)</text>
+      <text x="260" y="370" text-anchor="middle" font-size="10" fill="var(--text-dim)">IA → VS → Rasterizer → PS → 逐像素计算材质 &#8594; GBuffer</text>
+      <text x="260" y="390" text-anchor="middle" font-size="10" fill="var(--text-dim)">优点：简单直接 | 缺点：Overdraw 浪费</text>
+
+      <rect x="520" y="326" width="440" height="84" rx="8" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.08)"/>
+      <text x="740" y="350" text-anchor="middle" font-size="13" font-weight="bold" fill="var(--warn)">Nanite 路径 (Compute Shader)</text>
+      <text x="740" y="370" text-anchor="middle" font-size="10" fill="var(--text-dim)">VisBuffer → ShadingBin → CS 批处理 → GBuffer</text>
+      <text x="740" y="390" text-anchor="middle" font-size="10" fill="var(--text-dim)">优点：零 Overdraw | 缺点：额外 Material Bin Pass</text>
+    </svg>
+  </div>
+
+  <h3>5.2 提前执行优化</h3>
+
+  <p><code>Nanite::BuildShadingCommands</code> 在预通道后立即执行（L2729），而非等到 BasePass 阶段。源码注释明确阐述：</p>
+
+  <div class="code-block"><code><span class="cmt">// DeferredShadingRenderer.cpp L2725-L2734</span>
+<span class="cmt">// Run Nanite compute commands early in the frame to allow some task overlap</span>
+<span class="cmt">// on the CPU until the base pass runs.</span>
+<span class="kw">if</span> (bNaniteEnabled &amp;&amp; RendererOutput != ERendererOutput::DepthPrepassOnly)
+{
+    <span class="fn">Nanite::BuildShadingCommands</span>(GraphBuilder, *Scene, ENaniteMeshPass::BasePass,
+        Scene-&gt;NaniteShadingCommands[ENaniteMeshPass::BasePass]);
+
+    <span class="kw">if</span> (bAnyLumenEnabled &amp;&amp; RendererOutput == ERendererOutput::FinalSceneColor)
+    {
+        <span class="fn">Nanite::BuildShadingCommands</span>(GraphBuilder, *Scene, ENaniteMeshPass::LumenCardCapture,
+            Scene-&gt;NaniteShadingCommands[ENaniteMeshPass::LumenCardCapture]);
+    }
+}</code></div>
+
+  <p>这是一种 CPU 端任务重叠的经典优化：着色命令的构建（扫描 VisBuffer、分配 ShadingBin、记录材质参数）与后续的 HZB 构建、距离场准备等任务在 TaskGraph 中并行执行。</p>
+</section>
+
+<!-- ===== 6. 半透明材质 ===== -->
+<section class="section-block" id="translucency">
+  <h2>6. 半透明材质</h2>
+  <p class="section-desc">半透明材质使用前向渲染路径（而非延迟渲染），直接采样半透明光照体积（Translucency Lighting Volume）获取光照信息。排序策略和混合模式是半透明渲染的核心性能决策点。</p>
+
+  <h3>6.1 混合模式与排序策略</h3>
+
+  <table class="info-table">
+    <thead>
+      <tr><th>混合模式</th><th>EBlendMode 枚举</th><th>排序方向</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Translucent</td><td><code>BLEND_Translucent</code></td><td>BackToFront（从远到近）</td><td>标准半透明，按深度从远到近渲染以正确混合</td></tr>
+      <tr><td>Additive</td><td><code>BLEND_Additive</code></td><td>BackToFront / Any</td><td>加法混合顺序无关，但仍按深度排序以利用 Early-Z</td></tr>
+      <tr><td>Modulate</td><td><code>BLEND_Modulate</code></td><td>FrontToBack（从近到远）</td><td>乘法混合必须从近到远，否则结果错误</td></tr>
+      <tr><td>AlphaComposite</td><td><code>BLEND_AlphaComposite</code></td><td>BackToFront</td><td>预乘 Alpha 合成</td></tr>
+      <tr><td>AlphaHoldout</td><td><code>BLEND_AlphaHoldout</code></td><td>BackToFront</td><td>Alpha 抠除（用于遮罩合成）</td></tr>
+    </tbody>
+  </table>
+
+  <h3>6.2 扭曲材质（Distortion）</h3>
+
+  <p>扭曲材质通过 <code>RenderDistortion</code> 函数（位于 <code>DistortionRendering.cpp</code>）在单独的 Pass 中渲染。写入 <code>SceneTextures.Distortion</code> 纹理，在后处理阶段用于屏幕空间 UV 偏移。关键参数包括 <code>r.Distortion</code> 和 <code>r.Distortion.SceneColorFringe</code>。</p>
+
+  <h3>6.3 OIT（Order-Independent Transparency）乱序透明</h3>
+
+  <p>UE5.8 支持 OIT 乱序透明渲染（<code>OIT/OIT.cpp</code>），用于解决传统排序半透明中的顺序问题。OIT 在单个 Pass 中收集所有半透明片元，使用加权混合或链表排序生成最终颜色：</p>
+
+  <ul class="info-list">
+    <li><strong>Weighted Blended OIT：</strong>使用 <code>r.OIT.Weighted</code> 启用，通过权重函数近似颜色混合，单 Pass 完成</li>
+    <li><strong>Linked-List OIT：</strong>使用 <code>r.OIT.LinkedList</code> 启用，需要 UAV 写入，逐像素存储有序片元链表</li>
+    <li><strong>半透明体积：</strong><code>RenderTranslucency</code> 从 <code>TranslucencyLightingVolumeTextures</code> 采样 3D 体素光照，避免对每个半透明像素单独执行光照计算</li>
+  </ul>
+</section>
+
+<!-- ===== 7. DBuffer 贴花 ===== -->
+<section class="section-block" id="dbuffer-decal">
+  <h2>7. DBuffer 贴花</h2>
+  <p class="section-desc">DBuffer（Decal Buffer）贴花是 UE5 延迟贴花系统的重要组成部分。贴花材质（<code>MD_DeferredDecal</code>）通过 DBuffer 纹理投影到 GBuffer，修改不透明表面的法线、粗糙度、颜色等属性。</p>
+
+  <h3>7.1 渲染流程</h3>
+
+  <!-- SVG: DBuffer 流程 -->
+  <div class="svg-container" style="margin-bottom:28px">
+    <svg viewBox="0 0 900 260" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrowA3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 Z" fill="#4FC3F7" opacity="0.7"/>
+        </marker>
+      </defs>
+
+      <text x="450" y="24" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">DBuffer 贴花渲染流程</text>
+
+      <rect x="30" y="48" width="180" height="56" rx="8" fill="var(--card)" stroke="rgba(79,195,247,0.2)"/>
+      <text x="120" y="70" text-anchor="middle" font-size="12" font-weight="bold" fill="var(--accent)">DBufferTextures 创建</text>
+      <text x="120" y="90" text-anchor="middle" font-size="10" fill="var(--text-dim)">DBufferA/B/C RGB RT</text>
+
+      <line x1="210" y1="76" x2="248" y2="76" stroke="#4FC3F7" stroke-width="1.2" opacity="0.6" marker-end="url(#arrowA3)"/>
+
+      <rect x="255" y="48" width="180" height="56" rx="8" fill="var(--card)" stroke="rgba(255,183,77,0.2)"/>
+      <text x="345" y="70" text-anchor="middle" font-size="12" font-weight="bold" fill="var(--warn)">贴花材质绑定</text>
+      <text x="345" y="90" text-anchor="middle" font-size="10" fill="var(--text-dim)">MD_DeferredDecal → Shader</text>
+
+      <line x1="435" y1="76" x2="473" y2="76" stroke="#FFB74D" stroke-width="1.2" opacity="0.6" marker-end="url(#arrowA3)"/>
+
+      <rect x="480" y="48" width="195" height="56" rx="8" fill="var(--card)" stroke="rgba(129,199,132,0.2)"/>
+      <text x="577" y="70" text-anchor="middle" font-size="12" font-weight="bold" fill="var(--green)">贴花投影渲染</text>
+      <text x="577" y="90" text-anchor="middle" font-size="10" fill="var(--text-dim)">CompositionLighting::ProcessBeforeBasePass</text>
+
+      <line x1="675" y1="76" x2="713" y2="76" stroke="#81C784" stroke-width="1.2" opacity="0.6" marker-end="url(#arrowA3)"/>
+
+      <rect x="720" y="48" width="180" height="56" rx="8" fill="var(--card)" stroke="rgba(79,195,247,0.2)"/>
+      <text x="810" y="70" text-anchor="middle" font-size="12" font-weight="bold" fill="var(--accent)">BasePass 应用</text>
+      <text x="810" y="90" text-anchor="middle" font-size="10" fill="var(--text-dim)">DBuffer → GBuffer 混合</text>
+
+      <!-- 数据流底栏 -->
+      <rect x="30" y="130" width="870" height="110" rx="8" fill="rgba(79,195,247,0.03)" stroke="rgba(79,195,247,0.08)"/>
+      <text x="465" y="154" text-anchor="middle" font-size="12" font-weight="bold" fill="var(--accent)">DBuffer 通道编码</text>
+      <text x="465" y="176" text-anchor="middle" font-size="11" fill="var(--text-dim)"><tspan fill="var(--accent)">DBufferA</tspan> = WorldNormal + Roughness  |  <tspan fill="var(--accent)">DBufferB</tspan> = Metallic + Specular + Opacity  |  <tspan fill="var(--accent)">DBufferC</tspan> = BaseColor</text>
+      <text x="465" y="198" text-anchor="middle" font-size="10" fill="var(--text-dim)">DecalBlendMode 决定贴花如何混合到 GBuffer：Translucent / Stain / Normal / Emissive 等模式</text>
+      <text x="465" y="218" text-anchor="middle" font-size="10" fill="var(--text-dim)">ProcessBeforeBasePass 在 BasePass 之前执行贴花渲染；Substrate 路径通过 AddSubstrateDBufferBasePass 处理</text>
+    </svg>
+  </div>
+
+  <h3>7.2 贴花材质流程</h3>
+
+  <p>DBuffer 贴花的完整渲染流程是一个多阶段管线：</p>
+
+  <div class="call-chain">
+    <div class="chain-main">CompositionLighting.ProcessBeforeBasePass → RenderDBuffer</div>
+    <div class="chain-step">1. <strong>DBufferTextures 创建：</strong><code>FDBufferTextures</code> 结构体在 <code>DBufferTextures.h</code> 中定义，包含 DBufferA（法线+粗糙度）、DBufferB（金属度+高光度+不透明度）、DBufferC（基础色）三张纹理</div>
+    <div class="chain-step">2. <strong>贴花材质遍历：</strong>收集所有可见的 <code>MD_DeferredDecal</code> 材质，对每个贴花网格构建 MeshDrawCommand（通过 FDeferredDecalPassMeshProcessor）</div>
+    <div class="chain-step">3. <strong>投影渲染：</strong>每个贴花以其实体盒（Decal Box）为投影区域，渲染到 DBuffer 纹理。Pixel Shader 使用贴花材质计算法线/粗糙度/颜色修改值</div>
+    <div class="chain-step">4. <strong>BasePass 应用：</strong>在 BasePass 写入 GBuffer 时，采样 DBuffer 纹理并混合到最终 GBuffer 值中（不透明像素的材质属性有 DBuffer 偏移）</div>
+  </div>
+
+  <div class="info-callout accent">
+    <strong>Substrate 路径差异：</strong>经典路径下 DBuffer 混合在 BasePass PS 中完成。Substrate 启用后，<code>Substrate::AddSubstrateDBufferBasePass</code>（L3216）和 <code>Substrate::AddSubstrateDBufferPass</code>（L3226）提供独立的 DBuffer 处理链路。
+  </div>
+</section>
+
+<!-- ===== 8. 材质着色模型 ===== -->
+<section class="section-block" id="shading-models">
+  <h2>8. 材质着色模型</h2>
+  <p class="section-desc">UE5.8 支持两种材质着色模型框架：传统的 <code>EMaterialShadingModel</code> 枚举系统和 UE5 新增的 Substrate 材质分类框架。</p>
+
+  <h3>8.1 Substrate 材质分类框架</h3>
+
+  <p>Substrate 是 UE5 引入的实验性材质框架，取代了传统的单一 ShadingModel 选择。在 Substrate 框架中，材质被表示为多个层次（Slab）的组合，每个 Slab 可以有不同的材质属性。分类 Pass（<code>Substrate::AddSubstrateMaterialClassificationPass</code>）在 BasePass 后对每个像素进行材质分类：</p>
+
+  <div class="code-block"><code><span class="cmt">// DeferredShadingRenderer.cpp L3219-L3224</span>
+<span class="cmt">// Substrate classification is done either in a standalone pass (here)</span>
+<span class="cmt">// or done within the StochasticLightingTileClassificationMark pass</span>
+<span class="kw">const bool</span> bNeedsClassificationPass =
+    !(RequiresStochasticLightingPass() &amp;&amp; Substrate::UsesStochasticLightingClassification(ShaderPlatform));
+<span class="kw">if</span> (bNeedsClassificationPass)
+{
+    <span class="fn">Substrate::AddSubstrateMaterialClassificationPass</span>(GraphBuilder, SceneTextures, Views);
+}</code></div>
+
+  <p>分类 Pass 产出一张像素级分类纹理（Material Classification Map），用于后续的随机光照 Tile 分类 (<code>StochasticLightingTileClassificationMark</code>)，指导 MegaLights 等系统在每个 Tile 选择合适的光源采样策略。</p>
+
+  <h3>8.2 传统 Shading Model 对照表</h3>
+
+  <table class="info-table">
+    <thead>
+      <tr><th>Shading Model</th><th>枚举值</th><th>主要用途</th><th>GBufferD 自定义数据</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Default Lit</td><td><code>MSM_DefaultLit</code></td><td>标准 PBR 材质（绝大多数物体）</td><td>不适用（或 AO）</td></tr>
+      <tr><td>Subsurface</td><td><code>MSM_Subsurface</code></td><td>次表面散射（皮肤、蜡、树叶）</td><td>SubsurfaceColor + Opacity</td></tr>
+      <tr><td>Preintegrated Skin</td><td><code>MSM_PreintegratedSkin</code></td><td>预积分散射皮肤</td><td>Skin Scattering Profile</td></tr>
+      <tr><td>Clear Coat</td><td><code>MSM_ClearCoat</code></td><td>清漆材质（车漆、木器）</td><td>ClearCoat + ClearCoatRoughness</td></tr>
+      <tr><td>Subsurface Profile</td><td><code>MSM_SubsurfaceProfile</code></td><td>基于配置文件的 SSS</td><td>SubsurfaceProfile ID</td></tr>
+      <tr><td>Two Sided Foliage</td><td><code>MSM_TwoSidedFoliage</code></td><td>双面植被（接受光照从背面）</td><td>不适用</td></tr>
+      <tr><td>Hair</td><td><code>MSM_Hair</code></td><td>发丝渲染 — Marschner 散射模型</td><td>Hair Scattering + 高光参数</td></tr>
+      <tr><td>Cloth</td><td><code>MSM_Cloth</code></td><td>布料（模拟织物 BRDF）</td><td>Fuzz Color + Cloth Roughness</td></tr>
+      <tr><td>Eye</td><td><code>MSM_Eye</code></td><td>眼睛渲染 — 虹膜/角膜折射</td><td>Iris Normal + Eye Depth</td></tr>
+      <tr><td>SingleLayerWater</td><td><code>MSM_SingleLayerWater</code></td><td>单层水面 — 透明+反射</td><td>不适用（独立 Pass）</td></tr>
+      <tr><td>Thin Translucent</td><td><code>MSM_ThinTranslucent</code></td><td>薄透明 — 玻璃/塑料薄片</td><td>不适用</td></tr>
+      <tr><td>Toon</td><td><code>MSM_Toon</code></td><td>卡通渲染 — Cel Shading</td><td>ToonProfile ID</td></tr>
+      <tr><td>From Material Expression</td><td><code>MSM_FromMaterialExpression</code></td><td>材质表达式动态选择</td><td>运行时可切换 ShadingModel</td></tr>
+    </tbody>
+  </table>
+
+  <div class="info-callout purple">
+    <strong>Substrate vs 传统 ShadingModel：</strong>Substrate 不依赖固定的 ShadingModelID，而是通过 Substrate Slab 组合来表达任意复杂的材质层次。启用 Substrate 后，<code>GBufferB.A</code> 中不再存储 ShadingModelID，而是存储 Substrate 编码的 Slab 索引。Substrate 材质分类 Pass 为每个像素生成分类标签，用于后续光照阶段的高效分类调度。
+  </div>
+</section>
+
+<!-- ===== 9. CVar 速查 ===== -->
+<section class="section-block" id="cvar-reference">
+  <h2>9. CVar 速查</h2>
+  <p class="section-desc">材质系统相关的关键控制台变量，涵盖材质编译、缓存、参数更新和 Substrate 框架。</p>
+
+  <h3>9.1 材质通用</h3>
+  <div class="cvar-table-wrap">
+    <table class="cvar-table">
+      <thead>
+        <tr><th>CVar</th><th>默认值</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>r.MaterialLogErrorOnFailure</td><td class="cvar-default">false</td><td>材质编译失败时输出 Error 而非 Warning</td></tr>
+        <tr><td>r.MaterialsDuplicateVerbatim</td><td class="cvar-default">false</td><td>材质复制时不预先修改 StateId（影响 DDC 键）</td></tr>
+        <tr><td>r.DeferUniformExpressionCaching</td><td class="cvar-default">1</td><td>延迟 Uniform 表达式缓存更新直到渲染命令需要</td></tr>
+        <tr><td>r.UniformExpressionCacheAsyncUpdates</td><td class="cvar-default">1</td><td>允许 Uniform 表达式缓存的异步更新</td></tr>
+        <tr><td>r.EmitMeshDrawEvents</td><td class="cvar-default">0</td><td>为每个 Mesh DrawCall 发出 GPU 事件（调试用）</td></tr>
+        <tr><td>r.SafeStateLookup</td><td class="cvar-default">1</td><td>使用安全的 PSO 状态查找（用于运行时性能对比）</td></tr>
+        <tr><td>r.SkipDrawOnPSOPrecaching</td><td class="cvar-default">0</td><td>PSO 预编译中的 DrawCall 跳过</td></tr>
+        <tr><td>r.SkipUnloadedShaders</td><td class="cvar-default">false</td><td>Shader 未完全预加载时跳过 DrawCall</td></tr>
+        <tr><td>r.Material.RoughnessMin</td><td class="cvar-default">--</td><td>材质粗糙度最小值（全局钳制）</td></tr>
+        <tr><td>r.Material.MaxAnisotropy</td><td class="cvar-default">--</td><td>材质各项异性过滤最大值</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>9.2 Substrate</h3>
+  <div class="cvar-table-wrap">
+    <table class="cvar-table">
+      <thead>
+        <tr><th>CVar</th><th>默认值</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>r.Substrate</td><td class="cvar-default">0</td><td>启用 Substrate 材质框架（实验性功能）</td></tr>
+        <tr><td>r.Substrate.Classification</td><td class="cvar-default">--</td><td>Substrate 材质分类 Pass 相关</td></tr>
+        <tr><td>r.Substrate.StochasticLighting</td><td class="cvar-default">--</td><td>Substrate 随机光照分类</td></tr>
+        <tr><td>r.Substrate.DBuffer</td><td class="cvar-default">--</td><td>Substrate DBuffer 贴花单独处理</td></tr>
+        <tr><td>r.Substrate.OIT</td><td class="cvar-default">--</td><td>Substrate 乱序透明</td></tr>
+        <tr><td>r.Substrate.Debug</td><td class="cvar-default">--</td><td>Substrate 调试可视化</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>9.3 遮罩与半透明</h3>
+  <div class="cvar-table-wrap">
+    <table class="cvar-table">
+      <thead>
+        <tr><th>CVar</th><th>默认值</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>r.OIT.Weighted</td><td class="cvar-default">--</td><td>启用加权混合 OIT</td></tr>
+        <tr><td>r.OIT.LinkedList</td><td class="cvar-default">--</td><td>启用链表 OIT</td></tr>
+        <tr><td>r.SeparateTranslucency</td><td class="cvar-default">1</td><td>独立半透明 Pass（用于后处理合成）</td></tr>
+        <tr><td>r.TranslucencyLightingVolume</td><td class="cvar-default">1</td><td>启用半透明光照体积</td></tr>
+        <tr><td>r.Distortion</td><td class="cvar-default">1</td><td>启用折射扭曲效果</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>9.4 DBuffer 贴花</h3>
+  <div class="cvar-table-wrap">
+    <table class="cvar-table">
+      <thead>
+        <tr><th>CVar</th><th>默认值</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>r.DBuffer</td><td class="cvar-default">1</td><td>启用 DBuffer 贴花系统</td></tr>
+        <tr><td>r.DBuffer.NumLayers</td><td class="cvar-default">--</td><td>DBuffer 贴花层数</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== 10. 核心源码索引 ===== -->
+<section class="section-block" id="source-index">
+  <h2>10. 核心源码索引</h2>
+  <p class="section-desc">材质系统涉及的所有源文件路径和关键类/函数汇总。</p>
+
+  <div class="source-index">
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Engine/Private/Materials/Material.cpp</div>
+      <div class="src-funcs">
+        <strong>UMaterial 核心实现（约 11000 行）：</strong>FMaterialResource（运行时材质资源）L184,
+        <code>CompilePropertyAndSetMaterialProperty</code> L195 材质属性编译入口,
+        CVar: <code>r.MaterialLogErrorOnFailure</code> L129、<code>r.MaterialsDuplicateVerbatim</code> L136
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Engine/Private/Materials/MaterialRenderProxy.cpp</div>
+      <div class="src-funcs">
+        <strong>FMaterialRenderProxy（渲染代理）：</strong>
+        <code>EvaluateUniformExpressions()</code> L458 — 填充 Uniform Buffer,
+        <code>UpdateUniformExpressionCacheIfNeeded()</code> L738 — 按需更新缓存,
+        <code>InitRHI()/ReleaseRHI()</code> L802/821 — 渲染资源生命周期,
+        <code>DeferredUniformExpressionCacheRequests</code> — 延迟缓存请求队列
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Engine/Public/Materials/Material.h</div>
+      <div class="src-funcs">
+        <strong>UMaterial 公共接口：</strong>MaterialDomain 属性 L482, GetDefaultMaterial(MD_Surface) L1455 获取默认材质
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Engine/Public/MaterialDomain.h</div>
+      <div class="src-funcs">
+        <strong>EMaterialDomain 枚举定义：</strong>MD_Surface(L15) / MD_DeferredDecal(L17) / MD_LightFunction(L19) / MD_Volume(L21) / MD_PostProcess
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/BasePassRendering.cpp</div>
+      <div class="src-funcs">
+        <strong>BasePass 材质着色核心：</strong>GBuffer 五通道编码与写入, FBasePassMeshProcessor Mesh Draw 命令生成,
+        对 Substrate 路径的 DBuffer 集成（<code>#include "Substrate/Substrate.h"</code> L93）,
+        Nanite Compute Shading 着色命令接收与调度
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/MeshPassProcessor.cpp</div>
+      <div class="src-funcs">
+        <strong>MeshDrawCommand 处理核心：</strong>
+        <code>FGraphicsMinimalPipelineStateId</code> L26 — PSO 缓存 ID 管理,
+        <code>FMeshDrawCommandSortKey::Default</code> L39 — 排序键默认值,
+        <code>BuildMeshDrawCommands</code> — 构建材质 Mesh Draw 命令,
+        <code>CVarEmitMeshDrawEvent</code> L41、<code>CVarSkipDrawOnPSOPrecaching</code> L56
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Public/MeshPassProcessor.h</div>
+      <div class="src-funcs">
+        <strong>公共接口：</strong>
+        <code>FMeshDrawCommandSortKey</code> L1536 — 排序键三种布局（Opaque / Translucent / Generic）,
+        <code>FVisibleMeshDrawCommand</code> L1768 — 可见 DrawCall 封装,
+        <code>FCachedMeshDrawCommandInfo</code> L1932 — 缓存的 DrawCall 信息,
+        <code>FMeshPassProcessor::BuildMeshDrawCommands</code> L2307 — 构建入口
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/DeferredShadingRenderer.cpp</div>
+      <div class="src-funcs">
+        <strong>材质在 Render 函数中的关键节点：</strong>
+        L2241 <code>FinishGatherDynamicMeshElements</code> — 动态网格元素收集完成,
+        L2729 <code>Nanite::BuildShadingCommands</code> — Nanite 着色命令提前构建,
+        L3098 <code>RenderBasePass</code> — BasePass 入口（含 Nanite 着色命令）,
+        L3216 <code>Substrate::AddSubstrateDBufferBasePass</code> — Substrate DBuffer,
+        L3223 <code>Substrate::AddSubstrateMaterialClassificationPass</code> — 材质分类 Pass,
+        L3236-3274 Substrate 材质分类相关逻辑
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/Nanite/NaniteShading.cpp</div>
+      <div class="src-funcs">
+        <strong>Nanite 材质着色：</strong>
+        <code>BuildShadingCommands()</code> — CPU 端着色命令构建,
+        <code>ShadeBinning()</code> — VisBuffer 像素到 ShadingBin 分类,
+        <code>FShadingBinBuildCS/FShadingBinReserveCS/FShadingGroupCS</code> — GPU 端 Bin 处理
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/TranslucentRendering.cpp</div>
+      <div class="src-funcs">
+        <strong>半透明渲染：</strong><code>RenderTranslucency()</code> 半透明绘制入口，混合模式排序，扭曲与 OIT 支持
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/DBufferTextures.h</div>
+      <div class="src-funcs">
+        <strong>DBuffer 纹理结构：</strong><code>FDBufferTextures</code> 定义 DBufferA/B/C 三通道纹理布局
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/CompositionLighting/CompositionLighting.cpp</div>
+      <div class="src-funcs">
+        <strong>合成光照 DBuffer 集成：</strong>
+        <code>ProcessBeforeBasePass()</code> — BasePass 前 DBuffer 贴花渲染,
+        <code>ProcessAfterBasePass()</code> — BasePass 后 DBuffer 应用
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="src-path">Engine/Source/Runtime/Renderer/Private/Substrate/Substrate.cpp</div>
+      <div class="src-funcs">
+        <strong>Substrate 框架核心：</strong>
+        <code>AddSubstrateMaterialClassificationPass()</code> — 材质分类 Pass,
+        <code>AddSubstrateDBufferBasePass()</code> — Substrate DBuffer 前处理,
+        <code>AddSubstrateDBufferPass()</code> — Substrate DBuffer 主处理,
+        <code>InitialiseSubstrateFrameSceneData()</code> — 帧初始化
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Footer ===== -->
+<footer class="footer">
+  <p>UE5.8.0 渲染流程解读 — 材质体系深度解读 | 基于 Material.cpp + BasePassRendering.cpp + MeshPassProcessor.cpp 源码分析</p>
+  <p style="margin-top:6px;font-size:0.78rem">UMaterial &rarr; FMaterialRenderProxy &rarr; FMaterial/ShaderMap &rarr; MeshDrawCommand &rarr; GBuffer &middot; Substrate &middot; Nanite Deferred Shading &middot; DBuffer Decal</p>
+</footer>
+
+<!-- 回到顶部 -->
+<a href="#" class="back-top" title="回到顶部">&#9650;</a>
+
+</body>
+</html>
