@@ -342,17 +342,17 @@ a.flow-node:hover{text-decoration:none}
   <div class="layer-wrap">
     <div class="layer-title">▸ 框架层 — 资源管理与调度基础设施</div>
     <div class="layer-cards">
-      <a href="part/09-RDG与多线程/index.html" class="mod-card">
+      <a href="part/09-RDG/index.html" class="mod-card">
         <div class="mod-num">框架</div>
         <div class="mod-title">RDG</div>
         <div class="mod-desc">渲染依赖图：自动资源生命周期 + Pass 调度 + 屏障插入 + 内存别名</div>
         <div class="mod-source">RenderGraphBuilder.h / RenderGraphValidation.cpp</div>
       </a>
-      <a href="part/09-RDG与多线程/index.html" class="mod-card">
+      <a href="part/12-多线程与RHI/index.html" class="mod-card">
         <div class="mod-num">框架</div>
-        <div class="mod-title">RHI</div>
-        <div class="mod-desc">渲染硬件接口层：FDynamicRHI、FRHICommandList、D3D12/Vulkan 实现</div>
-        <div class="mod-source">RHI/ / D3D12RHI/ / VulkanRHI/</div>
+        <div class="mod-title">多线程与RHI</div>
+        <div class="mod-desc">GameThread / RenderThread / RHIThread 三线程模型 + TaskGraph 调度 + 平台 RHI 抽象</div>
+        <div class="mod-source">TaskGraphInterfaces.h / RenderingThread.cpp / D3D12RHI/</div>
       </a>
       <a href="part/04-材质/index.html" class="mod-card">
         <div class="mod-num">框架</div>
@@ -366,12 +366,6 @@ a.flow-node:hover{text-decoration:none}
         <div class="mod-desc">UMaterial → FMaterialRenderProxy → 表达式编译 → Shader 代码生成全路径</div>
         <div class="mod-source">Material.cpp / MaterialExpressions.cpp</div>
       </a>
-      <a href="part/09-RDG与多线程/index.html" class="mod-card">
-        <div class="mod-num">框架</div>
-        <div class="mod-title">多线程</div>
-        <div class="mod-desc">TaskGraph 调度：GameThread / RenderThread / RHIThread 三线程模型与同步原语</div>
-        <div class="mod-source">TaskGraphInterfaces.h / RenderingThread.cpp</div>
-      </a>
     </div>
   </div>
 
@@ -384,8 +378,8 @@ a.flow-node:hover{text-decoration:none}
     <div class="path-card">
       <h3>&#x2460; 自底向上（初学者）</h3>
       <ol>
-        <li><a href="part/09-RDG与多线程/index.html">RDG 与多线程</a> — 理解渲染框架与线程模型</li>
-        <li><a href="part/09-RDG与多线程/index.html">RHI</a> — 掌握硬件抽象层的设计</li>
+        <li><a href="part/09-RDG/index.html">RDG</a> — 理解渲染依赖图框架</li>
+        <li><a href="part/12-多线程与RHI/index.html">多线程与RHI</a> — 掌握线程模型与硬件抽象层</li>
         <li><a href="part/04-材质/index.html">材质</a> — 理解材质到 Shader 的转化</li>
         <li><a href="part/01-管线总览/index.html">管线总览</a> — 纵览一帧全流程</li>
         <li><a href="part/02-Nanite/index.html">Nanite</a> — 深入虚拟几何子系统</li>
@@ -408,7 +402,7 @@ a.flow-node:hover{text-decoration:none}
     <div class="path-card">
       <h3>&#x2462; 问题驱动（排错/优化）</h3>
       <ol>
-        <li>性能瓶颈 → <a href="part/01-管线总览/index.html">管线总览</a> + <a href="part/09-RDG与多线程/index.html">RDG 与多线程</a></li>
+        <li>性能瓶颈 → <a href="part/01-管线总览/index.html">管线总览</a> + <a href="part/09-RDG/index.html">RDG</a> + <a href="part/12-多线程与RHI/index.html">多线程与RHI</a></li>
         <li>画面异常 → <a href="part/07-后处理/index.html">后处理</a> + <a href="part/03-光照/index.html">光照</a></li>
         <li>阴影问题 → <a href="part/06-VSM/index.html">VSM</a> + <a href="part/03-光照/index.html">光照</a></li>
         <li>半透明错误 → <a href="part/08-半透明与体积/index.html">半透明与体积</a></li>
@@ -483,9 +477,9 @@ a.flow-node:hover{text-decoration:none}
       </tr>
       <tr>
         <td class="toc-idx">09</td>
-        <td class="toc-name"><a href="part/09-RDG与多线程/index.html">RDG 与多线程</a></td>
-        <td class="toc-desc">FRDGBuilder 依赖图构建、Transient 资源池、自动屏障、TaskGraph 调度模型</td>
-        <td><span class="toc-tag tag-planned">计划中</span></td>
+        <td class="toc-name"><a href="part/09-RDG/index.html">RDG</a></td>
+        <td class="toc-desc">FRDGBuilder 全流程：Pass 注册/执行、Transient 分配、自动屏障、验证层与调试</td>
+        <td><span class="toc-tag tag-done">已完成</span></td>
       </tr>
       <tr>
         <td class="toc-idx">10</td>
@@ -499,12 +493,18 @@ a.flow-node:hover{text-decoration:none}
         <td class="toc-desc">从零添加自定义渲染 Pass：Shader 定义 → 参数绑定 → RDG 调度 → CVar 控制</td>
         <td><span class="toc-tag tag-tutorial">教程</span></td>
       </tr>
+      <tr>
+        <td class="toc-idx">12</td>
+        <td class="toc-name"><a href="part/12-多线程与RHI/index.html">多线程与RHI</a></td>
+        <td class="toc-desc">三线程模型、TaskGraph 调度、RHI 命令队列、PSO 缓存、AsyncCompute 并行</td>
+        <td><span class="toc-tag tag-done">已完成</span></td>
+      </tr>
     </tbody>
   </table>
 </section>
 
 <footer class="footer">
-  基于 UE5.8.0 引擎源码分析 &nbsp;|&nbsp; 2026.07 &nbsp;|&nbsp; 九阶段渲染管线 &nbsp;|&nbsp; 11 个章节 &nbsp;|&nbsp; Nanite / Lumen / MegaLights / VSM 全覆盖
+  基于 UE5.8.0 引擎源码分析 &nbsp;|&nbsp; 2026.07 &nbsp;|&nbsp; 九阶段渲染管线 &nbsp;|&nbsp; 12 个章节 &nbsp;|&nbsp; Nanite / Lumen / MegaLights / VSM 全覆盖
 </footer>
 
 </body>
