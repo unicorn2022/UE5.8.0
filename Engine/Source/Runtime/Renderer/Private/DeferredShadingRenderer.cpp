@@ -1819,6 +1819,10 @@ extern void RenderRayTracingDebug(
 extern void RayTracingDebugDisplayOnScreenMessages(FScreenMessageWriter& Writer, const FViewInfo& View, bool bViewHasFarFieldInstances);
 #endif // RHI_RAYTRACING
 
+// ------------------------------------------------------------
+// 延迟渲染管线总入口函数
+// 完整渲染流程：可见性 → 预通道(Nanite) → 阴影(VSM) → BasePass(GBuffer) → 光照(Lumen/MegaLights) → 半透明 → 后处理
+// ------------------------------------------------------------
 void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSceneRenderUpdateInputs* SceneUpdateInputs)
 {
 	CSV_SCOPED_TIMING_STAT_EXCLUSIVE(RenderOther);
@@ -1843,12 +1847,15 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 		if (RayTracingVisualizationData.HasOverrides())
 		{
-			// When activating the view modes from the command line, automatically enable the RayTracingDebug show flag for convenience.
+			// 从命令行激活视图模式时，自动启用 RayTracingDebug 显示标志以便调试
 			ViewFamily.EngineShowFlags.SetRayTracingDebug(true);
+			}
 		}
-	}
 
-	// If this is scene capture rendering depth pre-pass, we'll take the shortcut function RenderSceneCaptureDepth if optimization switch is on.
+		// ------------------------------------------------------------
+		// 第一阶段：视图与管线初始化 — 确定渲染器输出、Nanite启用状态、光追覆盖模式
+		// ------------------------------------------------------------
+		// 如果是场景捕获的深度预通道渲染，可走快捷路径 RenderSceneCaptureDepth
 	const ERendererOutput RendererOutput = GetRendererOutput();
 
 	const bool bNaniteEnabled = ShouldRenderNanite();
@@ -1856,10 +1863,13 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 #if !UE_BUILD_SHIPPING
 	RenderCaptureInterface::FScopedCapture RenderCapture(GCaptureNextDeferredShadingRendererFrame-- == 0, GraphBuilder, TEXT("DeferredShadingSceneRenderer"));
-	// Prevent overflow every 2B frames.
+	// 防止每20亿帧后溢出
 	GCaptureNextDeferredShadingRendererFrame = FMath::Max(-1, GCaptureNextDeferredShadingRendererFrame);
 #endif
 
+	// ------------------------------------------------------------
+	// 第二阶段：光追初始化 — 更新光追几何体、重置着色器绑定表(SBT)、注册视图
+	// ------------------------------------------------------------
 	GPU_MESSAGE_SCOPE(GraphBuilder);
 
 #if RHI_RAYTRACING
@@ -1889,6 +1899,9 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	}
 #endif // RHI_RAYTRACING
 
+	// ------------------------------------------------------------
+	// 第三阶段：视图与可见性初始化 — OnRenderBegin启动可见性计算、提交管线状态、初始化GPU场景
+	// ------------------------------------------------------------
 	FInitViewTaskDatas InitViewTaskDatas = OnRenderBegin(GraphBuilder, SceneUpdateInputs);
 
 #if RHI_RAYTRACING
@@ -1898,6 +1911,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	}
 #endif // RHI_RAYTRACING
 
+	// 曝光补偿曲线LUT更新
 	FUpdateExposureCompensationCurveLUTTaskData UpdateExposureCompensationCurveLUTTaskData;
 	BeginUpdateExposureCompensationCurveLUT(Views, &UpdateExposureCompensationCurveLUTTaskData);
 
@@ -1905,6 +1919,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	TUniquePtr<FVirtualTextureUpdater> VirtualTextureUpdater;
 	FLumenSceneFrameTemporaries LumenFrameTemporaries(Views);
 
+	// GPU场景作用域管理（自动处理Begin/End）
 	FGPUSceneScopeBeginEndHelper GPUSceneScopeBeginEndHelper(GraphBuilder, Scene->GPUScene, GPUSceneDynamicContext);
 
 	const bool bUseVirtualTexturing = UseVirtualTexturing(ShaderPlatform);
@@ -1920,7 +1935,8 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	if (SceneUpdateInputs)
 	{
 		{
-			TRACE_CPUPROFILER_EVENT_SCOPE(CommitFinalPipelineState);
+			// 提交最终管线状态 — 计算并提交渲染器依赖拓扑的最终状态
+				TRACE_CPUPROFILER_EVENT_SCOPE(CommitFinalPipelineState);
 			for (FSceneRenderer* Renderer : SceneUpdateInputs->Renderers)
 			{
 				// Compute & commit the final state of the entire dependency topology of the renderer.
@@ -1935,6 +1951,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	UE::Tasks::TTask<void> UpdateLightFunctionAtlasTask;
 	if (LightFunctionAtlas.IsLightFunctionAtlasEnabled())
 	{
+		// 光照函数图集异步更新任务
 		UpdateLightFunctionAtlasTask = LaunchSceneRenderTask<void>(TEXT("UpdateLightFunctionAtlas"), [this]
 			{
 				UpdateLightFunctionAtlasTaskFunction();
@@ -1947,6 +1964,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		// This needs to be done prior to start Lumen scene lighting to ensure GlobalDistanceFieldData->CameraVelocityOffset is updated
 		if (SceneUpdateInputs)
 		{
+			// 更新全局距离场视点（需在Lumen场景光照之前完成）
 			UpdateGlobalDistanceFieldViewOrigin(*SceneUpdateInputs);
 		}
 
@@ -1959,6 +1977,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			// Important that this uses consistent logic throughout the frame, so evaluate once and pass in the flag from here
 			// NOTE: Must be done after  system texture initialization
 			const bool bEnableVirtualShadowMaps = UseVirtualShadowMaps(ShaderPlatform, FeatureLevel) && ViewFamily.EngineShowFlags.DynamicShadows && !bHasRayTracedOverlay;
+			// 虚拟阴影贴图(VSM)初始化 — 基于页面的虚拟化阴影系统，专为Nanite设计
 			VirtualShadowMapArray.Initialize(GraphBuilder, Scene->GetVirtualShadowMapCache(), bEnableVirtualShadowMaps, ViewFamily.EngineShowFlags);
 	
 			if (InitViewTaskDatas.LumenFrameTemporaries)
@@ -1984,6 +2003,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			const FNaniteRasterPipelines&  NaniteRasterPipelines  = Scene->NaniteRasterPipelines[ENaniteMeshPass::BasePass];
 			const FNaniteShadingPipelines& NaniteShadingPipelines = Scene->NaniteShadingPipelines[ENaniteMeshPass::BasePass];
 
+			// Nanite可见性帧开始 — 执行预裁剪可见性查询
 			NaniteVisibility.BeginVisibilityFrame();
 
 			NaniteBasePassVisibility.Visibility = &NaniteVisibility;
@@ -2083,6 +2103,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		RDG_RHI_EVENT_SCOPE_STAT(GraphBuilder, AllocateRendertargets, "AllocateRendertargets");
 
 		// Force the subsurface profiles and specular profiles textures to be updated.
+		// 强制更新次表面散射/高光/Toon轮廓纹理图集
 		SubsurfaceProfile::UpdateSubsurfaceProfileTexture(GraphBuilder, ShaderPlatform);
 		SpecularProfile::UpdateSpecularProfileTextureAtlas(GraphBuilder, ShaderPlatform);
 		ToonProfile::UpdateToonProfileTextureAtlas(GraphBuilder, ShaderPlatform);
@@ -2120,6 +2141,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 	{
 		RDG_EVENT_SCOPE_STAT(GraphBuilder, VisibilityCommands, "VisibilityCommands");
+		// 开始视图初始化 — 执行可见性计算（视锥裁剪、遮挡裁剪、Nanite可见性）
 		BeginInitViews(GraphBuilder, SceneTexturesConfig, InstanceCullingManager, ExternalAccessQueue, InitViewTaskDatas);
 	}
 
@@ -2215,6 +2237,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 #endif
 	}
 
+	// 完成动态网格元素收集 — 所有Mesh Draw Command在此就绪
 	InitViewTaskDatas.VisibilityTaskData->FinishGatherDynamicMeshElements(BasePassDepthStencilAccess, InstanceCullingManager, VirtualTextureUpdater.Get());
 
 	// Notify the FX system that the scene is about to be rendered.
@@ -2239,6 +2262,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			FViewInfo& View = *AllViews[ViewIndex];
 			RDG_GPU_MASK_SCOPE(GraphBuilder, View.GPUMask);
 
+			// GPU场景上传动态图元着色器数据到GPU
 			Scene->GPUScene.UploadDynamicPrimitiveShaderDataForView(GraphBuilder, View);
 			Scene->GPUScene.DebugRender(GraphBuilder, GetSceneUniforms(), View);
 		}
@@ -2266,6 +2290,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	GetSceneExtensionsRenderers().UpdateSceneUniformBuffer(GraphBuilder, GetSceneUniforms());
 
 	// Must happen after visibility state & scene UB has been updated.
+	// 实例裁剪延迟处理开始（必须在可见性状态和场景UB更新后）
 	InstanceCullingManager.BeginDeferredCulling(GraphBuilder);
 
 	// Separate fog composition can only happen when deferred fog is enabled.
@@ -2370,6 +2395,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	if (bNaniteEnabled)
 	{
 		// Must happen before any Nanite rendering in the frame
+		// Nanite流式加载完成 — 必须在任何Nanite渲染之前
 		Nanite::GStreamingManager.EndAsyncUpdate(GraphBuilder);
 
 		const TMap<uint32, uint32> ModifiedResources = Nanite::GStreamingManager.GetAndClearModifiedResources();
@@ -2391,6 +2417,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 	{
 		RDG_RHI_EVENT_SCOPE_STAT(GraphBuilder, VisibilityCommands, "VisibilityCommands");
+		// 结束视图初始化 — 可见性计算完成，所有视图数据就绪
 		EndInitViews(GraphBuilder, LumenFrameTemporaries, InstanceCullingManager, InitViewTaskDatas);
 	}
 
@@ -2446,6 +2473,10 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	const bool bHairStrandsEnable = HairStrandsBookmarkParameters.HasInstances() && Views.Num() > 0 && IsHairStrandsEnabled(EHairStrandsShaderType::Strands, Platform);
 	const bool bForceVelocityOutput = bHairStrandsEnable || ShouldRenderDistortion();
 
+	// ------------------------------------------------------------
+	// 第四阶段：预通道与Nanite渲染 — 深度预通道 → Nanite光栅化 → 深度解析
+	// ------------------------------------------------------------
+	// 包含：深度清屏 → 深度预通道 → 速度渲染(DDM_AllOpaqueNoVelocity) → Nanite光栅化 → 深度解析
 	auto RenderPrepassAndVelocity = [&](auto& InViews, auto& InNaniteBasePassVisibility, auto& NaniteRasterResults, auto& PrimaryNaniteViews, FSceneTextures& LocalSceneTextures)
 	{
 		FRDGTextureRef FirstStageDepthBuffer = nullptr;
@@ -2694,7 +2725,8 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	// Run Nanite compute commands early in the frame to allow some task overlap on the CPU until the base pass runs.
 	if (bNaniteEnabled && RendererOutput != ERendererOutput::DepthPrepassOnly && !bHasRayTracedOverlay)
 	{
-		Nanite::BuildShadingCommands(GraphBuilder, *Scene, ENaniteMeshPass::BasePass, Scene->NaniteShadingCommands[ENaniteMeshPass::BasePass]);
+		// 构建Nanite BasePass着色命令（提前执行以允许CPU端任务重叠）
+	Nanite::BuildShadingCommands(GraphBuilder, *Scene, ENaniteMeshPass::BasePass, Scene->NaniteShadingCommands[ENaniteMeshPass::BasePass]);
 		if (bAnyLumenEnabled && RendererOutput == ERendererOutput::FinalSceneColor)
 		{
 			Nanite::BuildShadingCommands(GraphBuilder, *Scene, ENaniteMeshPass::LumenCardCapture, Scene->NaniteShadingCommands[ENaniteMeshPass::LumenCardCapture]);
@@ -2804,6 +2836,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 			if (!ViewFamily.EngineShowFlags.PathTracing)
 			{
+				// 准备前向光照数据 — 光源注入聚簇网格(Clustered Deferred Shading)
 				ComputeLightGridOutput = PrepareForwardLightData(GraphBuilder, true, *SortedLightSet);
 
 				// Store this flag if lights are injected in the grids, check with 'AreLightsInLightGrid()'
@@ -3022,6 +3055,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			const FSortedLightSetSceneInfo& SortedLightSet = *GatherAndSortLightsTask.GetResult();
 			if (bRenderDeferredLighting && SortedLightSet.MegaLightsLightStart < SortedLightSet.SortedLights.Num())
 			{
+				// MegaLights帧临时资源创建 — UE5.8大量动态可投影光源系统
 				MegaLightsContext = CreateMegaLightsFrameTemporaries(GraphBuilder, SceneTextures);
 			}
 
@@ -3038,6 +3072,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			{
 				LLM_SCOPE_BYTAG(Lumen);
 				BeginGatheringLumenSurfaceCacheFeedback(GraphBuilder, Views[0], LumenFrameTemporaries);
+				// Lumen场景光照 — 更新Surface Cache + 直接光照评估
 				RenderLumenSceneLighting(GraphBuilder, LumenFrameTemporaries, InitViewTaskDatas.LumenDirectLighting);
 			}
 
@@ -3056,7 +3091,11 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		{
 			if (!bHasRayTracedOverlay)
 			{
-				RenderBasePass(*this, GraphBuilder, Views, SceneTextures, BasePassDepthStencilAccess, ForwardScreenSpaceShadowMaskTexture, InstanceCullingManager, bNaniteEnabled, Scene->NaniteShadingCommands[ENaniteMeshPass::BasePass], NaniteRasterResults);
+				// ------------------------------------------------------------
+				// 第五阶段：BasePass — G-Buffer写入（传统几何硬件光栅化 + Nanite Compute Shader着色）
+				// ------------------------------------------------------------
+			// 传统几何通过FMeshDrawCommand硬件光栅化，Nanite几何通过Compute Shader着色
+			RenderBasePass(*this, GraphBuilder, Views, SceneTextures, BasePassDepthStencilAccess, ForwardScreenSpaceShadowMaskTexture, InstanceCullingManager, bNaniteEnabled, Scene->NaniteShadingCommands[ENaniteMeshPass::BasePass], NaniteRasterResults);
 			}
 
 			if (!bAllowReadOnlyDepthBasePass)
@@ -3426,6 +3465,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			// Initialize the separated subsurface diffuse for subsurface scattering and build SSS tiles.
 			RenderSubsurfaceDiffuseInitPass(GraphBuilder,Views, SceneTextures, /*out*/PrebuiltSSSTiles);
 
+			// 漫反射间接光照与环境光遮蔽（Lumen GI + SSAO）
 			RenderDiffuseIndirectAndAmbientOcclusion(
 				GraphBuilder,
 				SceneTextures,
@@ -3464,7 +3504,11 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 				GatherTranslucencyVolumeMarkedVoxels(GraphBuilder, SortedLightSet);
 			}
 
-			RenderLights(GraphBuilder, SceneTextures, LightingChannelsTexture, SortedLightSet);
+			// ------------------------------------------------------------
+			// 第六阶段：延迟光照计算 — 聚簇延迟着色(Clustered Deferred Shading)、MegaLights、半透明光照体积
+			// ------------------------------------------------------------
+		// 聚簇延迟着色(Clustered Deferred Shading)：遍历光照网格，计算直接光照
+		RenderLights(GraphBuilder, SceneTextures, LightingChannelsTexture, SortedLightSet);
 
 			if (MegaLightsContext.IsValid())
 			{
@@ -3525,6 +3569,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 				AsyncLumenIndirectLightingOutputs);
 
 			// Render diffuse sky lighting and reflections that only operate on opaque pixels
+			// 延迟反射与天空光照 — Lumen反射 + 天空光照合成（仅不透明像素）
 			RenderDeferredReflectionsAndSkyLighting(GraphBuilder, SceneTextures, LumenFrameTemporaries, DynamicBentNormalAOTextures);
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
@@ -4008,6 +4053,10 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			{
 				// Render all remaining translucency views.
 				const bool bStandardTranslucentCanRenderSeparate = bShouldRenderDistortion; // It is only needed to render standard translucent as separate when there is distortion (non self distortion of transmittance/specular/etc.)
+				// ------------------------------------------------------------
+				// 第七阶段：半透明渲染 — 前向渲染路径，支持扭曲、光追半透明、OIT
+				// ------------------------------------------------------------
+				// 半透明采用前向渲染路径，支持扭曲、光追半透明等
 				RenderTranslucency(*this, GraphBuilder, SceneTextures, TranslucencyLightingVolumeTextures, &TranslucencyResourceMap, Views, TranslucencyViewsToRender, SeparateTranslucencyDimensions, InstanceCullingManager, bStandardTranslucentCanRenderSeparate, SingleLayerWaterPrePassResult, TranslucencySharedDepthTexture, NaniteRasterResults);
 			}
 
@@ -4222,6 +4271,10 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			}
 		}
 
+		// ------------------------------------------------------------
+		// 第八阶段：后处理 — TSR/TAA → Bloom → DOF → Tonemap → 色彩分级
+		// ------------------------------------------------------------
+		// TSR/TAA → Bloom → DOF → Tonemap → 色彩分级 → 输出到ViewFamilyTexture
 		// Finish rendering for each view.
 		if (ViewFamily.bResolveScene && ViewFamilyTexture)
 		{
@@ -4367,6 +4420,9 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 		RDG_EVENT_SCOPE_STAT(GraphBuilder, FrameRenderFinish, "FrameRenderFinish");
 
+		// ------------------------------------------------------------
+		// 第九阶段：清理与收尾 — OnRenderFinish、场景纹理提取、释放帧历史
+		// ------------------------------------------------------------
 		OnRenderFinish(GraphBuilder, ViewFamilyTexture);
 		GraphBuilder.AddDispatchHint();
 		GraphBuilder.FlushSetupQueue();
