@@ -170,18 +170,354 @@ a:hover{text-decoration:underline}
 <section class="section-block" id="pipeline-position">
   <h2>1. 管线中的位置</h2>
   <p class="section-desc">UE5.8 的多线程渲染架构将游戏逻辑、渲染命令生成、GPU 命令提交三个核心环节分配到独立线程，通过 TaskGraph 系统实现细粒度的任务调度和并行执行。</p>
+
+  <p>渲染管线的三条关键线程构成了一个<strong>线程流水线</strong>：<code>GameThread</code> 负责主逻辑和可见性提交，<code>RenderThread</code> 负责 RDG Pass 的执行和 DrawCall 生成，<code>RHIThread</code> 负责将 RHI 命令翻译为 D3D12/Vulkan API 调用并提交到 GPU 驱动。此外，<code>AsyncCompute</code> 队列可以独立于 Graphics 管线并行执行 Compute Shader 工作（如 Nanite 裁剪、Lumen 光照评估），进一步利用 GPU 的并行能力。</p>
+
+  <table class="info-table">
+    <thead>
+      <tr><th>阶段</th><th>线程交互</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>InitViews (L1902-2465)</td>
+        <td>GameThread &#8594; RenderThread</td>
+        <td>可见性计算在 GameThread 提交，部分 GPU Scene 更新（InstanceCulling、Primitive 变换）在 RenderThread 异步执行。GameThread 通过 <code>ENQUEUE_RENDER_COMMAND</code> 将更新请求推送到 RenderThread 的命令队列。</td>
+      </tr>
+      <tr>
+        <td>FinishGatherDynamicMeshElements (L2241)</td>
+        <td>RenderThread</td>
+        <td>动态网格元素收集完成，为每个可见 Section 生成 <code>FMeshDrawCommand</code>（Shader 绑定 + PSO 状态 + SortKey）。此阶段是 RenderThread 上 CPU 开销最大的环节之一。</td>
+      </tr>
+      <tr>
+        <td>PrePass + Nanite (L2476-2534)</td>
+        <td>RenderThread + RHIThread 并行</td>
+        <td>RenderThread 注册深度预通道和 Nanite 裁剪 Pass，RHIThread 异步执行上一帧提交的 GPU 命令。两条线程在此阶段形成流水线重叠。</td>
+      </tr>
+      <tr>
+        <td>BasePass (L3098)</td>
+        <td>RenderThread &#8594; RHIThread</td>
+        <td>G-Buffer 渲染命令通过 RDG 注册后，随 <code>GraphBuilder.Execute()</code> 一次性提交到 RHI 命令队列，RHIThread 开始消费。</td>
+      </tr>
+      <tr>
+        <td>GraphBuilder.Execute() (L4423)</td>
+        <td>RenderThread &#8594; RHIThread</td>
+        <td>RDG 编译所有注册的 Pass 为 RHI 命令列表，批量提交到 RHIThread。RHIThread 逐条翻译为平台 API 调用（D3D12 ExecuteCommandLists / Vulkan vkQueueSubmit）。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-callout accent">
+    <strong>关键理解：</strong>线程流水线化是 UE 渲染性能的核心设计。RenderThread 处理第 N 帧的 Pass 注册时，RHIThread 可能仍在执行第 N-1 帧的 GPU 命令提交。这种<strong>帧间重叠</strong>使得 CPU 端渲染开销不会直接累加到帧时间上，理想情况下吞吐量可接近单线程的 3 倍。但这也引入了 2-3 帧的输入端延迟（Input Latency），需要在响应性和吞吐量之间权衡。
+  </div>
 </section>
 
 <!-- ===== 2. 三线程模型 ===== -->
 <section class="section-block" id="three-thread-model">
   <h2>2. 三线程模型</h2>
   <p class="section-desc">GameThread 负责游戏逻辑和渲染状态设置，RenderThread 负责渲染命令的生成和 RDG Pass 调度，RHIThread 负责将 RHI 命令提交到 GPU 驱动。三线程以异步流水线方式运行，减少 GPU 空闲等待。</p>
+
+  <h3>2.1 线程职责边界</h3>
+
+  <table class="info-table">
+    <thead>
+      <tr><th>线程</th><th>职责</th><th>关键入口</th><th>线程类型</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>GameThread</td>
+        <td>游戏逻辑、物理模拟、动画更新、可见性计算提交。通过 <code>ENQUEUE_RENDER_COMMAND</code> 宏向 RenderThread 发送命令，通过 <code>FlushRenderingCommands</code> 强制同步等待。</td>
+        <td><code>ENQUEUE_RENDER_COMMAND</code><br/><code>FlushRenderingCommands</code></td>
+        <td>游戏主线程（固定）</td>
+      </tr>
+      <tr>
+        <td>RenderThread</td>
+        <td>RDG 构建与执行、DrawCall 提交、Shader 参数绑定。执行 <code>FDeferredShadingSceneRenderer::Render()</code> 的完整九阶段流程，是渲染管线的核心调度线程。</td>
+        <td><code>FDeferredShadingSceneRenderer::Render()</code></td>
+        <td>Named Thread<br/><code>ENamedThreads::ActualRenderingThread</code></td>
+      </tr>
+      <tr>
+        <td>RHIThread</td>
+        <td>RHI 命令到 D3D12/Vulkan API 的翻译与提交。消费 RenderThread 生成的 <code>FRHICommandList</code>，调用平台底层 API（如 <code>ID3D12CommandQueue::ExecuteCommandLists</code>）。</td>
+        <td><code>FRHICommandListExecutor::Execute()</code></td>
+        <td>Named Thread<br/><code>ENamedThreads::RHIThread</code></td>
+      </tr>
+      <tr>
+        <td>AsyncCompute</td>
+        <td>GPU 异步计算队列，不与 Graphics 管线串行。用于 Nanite 裁剪、Lumen 光照评估、PostProcess 降噪等 Compute-heavy Pass，可与 BasePass 的 Graphics 工作并行执行。</td>
+        <td><code>ERDGPassFlags::AsyncCompute</code></td>
+        <td>GPU Queue（非 CPU 线程）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>2.2 线程流水线时序</h3>
+
+  <div class="svg-container" style="margin-bottom:20px">
+    <svg viewBox="0 0 1050 460" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrowT" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 Z" fill="#FFB74D" opacity="0.8"/>
+        </marker>
+        <marker id="arrowG" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 Z" fill="#81C784" opacity="0.8"/>
+        </marker>
+      </defs>
+
+      <!-- 标题 -->
+      <text x="525" y="26" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">三线程流水线时序图（理想情况：3 帧重叠，3 级流水线）</text>
+
+      <!-- 时间轴 -->
+      <line x1="60" y1="50" x2="1010" y2="50" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      <text x="60" y="44" font-size="10" fill="var(--text-dim)">时间 &#8594;</text>
+
+      <!-- 帧分隔线 -->
+      <line x1="230" y1="52" x2="230" y2="420" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="540" y1="52" x2="540" y2="420" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="850" y1="52" x2="850" y2="420" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="4,4"/>
+
+      <text x="380" y="68" text-anchor="middle" font-size="12" font-weight="bold" fill="#4FC3F7">第 N 帧</text>
+      <text x="695" y="68" text-anchor="middle" font-size="12" font-weight="bold" fill="#4FC3F7">第 N+1 帧</text>
+      <text x="960" y="68" text-anchor="middle" font-size="12" font-weight="bold" fill="#4FC3F7">第 N+2 帧</text>
+
+      <!-- ===== GameThread 行 ===== -->
+      <text x="20" y="115" font-size="12" font-weight="bold" fill="#81C784">Game</text>
+      <text x="20" y="130" font-size="12" font-weight="bold" fill="#81C784">Thread</text>
+
+      <!-- 第 N 帧 GameThread -->
+      <rect x="80" y="98" width="150" height="28" rx="6" fill="rgba(129,199,132,0.25)" stroke="rgba(129,199,132,0.4)"/>
+      <text x="155" y="117" text-anchor="middle" font-size="10" fill="#81C784">InitViews + 逻辑</text>
+      <!-- 第 N+1 帧 GameThread -->
+      <rect x="330" y="98" width="160" height="28" rx="6" fill="rgba(129,199,132,0.25)" stroke="rgba(129,199,132,0.4)"/>
+      <text x="410" y="117" text-anchor="middle" font-size="10" fill="#81C784">InitViews + 逻辑</text>
+      <!-- 第 N+2 帧 GameThread -->
+      <rect x="625" y="98" width="160" height="28" rx="6" fill="rgba(129,199,132,0.25)" stroke="rgba(129,199,132,0.4)"/>
+      <text x="705" y="117" text-anchor="middle" font-size="10" fill="#81C784">InitViews + 逻辑</text>
+
+      <!-- 第 N 帧 RenderCommandFence -->
+      <line x1="230" y1="112" x2="320" y2="112" stroke="#FFB74D" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrowT)"/>
+      <text x="275" y="108" text-anchor="middle" font-size="8" fill="#FFB74D">Fence</text>
+
+      <!-- ===== RenderThread 行 ===== -->
+      <text x="14" y="215" font-size="12" font-weight="bold" fill="#FFB74D">Render</text>
+      <text x="14" y="230" font-size="12" font-weight="bold" fill="#FFB74D">Thread</text>
+
+      <!-- 第 N 帧 RenderThread (Render) -->
+      <rect x="160" y="198" width="200" height="28" rx="6" fill="rgba(255,183,77,0.22)" stroke="rgba(255,183,77,0.35)"/>
+      <text x="260" y="217" text-anchor="middle" font-size="10" fill="#FFB74D">Render() — RDG 构建+执行</text>
+      <!-- 第 N+1 帧 RenderThread -->
+      <rect x="420" y="198" width="210" height="28" rx="6" fill="rgba(255,183,77,0.22)" stroke="rgba(255,183,77,0.35)"/>
+      <text x="525" y="217" text-anchor="middle" font-size="10" fill="#FFB74D">Render() — RDG 构建+执行</text>
+      <!-- 第 N+2 帧 RenderThread -->
+      <rect x="730" y="198" width="210" height="28" rx="6" fill="rgba(255,183,77,0.22)" stroke="rgba(255,183,77,0.35)"/>
+      <text x="835" y="217" text-anchor="middle" font-size="10" fill="#FFB74D">Render() — RDG 构建+执行</text>
+
+      <!-- FRenderCommandFence：GameThread 等待 RenderThread -->
+      <line x1="230" y1="138" x2="230" y2="198" stroke="#FFB74D" stroke-width="1.5" stroke-dasharray="4,3"/>
+      <text x="238" y="172" font-size="8" fill="#FFB74D">FRenderCommandFence</text>
+
+      <!-- ===== RHIThread 行 ===== -->
+      <text x="18" y="320" font-size="12" font-weight="bold" fill="#CE93D8">RHI</text>
+      <text x="18" y="335" font-size="12" font-weight="bold" fill="#CE93D8">Thread</text>
+
+      <!-- 第 N 帧 RHIThread (GPU Submit) -->
+      <rect x="280" y="308" width="180" height="28" rx="6" fill="rgba(206,147,216,0.22)" stroke="rgba(206,147,216,0.35)"/>
+      <text x="370" y="327" text-anchor="middle" font-size="10" fill="#CE93D8">GPU Submit</text>
+      <!-- 第 N+1 帧 RHIThread -->
+      <rect x="570" y="308" width="180" height="28" rx="6" fill="rgba(206,147,216,0.22)" stroke="rgba(206,147,216,0.35)"/>
+      <text x="660" y="327" text-anchor="middle" font-size="10" fill="#CE93D8">GPU Submit</text>
+      <!-- 第 N+2 帧 RHIThread -->
+      <rect x="870" y="308" width="140" height="28" rx="6" fill="rgba(206,147,216,0.22)" stroke="rgba(206,147,216,0.35)"/>
+      <text x="940" y="327" text-anchor="middle" font-size="10" fill="#CE93D8">GPU Submit</text>
+
+      <!-- FRHICommandListFence：RenderThread 等待 RHIThread -->
+      <line x1="360" y1="238" x2="360" y2="308" stroke="#CE93D8" stroke-width="1.5" stroke-dasharray="4,3"/>
+      <text x="368" y="278" font-size="8" fill="#CE93D8">FRHICommandListFence</text>
+      <line x1="630" y1="238" x2="630" y2="308" stroke="#CE93D8" stroke-width="1.5" stroke-dasharray="4,3"/>
+      <text x="638" y="278" font-size="8" fill="#CE93D8">FRHICommandListFence</text>
+
+      <!-- ===== GPU 行 ===== -->
+      <text x="28" y="410" font-size="12" font-weight="bold" fill="#4FC3F7">GPU</text>
+      <rect x="320" y="392" width="190" height="22" rx="5" fill="rgba(79,195,247,0.15)" stroke="rgba(79,195,247,0.25)"/>
+      <text x="415" y="407" text-anchor="middle" font-size="9" fill="#4FC3F7">执行第 N 帧命令</text>
+      <rect x="610" y="392" width="190" height="22" rx="5" fill="rgba(79,195,247,0.15)" stroke="rgba(79,195,247,0.25)"/>
+      <text x="705" y="407" text-anchor="middle" font-size="9" fill="#4FC3F7">执行第 N+1 帧命令</text>
+      <rect x="900" y="392" width="110" height="22" rx="5" fill="rgba(79,195,247,0.15)" stroke="rgba(79,195,247,0.25)"/>
+      <text x="955" y="407" text-anchor="middle" font-size="9" fill="#4FC3F7">第 N+2 帧</text>
+    </svg>
+  </div>
+
+  <div class="info-callout accent">
+    <strong>流水线解读：</strong>理想情况下三条线程形成 3 级流水线——GameThread 处理第 N+1 帧的 InitViews 时，RenderThread 正在执行第 N 帧的 RDG Pass，RHIThread 还在提交第 N-1 帧的 GPU 命令。同步点 <code>FRenderCommandFence</code>（GameThread 等待 RenderThread 完成）和 <code>FRHICommandListFence</code>（RenderThread 等待 RHIThread 完成）仅在需要读取渲染结果时才触发，正常流水线状态下不产生阻塞。
+  </div>
+
+  <h3>2.3 Latency 与并行度</h3>
+
+  <p>三线程流水线的核心权衡在于<strong>吞吐量</strong>与<strong>延迟</strong>：</p>
+
+  <ul class="info-list">
+    <li><strong>理想吞吐量：</strong>三线程完全并行时，CPU 端渲染吞吐量接近单线程的 <strong>3x</strong>。GameThread 提交完 InitViews 后即可开始下一帧的逻辑，无需等待 RenderThread 或 GPU 完成。</li>
+    <li><strong>输入端延迟：</strong>从 GameThread 提交渲染命令到 GPU 实际显示画面，理想情况下有 <strong>2-3 帧延迟</strong>。这是因为 RenderThread 处理当前帧时，RHIThread 还在提交上一帧，GPU 在更后面执行。对于 VR 等延迟敏感场景，可通过 <code>r.RHIThread.Enable=0</code> 关闭 RHIThread 来减少一帧延迟。</li>
+    <li><strong>实际瓶颈：</strong><code>InitViews</code> 阶段占 RenderThread 时间的 <strong>40-60%</strong>，是最大的串行瓶颈。InitViews 中的可见性计算虽然部分并行化（通过 TaskGraph 拆分为多个并行子任务），但 <code>FinishGatherDynamicMeshElements</code> 阶段需要等待所有并行任务完成后才能继续，形成同步点。</li>
+    <li><strong>关闭 RHIThread 的代价：</strong><code>r.RHIThread.Enable=0</code> 后 RenderThread 兼任 RHI 命令提交，延迟减少约一帧，但 RenderThread 每帧执行时间增加 15-30%（因为需要直接调用 D3D12/Vulkan API），总体吞吐量下降。</li>
+  </ul>
+
+  <div class="code-block"><code><span class="cmt">// GameThread 提交渲染命令到 RenderThread 的典型用法</span>
+<span class="cmt">// 宏展开后 = 创建一个 TGraphTask 并分发到 ENamedThreads::ActualRenderingThread</span>
+<span class="fn">ENQUEUE_RENDER_COMMAND</span>(UpdatePrimitiveTransform)(
+    [<span class="kw">this</span>, PrimitiveId, NewTransform](<span class="fn">FRHICommandListImmediate</span>&amp; RHICmdList)
+    {
+        <span class="cmt">// 此 lambda 在 RenderThread 上执行</span>
+        <span class="fn">FScene</span>* Scene = <span class="kw">this</span>-&gt;GetScene();
+        <span class="kw">if</span> (Scene)
+        {
+            <span class="cmt">// 更新 GPU Scene 中的 Primitive 变换数据</span>
+            Scene-&gt;<span class="fn">UpdatePrimitiveTransform</span>(PrimitiveId, NewTransform);
+        }
+    });
+
+<span class="cmt">// 强制 GameThread 等待所有排队的渲染命令完成</span>
+<span class="cmt">// 仅在必须读取渲染结果时调用（如截帧、Resize 等），正常帧循环不应调用</span>
+<span class="fn">FlushRenderingCommands</span>();</code></div>
 </section>
 
 <!-- ===== 3. TaskGraph 调度 ===== -->
 <section class="section-block" id="taskgraph">
   <h2>3. TaskGraph 调度</h2>
   <p class="section-desc">TaskGraph 是 UE5 的通用任务图调度系统，渲染模块大量使用 NamedThread 和 TaskGraph Task 来组织渲染工作，支持前置任务（Prereqs）和异步回调。</p>
+
+  <h3>3.1 FTaskGraphInterface 核心概念</h3>
+
+  <p>TaskGraph 是 UE 底层的<strong>任务调度系统</strong>，所有线程（包括 GameThread、RenderThread、RHIThread）都由 TaskGraph 管理。每个线程维护一个 <code>FTaskThreadBase</code> 实例，拥有自己的任务队列（Lock-free MPSC 队列）。任务以 <code>TGraphTask</code> 模板的形式提交，支持前置任务依赖链和完成事件回调。</p>
+
+  <p>任务的典型递交方式：</p>
+
+  <div class="code-block"><code><span class="cmt">// TaskGraph 任务的标准创建和派发模式</span>
+<span class="fn">FGraphEventRef</span> PrerequisiteEvent = <span class="fn">TGraphTask</span>&lt;<span class="fn">FMyPreTask</span>&gt;::<span class="fn">CreateTask</span>().<span class="fn">ConstructAndDispatchWhenReady</span>(Args...);
+
+<span class="cmt">// 带前置依赖的主任务——只有 PrerequisiteEvent 完成后才开始执行</span>
+<span class="fn">FGraphEventRef</span> MainTaskEvent = <span class="fn">TGraphTask</span>&lt;<span class="fn">FMyMainTask</span>&gt;::<span class="fn">CreateTask</span>(<span class="fn">PrerequisiteEvent</span>)
+    .<span class="fn">ConstructAndDispatchWhenReady</span>(Args...);
+
+<span class="cmt">// 等待任务完成（阻塞当前线程）</span>
+<span class="fn">FTaskGraphInterface</span>::<span class="fn">WaitUntilTasksComplete</span>(<span class="fn">MainTaskEvent</span>);</code></div>
+
+  <p>TaskGraph 中的线程分为两类：</p>
+
+  <ul class="info-list">
+    <li><strong>Named Thread（命名线程）：</strong>具有固定名称和专用任务队列的线程，如 <code>ENamedThreads::ActualRenderingThread</code>（RenderThread）、<code>ENamedThreads::RHIThread</code>、<code>ENamedThreads::AudioThread</code> 等。命名线程不会被销毁，优先级固定，它们的任务队列只能由对应线程消费。</li>
+    <li><strong>Worker Thread（工作线程）：</strong>由 <code>ENamedThreads::AnyThread</code> 标记的线程池线程。没有固定名称和专用队列，可以动态创建和销毁。TaskGraph 将 AnyThread 任务分发到全局线程池，由空闲 Worker 执行。适合 CPU 密集的并行计算（如可见性计算、遮挡剔除）。</li>
+  </ul>
+
+  <h3>3.2 渲染任务依赖</h3>
+
+  <p>以 <code>InitViews</code> 阶段为例，可见性计算通过 TaskGraph 拆分为多个并行和串行的子任务，形成以下依赖图：</p>
+
+  <div class="svg-container" style="margin-bottom:20px">
+    <svg viewBox="0 0 1000 420" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrowDep" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 Z" fill="#4FC3F7" opacity="0.7"/>
+        </marker>
+      </defs>
+
+      <!-- 标题 -->
+      <text x="500" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">InitViews 阶段任务依赖 DAG</text>
+
+      <!-- ===== 根节点：FVisibilityTask ===== -->
+      <rect x="350" y="52" width="300" height="48" rx="10" fill="rgba(79,195,247,0.18)" stroke="rgba(79,195,247,0.4)"/>
+      <text x="500" y="73" text-anchor="middle" font-size="13" font-weight="bold" fill="#4FC3F7">FVisibilityTask</text>
+      <text x="500" y="91" text-anchor="middle" font-size="9" fill="var(--text-dim)">父任务：触发所有子任务，设置并行参数</text>
+
+      <!-- 箭头：根 → 子任务 1 (左) -->
+      <line x1="430" y1="100" x2="160" y2="170" stroke="#4FC3F7" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowDep)"/>
+      <!-- 箭头：根 → 子任务 2 (中) -->
+      <line x1="500" y1="100" x2="500" y2="170" stroke="#4FC3F7" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowDep)"/>
+      <!-- 箭头：根 → 子任务 3 (右) -->
+      <line x1="570" y1="100" x2="840" y2="170" stroke="#4FC3F7" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowDep)"/>
+
+      <!-- ===== 子任务 1：FComputeAndMarkRelevanceForViewParallel ===== -->
+      <rect x="30" y="178" width="340" height="56" rx="10" fill="rgba(129,199,132,0.15)" stroke="rgba(129,199,132,0.3)"/>
+      <text x="200" y="200" text-anchor="middle" font-size="12" font-weight="bold" fill="#81C784">FComputeAndMarkRelevanceForViewParallel</text>
+      <text x="200" y="218" text-anchor="middle" font-size="9" fill="var(--text-dim)">并行可见性计算（可拆分为 N 个并行子任务）</text>
+      <text x="200" y="230" text-anchor="middle" font-size="8" fill="var(--text-dim)">PrimitiveVisibilityMap + StaticMesh Relevance</text>
+
+      <!-- ===== 子任务 2：FMeshDrawCommandPassSetupTask ===== -->
+      <rect x="360" y="178" width="280" height="56" rx="10" fill="rgba(255,183,77,0.15)" stroke="rgba(255,183,77,0.3)"/>
+      <text x="500" y="200" text-anchor="middle" font-size="12" font-weight="bold" fill="#FFB74D">FMeshDrawCommandPassSetupTask</text>
+      <text x="500" y="218" text-anchor="middle" font-size="9" fill="var(--text-dim)">为每个 EMeshPass 准备可见命令列表</text>
+      <text x="500" y="230" text-anchor="middle" font-size="8" fill="var(--text-dim)">GenerateDynamicMeshDrawCommands</text>
+
+      <!-- ===== 子任务 3：FLightSceneInfoSetupTask ===== -->
+      <rect x="640" y="178" width="320" height="56" rx="10" fill="rgba(206,147,216,0.15)" stroke="rgba(206,147,216,0.3)"/>
+      <text x="800" y="200" text-anchor="middle" font-size="12" font-weight="bold" fill="#CE93D8">FLightSceneInfoSetupTask</text>
+      <text x="800" y="218" text-anchor="middle" font-size="9" fill="var(--text-dim)">更新所有可见光源的 LightSceneInfo 数据</text>
+      <text x="800" y="230" text-anchor="middle" font-size="8" fill="var(--text-dim)">AddLight + SetLightFunctionAtlas</text>
+
+      <!-- 箭头：子任务 1 → 汇聚 -->
+      <line x1="200" y1="234" x2="350" y2="310" stroke="#81C784" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowDep)"/>
+      <!-- 箭头：子任务 2 → 汇聚 -->
+      <line x1="500" y1="234" x2="500" y2="310" stroke="#FFB74D" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowDep)"/>
+      <!-- 箭头：子任务 3 → 汇聚 -->
+      <line x1="800" y1="234" x2="650" y2="310" stroke="#CE93D8" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowDep)"/>
+
+      <!-- ===== 汇聚节点：FEndInitViewsTask ===== -->
+      <rect x="330" y="318" width="340" height="48" rx="10" fill="rgba(255,183,77,0.2)" stroke="rgba(255,183,77,0.45)"/>
+      <text x="500" y="339" text-anchor="middle" font-size="13" font-weight="bold" fill="#FFB74D">FEndInitViewsTask</text>
+      <text x="500" y="357" text-anchor="middle" font-size="9" fill="var(--text-dim)">汇聚节点：依赖所有子任务完成后触发</text>
+
+      <!-- 底部标注 -->
+      <text x="500" y="400" text-anchor="middle" font-size="10" fill="var(--text-dim)">箭头方向 = 依赖方向（箭头指向被依赖方 → 被依赖方完成后，依赖方才可执行）</text>
+      <text x="500" y="414" text-anchor="middle" font-size="9" fill="var(--text-dim)">实际 InitViews 包含 20+ 个子任务，此处仅展示核心任务链</text>
+    </svg>
+  </div>
+
+  <div class="info-callout accent">
+    <strong>TaskGraph 依赖规则：</strong>任务创建时指定的 <code>Prerequisites</code> 参数是一个 <code>FGraphEventArray</code> 或单个 <code>FGraphEventRef</code>。只有当所有前置任务的 <code>FGraphEvent</code> 被标记为完成时，TaskGraph 才会将该任务从队列中取出并执行。这种声明式依赖模型避免了手动加锁，天然避免了死锁——只要依赖图是 DAG（无环），调度就是安全的。
+  </div>
+
+  <h3>3.3 渲染线程绑定</h3>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-label">核心枚举</div>
+      <div class="card-title">ENamedThreads::ActualRenderingThread</div>
+      <div class="card-desc">
+        渲染专用命名线程，固定优先级（<strong>略低于 GameThread</strong>），拥有专用任务队列。不是 Worker Thread——有固定优先级和专用队列，不会被线程池回收。GameThread 通过 <code>ENQUEUE_RENDER_COMMAND</code> 将任务推送到此线程的队列，TaskGraph 在每帧开始时批量处理。RenderThread 的任务优先级低于 GameThread，防止渲染工作阻塞游戏逻辑。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-label">核心枚举</div>
+      <div class="card-title">ENamedThreads::RHIThread</div>
+      <div class="card-desc">
+        RHI 命令执行线程，优先级<strong>低于 RenderThread</strong>。消费 RenderThread 产生的 <code>FRHICommandList</code> 队列，逐条翻译为平台 API 调用。RHIThread 的任务模式与 RenderThread 不同——它在 <code>FRHICommandListExecutor::Execute()</code> 中循环消费命令，而不是等待 TaskGraph 分发离散任务。关闭 RHIThread（<code>r.RHIThread.Enable=0</code>）后，RenderThread 在提交 Pass 时直接调用平台 API。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-label">同步机制</div>
+      <div class="card-title">FGraphEventRef</div>
+      <div class="card-desc">
+        任务完成的事件信号。每个 <code>TGraphTask</code> 创建时返回一个 <code>FGraphEventRef</code>（智能指针封装的 <code>FGraphEvent</code>）。可通过 <code>FTaskGraphInterface::WaitUntilTasksComplete(EventArray)</code> 阻塞等待一组事件全部完成，或通过 <code>FGraphEvent::AddSubsequent()</code> 将后续任务链入依赖图。引用计数管理生命周期，最后一个引用释放时自动销毁。
+      </div>
+    </div>
+  </div>
+
+  <div class="code-block"><code><span class="cmt">// TaskGraph 创建依赖任务的完整示例</span>
+<span class="cmt">// PreTask → MainTask → CompletionEvent 的三级依赖链</span>
+
+<span class="cmt">// 步骤 1：创建前置任务（无依赖，立即派发到 AnyThread）</span>
+<span class="fn">FGraphEventRef</span> PreTaskEvent = <span class="fn">TGraphTask</span>&lt;<span class="fn">FPreparePrimitiveDataTask</span>&gt;::<span class="fn">CreateTask</span>(<span class="kw">nullptr</span>)
+    .<span class="fn">ConstructAndDispatchWhenReady</span>(PrimitiveSceneData);
+
+<span class="cmt">// 步骤 2：创建主任务（依赖 PreTaskEvent，派发到 RenderThread）</span>
+<span class="fn">FGraphEventRef</span> MainTaskEvent = <span class="fn">TGraphTask</span>&lt;<span class="fn">FBuildMeshDrawCommandsTask</span>&gt;::<span class="fn">CreateTask</span>(PreTaskEvent)
+    .<span class="fn">ConstructAndDispatchWhenReady</span>(VisibleMeshes, MeshPassType);
+
+<span class="cmt">// 步骤 3：创建完成回调任务（依赖 MainTaskEvent）</span>
+<span class="kw">auto</span>&amp; CompletionEvent = <span class="fn">TGraphTask</span>&lt;<span class="fn">FOnMeshCommandsReadyTask</span>&gt;::<span class="fn">CreateTask</span>(MainTaskEvent)
+    .<span class="fn">ConstructAndDispatchWhenReady</span>(OutMeshDrawCommands);
+
+<span class="cmt">// 阻塞等待整条任务链完成（通常只在需要读取结果时调用）</span>
+<span class="fn">FTaskGraphInterface</span>::<span class="fn">WaitUntilTasksComplete</span>(CompletionEvent);</code></div>
 </section>
 
 <!-- ===== 4. FRenderCommandFence 与同步原语 ===== -->
