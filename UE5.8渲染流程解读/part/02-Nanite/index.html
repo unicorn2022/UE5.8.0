@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nanite 虚拟几何 — UE5.8.0 渲染流程解读</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --card: #131318;
+  --code: #09090d;
+  --accent: #4FC3F7;
+  --accent-dim: rgba(79,195,247,0.12);
+  --text: #e0e0e0;
+  --text-dim: #909090;
+  --border: rgba(255,255,255,0.06);
+  --font-sans: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  --font-mono: 'Cascadia Code','Fira Code','Consolas',monospace;
+  --warn: #FFB74D;
+  --warn-dim: rgba(255,183,77,0.08);
+  --warn-border: rgba(255,183,77,0.2);
+  --green: #81C784;
+  --green-dim: rgba(129,199,132,0.12);
+  --red: #E57373;
+  --red-dim: rgba(229,115,115,0.12);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:15px}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--text);line-height:1.72;min-height:100vh}
+a{color:var(--accent);text-decoration:none;transition:0.2s}
+a:hover{text-decoration:underline}
+
+/* ===== 面包屑导航 ===== */
+.breadcrumb{max-width:1200px;margin:0 auto;padding:16px 24px 0;font-size:0.85rem;color:var(--text-dim)}
+.breadcrumb a{color:var(--text-dim)}
+.breadcrumb a:hover{color:var(--accent)}
+.breadcrumb span{color:var(--text)}
+
+/* ===== Hero ===== */
+.hero{text-align:center;padding:60px 24px 48px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:800px;height:400px;background:radial-gradient(ellipse at center,rgba(79,195,247,0.08) 0%,transparent 70%);pointer-events:none}
+.hero h1{font-size:2.4rem;font-weight:800;letter-spacing:0.5px;position:relative}
+.hero h1 span{color:var(--accent)}
+.hero .subtitle{margin-top:12px;font-size:1.05rem;color:var(--text-dim);max-width:720px;margin-inline:auto;position:relative}
+.hero .meta{margin-top:20px;display:flex;gap:16px;justify-content:center;flex-wrap:wrap;position:relative}
+.hero .meta .tag{font-family:var(--font-mono);font-size:0.8rem;padding:4px 14px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-dim)}
+
+/* ===== 通用 section 布局 ===== */
+.section-wrap{max-width:1100px;margin:0 auto 60px;padding:0 24px}
+.section-wrap h2{font-size:1.5rem;color:var(--accent);margin-bottom:8px}
+.section-wrap .section-desc{color:var(--text-dim);margin-bottom:28px;font-size:0.92rem}
+.section-wrap p{color:var(--text-dim);margin-bottom:14px;font-size:0.93rem}
+.section-wrap code{font-family:var(--font-mono);font-size:0.85rem;background:var(--code);padding:1px 6px;border-radius:3px;color:var(--accent)}
+
+/* ===== 三个介入点卡片 ===== */
+.intervene-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:20px}
+.intervene-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:24px;transition:all 0.2s}
+.intervene-card:hover{border-color:rgba(79,195,247,0.35)}
+.intervene-card .int-num{font-family:var(--font-mono);font-size:0.72rem;color:var(--accent);letter-spacing:1px;margin-bottom:8px}
+.intervene-card .int-title{font-size:1.08rem;font-weight:700;color:#fff;margin-bottom:10px}
+.intervene-card .int-desc{font-size:0.85rem;color:var(--text-dim);line-height:1.6}
+.intervene-card .int-desc code{font-size:0.78rem}
+
+/* ===== 时间线图 ===== */
+.svg-section{max-width:1300px;margin:0 auto 56px;padding:0 24px}
+.svg-section h2{text-align:center;font-size:1.5rem;color:var(--accent);margin-bottom:8px}
+.svg-section .section-desc{text-align:center;color:var(--text-dim);margin-bottom:28px;font-size:0.92rem}
+.svg-container{overflow-x:auto;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px 16px}
+.svg-container svg{display:block;min-width:1100px;margin:0 auto}
+
+/* ===== 源码代码块 ===== */
+.src-block{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;overflow-x:auto;font-size:0.8rem;line-height:1.6;margin:16px 0}
+.src-block code{font-family:var(--font-mono);color:#c8ccd4;background:transparent;padding:0;font-size:0.8rem}
+.src-block .fn{color:#7ec8e3}
+.src-block .cmt{color:#6a9955}
+.src-block .arrow{color:var(--text-dim)}
+.src-block .kw{color:#c586c0}
+.src-block .str{color:#ce9178}
+.src-block .num{color:#b5cea8}
+
+/* ===== 对比表 ===== */
+.compare-table{width:100%;border-collapse:collapse;font-size:0.88rem;margin:16px 0}
+.compare-table th{text-align:left;padding:10px 16px;background:var(--card);color:var(--accent);border-bottom:2px solid rgba(255,255,255,0.08);font-weight:600;font-size:0.85rem}
+.compare-table td{padding:10px 16px;border-bottom:1px solid var(--border);color:var(--text-dim);vertical-align:top}
+.compare-table tr:hover td{background:var(--accent-dim)}
+.compare-table code{font-size:0.78rem}
+
+/* ===== 流式时序卡片 ===== */
+.timing-list{display:flex;flex-direction:column;gap:12px;margin:16px 0}
+.timing-item{display:flex;align-items:flex-start;gap:14px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 20px;font-size:0.88rem}
+.timing-item .t-step{font-family:var(--font-mono);font-size:0.78rem;color:var(--accent);flex-shrink:0;min-width:28px;text-align:right;font-weight:700}
+.timing-item .t-content{flex:1}
+.timing-item .t-api{font-family:var(--font-mono);font-size:0.8rem;color:#fff;margin-bottom:2px}
+.timing-item .t-desc{font-size:0.82rem;color:var(--text-dim)}
+.timing-item .t-loc{font-family:var(--font-mono);font-size:0.7rem;color:rgba(79,195,247,0.5);margin-top:2px}
+
+/* ===== CVar 表格 ===== */
+.cvar-table{width:100%;border-collapse:collapse;font-size:0.85rem;margin:16px 0}
+.cvar-table th{text-align:left;padding:10px 14px;background:var(--card);color:var(--accent);border-bottom:2px solid rgba(255,255,255,0.08);font-weight:600;font-size:0.82rem}
+.cvar-table td{padding:9px 14px;border-bottom:1px solid var(--border);color:var(--text-dim);vertical-align:top}
+.cvar-table tr:hover td{background:var(--accent-dim)}
+.cvar-table td:first-child{font-family:var(--font-mono);font-size:0.78rem;color:var(--accent);white-space:nowrap}
+.cvar-table td:nth-child(2){font-family:var(--font-mono);font-size:0.75rem;color:var(--text-dim);white-space:nowrap;text-align:center}
+.cvar-table td:nth-child(3){font-size:0.82rem}
+
+/* ===== 源码索引表 ===== */
+.source-table{width:100%;border-collapse:collapse;font-size:0.86rem;margin:16px 0}
+.source-table th{text-align:left;padding:10px 14px;background:var(--card);color:var(--accent);border-bottom:2px solid rgba(255,255,255,0.08);font-weight:600;font-size:0.82rem}
+.source-table td{padding:9px 14px;border-bottom:1px solid var(--border);color:var(--text-dim);vertical-align:top}
+.source-table tr:hover td{background:var(--accent-dim)}
+.source-table td:first-child{font-family:var(--font-mono);font-size:0.77rem;color:var(--accent);white-space:nowrap}
+.source-table td:nth-child(2){font-family:var(--font-mono);font-size:0.77rem;color:#fff}
+.source-table td:nth-child(3){font-size:0.82rem}
+
+/* ===== 小提示/叫号框 ===== */
+.callout{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:14px 18px;margin:16px 0;font-size:0.9rem}
+.callout strong{color:var(--accent)}
+.callout.warn{border-left-color:var(--warn);background:var(--warn-dim);border-color:var(--warn-border)}
+.callout.green{border-left-color:var(--green);background:var(--green-dim);border-color:rgba(129,199,132,0.2)}
+
+/* ===== 特性 Grid ===== */
+.feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:16px 0}
+.feature-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:18px;font-size:0.87rem}
+.feature-card .feat-title{font-weight:700;color:#fff;margin-bottom:6px}
+.feature-card .feat-desc{color:var(--text-dim);font-size:0.83rem;line-height:1.55}
+.feature-card .feat-desc code{font-size:0.78rem}
+
+/* ===== Footer ===== */
+.footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);color:var(--text-dim);font-size:0.83rem}
+
+/* ===== 回到顶部 ===== */
+.back-top{position:fixed;bottom:32px;right:32px;width:40px;height:40px;border-radius:50%;background:var(--card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--text-dim);transition:all 0.2s;z-index:100}
+.back-top:hover{color:var(--accent);border-color:var(--accent);text-decoration:none}
+
+/* ===== 响应式 ===== */
+@media(max-width:768px){
+  .hero{padding:40px 18px 32px}
+  .hero h1{font-size:1.6rem}
+  .intervene-grid{grid-template-columns:1fr}
+  .feature-grid{grid-template-columns:1fr}
+  .svg-container{padding:12px 8px}
+  .compare-table{font-size:0.78rem}
+  .cvar-table{font-size:0.75rem}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 面包屑导航 ===== -->
+<nav class="breadcrumb">
+  <a href="../../index.html">首页</a> &nbsp;&rsaquo;&nbsp;
+  <a href="../01-管线总览/index.html">管线总览</a> &nbsp;&rsaquo;&nbsp;
+  <span>Nanite 虚拟几何</span>
+</nav>
+
+<!-- ===== Hero ===== -->
+<section class="hero">
+  <h1>Nanite <span>虚拟几何</span></h1>
+  <p class="subtitle">UE5.8 核心虚拟几何子系统，GPU 驱动渲染管线：BVH 层级裁剪、VisBuffer 可见性缓冲、软硬件混合光栅化、延迟材质着色，全流程覆盖约 3500 行代码。</p>
+  <div class="meta">
+    <span class="tag">GPU 驱动管线</span>
+    <span class="tag">VisBuffer</span>
+    <span class="tag">软硬件混合光栅化</span>
+    <span class="tag">延迟材质着色</span>
+    <span class="tag">流式加载</span>
+    <span class="tag">Nanite/</span>
+  </div>
+</section>
+
+<!-- ===== 1. 管线中的位置 ===== -->
+<section class="section-wrap" id="position">
+  <h2>1. 管线中的位置</h2>
+  <p class="section-desc">Nanite 在 <code>FDeferredShadingSceneRenderer::Render()</code> 管线中有三个关键介入点，分别对应可见性计算、光栅化和着色三个阶段。</p>
+
+  <div class="intervene-grid">
+    <div class="intervene-card">
+      <div class="int-num">介入点 1 &mdash; Phase 3 (L1991-L2017)</div>
+      <div class="int-title">可见性查询启动</div>
+      <div class="int-desc">
+        在视图与可见性阶段，渲染器调用 <code>NaniteVisibility.BeginVisibilityFrame()</code> 开启 Nanite 可见性帧，
+        随后通过 <code>NaniteVisibility.BeginVisibilityQuery()</code> 提交异步 GPU 裁剪任务。
+        该查询输出 <code>FNaniteVisibilityResults</code>，记录每个 RasterBin 和 ShadingBin 的可见性。
+      </div>
+    </div>
+
+    <div class="intervene-card">
+      <div class="int-num">介入点 2 &mdash; Phase 4 (L2511-L2517)</div>
+      <div class="int-title">光栅化 (RenderNanite)</div>
+      <div class="int-desc">
+        在预通道之后，<code>RenderNanite()</code> 被调用以执行 GPU 端的两级 BVH 裁剪 + 光栅化。
+        产出 <code>VisBuffer64</code>（64 位可见性缓冲）和 <code>DepthBuffer</code>（Nanite 深度），
+        供后续 BasePass 着色阶段读取。
+      </div>
+    </div>
+
+    <div class="intervene-card">
+      <div class="int-num">介入点 3 &mdash; Phase 5 (L2726-L2734 + L3096-L3128)</div>
+      <div class="int-title">CS 着色 (BuildShadingCommands + BasePass)</div>
+      <div class="int-desc">
+        <code>Nanite::BuildShadingCommands()</code> 在预通道后提前执行（CPU 端任务重叠优化），
+        构建 Material Bin 着色命令。在 BasePass 阶段，<code>RenderBasePass()</code>
+        将 Nanite 着色命令传入，通过 Compute Shader 并行走 Material Bin 着色通道，写入 G-Buffer。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 管线时间线 SVG ===== -->
+<section class="svg-section" id="timeline-svg">
+  <h2>Nanite 在 Render 函数中的时间线</h2>
+  <p class="section-desc">以下 SVG 展示 Nanite 在 Render 函数九个阶段中的三个介入点。实线箭头为同步依赖，虚线表示异步并行。</p>
+  <div class="svg-container">
+    <svg viewBox="0 0 1200 260" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrowA" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 Z" fill="#4FC3F7" opacity="0.7"/>
+        </marker>
+        <marker id="arrowDash" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 Z" fill="#FFB74D" opacity="0.5"/>
+        </marker>
+      </defs>
+
+      <!-- 九阶段横条 -->
+      <rect x="10" y="20" width="1180" height="48" rx="8" fill="rgba(79,195,247,0.03)" stroke="rgba(79,195,247,0.08)"/>
+
+      <!-- 阶段 1-3 -->
+      <rect x="20" y="30" width="110" height="28" rx="5" fill="#131318" stroke="rgba(255,255,255,0.08)"/>
+      <text x="75" y="49" text-anchor="middle" font-size="11" fill="#909090">阶段 1-2</text>
+
+      <line x1="130" y1="44" x2="152" y2="44" stroke="#4FC3F7" stroke-width="1" opacity="0.4" marker-end="url(#arrowA)"/>
+
+      <rect x="158" y="30" width="130" height="28" rx="5" fill="#131318" stroke="rgba(79,195,247,0.3)"/>
+      <text x="223" y="49" text-anchor="middle" font-size="11" fill="#4FC3F7" font-weight="bold">阶段 3: 可见性</text>
+
+      <!-- Nanite 介入点 1 标注 -->
+      <line x1="223" y1="58" x2="223" y2="78" stroke="#FFB74D" stroke-width="1.2" stroke-dasharray="4,2"/>
+      <rect x="155" y="78" width="136" height="20" rx="4" fill="rgba(255,183,77,0.1)" stroke="rgba(255,183,77,0.2)"/>
+      <text x="223" y="92" text-anchor="middle" font-size="9" fill="#FFB74D" font-family="monospace">NaniteVisibility (L1991-2017)</text>
+
+      <line x1="288" y1="44" x2="310" y2="44" stroke="#4FC3F7" stroke-width="1" opacity="0.4" marker-end="url(#arrowA)"/>
+
+      <rect x="316" y="30" width="150" height="28" rx="5" fill="#131318" stroke="rgba(79,195,247,0.3)"/>
+      <text x="391" y="49" text-anchor="middle" font-size="11" fill="#4FC3F7" font-weight="bold">阶段 4: 预通道+光栅化</text>
+
+      <!-- Nanite 介入点 2 标注 -->
+      <line x1="391" y1="58" x2="391" y2="78" stroke="#FFB74D" stroke-width="1.2" stroke-dasharray="4,2"/>
+      <rect x="310" y="78" width="162" height="20" rx="4" fill="rgba(255,183,77,0.1)" stroke="rgba(255,183,77,0.2)"/>
+      <text x="391" y="92" text-anchor="middle" font-size="9" fill="#FFB74D" font-family="monospace">RenderNanite (L2514-2517)</text>
+
+      <line x1="466" y1="44" x2="488" y2="44" stroke="#4FC3F7" stroke-width="1" opacity="0.4" marker-end="url(#arrowA)"/>
+
+      <rect x="494" y="30" width="150" height="28" rx="5" fill="#131318" stroke="rgba(79,195,247,0.3)"/>
+      <text x="569" y="49" text-anchor="middle" font-size="11" fill="#4FC3F7" font-weight="bold">阶段 5: BasePass</text>
+
+      <!-- Nanite 介入点 3 标注 -->
+      <line x1="569" y1="58" x2="569" y2="78" stroke="#FFB74D" stroke-width="1.2" stroke-dasharray="4,2"/>
+      <rect x="465" y="78" width="208" height="20" rx="4" fill="rgba(255,183,77,0.1)" stroke="rgba(255,183,77,0.2)"/>
+      <text x="569" y="92" text-anchor="middle" font-size="9" fill="#FFB74D" font-family="monospace">BuildShadingCommands + BasePass (L2726-2734, L3098)</text>
+
+      <line x1="644" y1="44" x2="666" y2="44" stroke="#4FC3F7" stroke-width="1" opacity="0.4" marker-end="url(#arrowA)"/>
+
+      <rect x="672" y="30" width="110" height="28" rx="5" fill="#131318" stroke="rgba(255,255,255,0.08)"/>
+      <text x="727" y="49" text-anchor="middle" font-size="11" fill="#909090">阶段 6</text>
+
+      <line x1="782" y1="44" x2="804" y2="44" stroke="#4FC3F7" stroke-width="1" opacity="0.4" marker-end="url(#arrowA)"/>
+
+      <rect x="810" y="30" width="110" height="28" rx="5" fill="#131318" stroke="rgba(255,255,255,0.08)"/>
+      <text x="865" y="49" text-anchor="middle" font-size="11" fill="#909090">阶段 7-8</text>
+
+      <line x1="920" y1="44" x2="942" y2="44" stroke="#4FC3F7" stroke-width="1" opacity="0.4" marker-end="url(#arrowA)"/>
+
+      <rect x="948" y="30" width="110" height="28" rx="5" fill="#131318" stroke="rgba(255,255,255,0.08)"/>
+      <text x="1003" y="49" text-anchor="middle" font-size="11" fill="#909090">阶段 9</text>
+
+      <!-- 流式加载异步标注 -->
+      <rect x="10" y="125" width="1180" height="55" rx="8" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.08)"/>
+      <text x="600" y="145" text-anchor="middle" font-size="12" font-weight="bold" fill="#FFB74D">Nanite 流式加载 (L2068-L2409)</text>
+
+      <rect x="50" y="155" width="220" height="18" rx="4" fill="rgba(255,183,77,0.08)" stroke="rgba(255,183,77,0.15)"/>
+      <text x="160" y="168" text-anchor="middle" font-size="9" font-family="monospace" fill="#FFB74D">GStreamingManager.BeginAsyncUpdate (L2068)</text>
+
+      <text x="340" y="168" text-anchor="middle" font-size="14" fill="#FFB74D" opacity="0.5">&#x2192; 异步 GPU 请求提交 &#x2192;</text>
+
+      <rect x="530" y="155" width="240" height="18" rx="4" fill="rgba(255,183,77,0.08)" stroke="rgba(255,183,77,0.15)"/>
+      <text x="650" y="168" text-anchor="middle" font-size="9" font-family="monospace" fill="#FFB74D">GStreamingManager.EndAsyncUpdate (L2399)</text>
+
+      <!-- 数据流底栏 -->
+      <rect x="10" y="200" width="1180" height="48" rx="8" fill="rgba(79,195,247,0.02)" stroke="rgba(79,195,247,0.06)"/>
+      <text x="600" y="220" text-anchor="middle" font-size="11" fill="#4FC3F7">数据流: 可见性查询结果 &#x2192; VisBuffer64 + Depth &#x2192; ShadingMask &#x2192; GBuffer (A/B/C/D/E)</text>
+      <text x="600" y="238" text-anchor="middle" font-size="10" fill="#909090">NaniteVisibility &#x2192; RenderNanite (CullRaster) &#x2192; BuildShadingCommands (ShadeBinning) &#x2192; RenderBasePass (ComputeShading)</text>
+    </svg>
+  </div>
+</section>
+
+<!-- ===== 2. 核心概念 ===== -->
+<section class="section-wrap" id="concepts">
+  <h2>2. 核心概念</h2>
+  <p class="section-desc">Nanite 虚拟几何系统的四个核心概念：层级数据结构、GPU 驱动裁剪、VisBuffer 可见性缓冲、延迟材质着色。</p>
+
+  <!-- SVG: BVH -> Cluster -> Triangle 三级结构 -->
+  <div class="svg-container" style="margin-bottom:28px">
+    <svg viewBox="0 0 1000 400" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="rootGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#4FC3F7" stop-opacity="0.3"/>
+          <stop offset="100%" stop-color="#4FC3F7" stop-opacity="0.08"/>
+        </linearGradient>
+        <linearGradient id="bvhnGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="rgba(79,195,247,0.25)"/>
+          <stop offset="100%" stop-color="rgba(79,195,247,0.06)"/>
+        </linearGradient>
+        <linearGradient id="clustGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="rgba(255,183,77,0.25)"/>
+          <stop offset="100%" stop-color="rgba(255,183,77,0.06)"/>
+        </linearGradient>
+        <linearGradient id="triGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="rgba(129,199,132,0.25)"/>
+          <stop offset="100%" stop-color="rgba(129,199,132,0.06)"/>
+        </linearGradient>
+      </defs>
+
+      <!-- 层级1: 根节点（资源） -->
+      <rect x="350" y="15" width="300" height="55" rx="10" fill="url(#rootGrad)" stroke="rgba(79,195,247,0.3)"/>
+      <text x="500" y="38" text-anchor="middle" font-size="14" font-weight="bold" fill="#4FC3F7">Nanite::FResources (Root)</text>
+      <text x="500" y="58" text-anchor="middle" font-size="11" fill="#909090">包含完整网格的 Hierarchy Buffer + Cluster Page 表</text>
+
+      <line x1="500" y1="70" x2="500" y2="95" stroke="#4FC3F7" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowA)"/>
+
+      <!-- 层级2: BVH 节点 -->
+      <text x="500" y="112" text-anchor="middle" font-size="11" fill="#909090">GPU 端 BVH 遍历 (NaniteCullRaster.cpp)</text>
+
+      <rect x="100" y="125" width="180" height="55" rx="8" fill="url(#bvhnGrad)" stroke="rgba(79,195,247,0.25)"/>
+      <text x="190" y="148" text-anchor="middle" font-size="13" font-weight="bold" fill="#7ec8e3">BVH Node (内 部)</text>
+      <text x="190" y="168" text-anchor="middle" font-size="10" fill="#909090">8 叉树包围盒，子节点索引</text>
+
+      <rect x="410" y="125" width="180" height="55" rx="8" fill="url(#bvhnGrad)" stroke="rgba(79,195,247,0.25)"/>
+      <text x="500" y="148" text-anchor="middle" font-size="13" font-weight="bold" fill="#7ec8e3">BVH Node (中间)</text>
+      <text x="500" y="168" text-anchor="middle" font-size="10" fill="#909090">递归包含更深层级节点</text>
+
+      <rect x="720" y="125" width="180" height="55" rx="8" fill="url(#bvhnGrad)" stroke="rgba(79,195,247,0.25)"/>
+      <text x="810" y="148" text-anchor="middle" font-size="13" font-weight="bold" fill="#7ec8e3">BVH Node (叶)</text>
+      <text x="810" y="168" text-anchor="middle" font-size="10" fill="#909090">指向 Cluster 页面的叶子节点</text>
+
+      <!-- 连线从 BVH 叶到 Cluster -->
+      <line x1="810" y1="180" x2="810" y2="210" stroke="#FFB74D" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowA)"/>
+
+      <!-- 层级3: Cluster Pages -->
+      <rect x="630" y="215" width="360" height="55" rx="8" fill="url(#clustGrad)" stroke="rgba(255,183,77,0.25)"/>
+      <text x="810" y="238" text-anchor="middle" font-size="13" font-weight="bold" fill="#FFB74D">Cluster Pages (GPU 内存)</text>
+      <text x="810" y="258" text-anchor="middle" font-size="10" fill="#909090">每页 16KB，包含 32~128 个 Cluster，每个 Cluster 最多 128 个三角形</text>
+
+      <line x1="810" y1="270" x2="810" y2="300" stroke="#81C784" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowA)"/>
+
+      <!-- 层级4: Triangles -->
+      <rect x="650" y="305" width="320" height="55" rx="8" fill="url(#triGrad)" stroke="rgba(129,199,132,0.25)"/>
+      <text x="810" y="328" text-anchor="middle" font-size="13" font-weight="bold" fill="#81C784">Triangle (光栅化片元)</text>
+      <text x="810" y="348" text-anchor="middle" font-size="10" fill="#909090">实际三角形几何体，经过裁剪后由硬件或 CS 光栅化</text>
+
+      <!-- 右侧标注 -->
+      <text x="910" y="55" font-size="10" font-family="monospace" fill="#909090">资源 ID + 页面索引</text>
+      <line x1="900" y1="58" x2="650" y2="45" stroke="#909090" stroke-width="0.5" opacity="0.3"/>
+
+      <text x="910" y="155" font-size="10" font-family="monospace" fill="#909090">包围盒 + 子节点偏移</text>
+      <line x1="900" y1="158" x2="590" y2="150" stroke="#909090" stroke-width="0.5" opacity="0.3"/>
+
+      <text x="910" y="285" font-size="10" font-family="monospace" fill="#909090">FPackedCluster: 128 三角形</text>
+      <text x="910" y="298" font-size="10" font-family="monospace" fill="#909090">+ LOD 误差 + 包围球</text>
+      <line x1="900" y1="250" x2="990" y2="245" stroke="#909090" stroke-width="0.5" opacity="0.3"/>
+
+      <text x="910" y="335" font-size="10" font-family="monospace" fill="#909090">3 x 顶点索引 + 材质 ID</text>
+      <line x1="900" y1="338" x2="970" y2="338" stroke="#909090" stroke-width="0.5" opacity="0.3"/>
+    </svg>
+  </div>
+
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="feat-title">GPU 驱动裁剪</div>
+      <div class="feat-desc">
+        两级裁剪管线：<code>CULLING_PASS_OCCLUSION_MAIN</code> 执行视锥 + HZB + 距离 + LOD 裁剪，
+        <code>CULLING_PASS_OCCLUSION_POST</code> 执行二阶段遮挡裁剪。裁剪结果写入 <code>VisibleClustersSWHW</code> 缓冲区。
+      </div>
+    </div>
+    <div class="feature-card">
+      <div class="feat-title">VisBuffer 64 位编码</div>
+      <div class="feat-desc">
+        64 位可见性缓冲编码每个像素的深度值（32 位 float）和三角形/Cluster ID（29 位）。
+        光栅化阶段产出 <code>VisBuffer64</code>，着色阶段从中解码三角形信息并计算材质属性。
+      </div>
+    </div>
+    <div class="feature-card">
+      <div class="feat-title">延迟材质着色</div>
+      <div class="feat-desc">
+        类似延迟渲染的材质着色：先光栅化所有可见三角形的 ID 到 VisBuffer，再通过 <code>ShadingMask</code>
+        将像素按材质分组（Material Bin），最后用 Compute Shader 分批计算 G-Buffer。
+      </div>
+    </div>
+    <div class="feature-card">
+      <div class="feat-title">软件/硬件混合光栅化</div>
+      <div class="feat-desc">
+        大三角形走硬件光栅化（HW Raster），小三角形（像素级）走 Compute Shader 光栅化（SW Raster）。
+        通过 <code>r.Nanite.ComputeRasterization</code> 和 <code>r.Nanite.MinPixelsPerEdgeHW</code> 精细控制切换阈值。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 3. 可见性阶段 ===== -->
+<section class="section-wrap" id="visibility">
+  <h2>3. 可见性阶段</h2>
+  <p class="section-desc">Nanite 可见性查询在 Phase 3 启动，用于确定哪些 Material Bin（RasterBin + ShadingBin）在当前帧是可见的，从而跳过不可见材质的 GPU 计算。</p>
+
+  <p>可见性计算的核心入口位于 <code>DeferredShadingRenderer.cpp::1991-2017</code>，在 <code>BeginInitViews</code> 之前执行。</p>
+
+  <div class="src-block">
+    <code><span class="cmt">// DeferredShadingRenderer.cpp L1991-L2017</span>
+<span class="kw">if</span> (bNaniteEnabled)
+{
+    TArray&lt;FConvexVolume, TInlineAllocator&lt;2&gt;&gt; NaniteCullingViews;
+    <span class="kw">for</span> (<span class="kw">int32</span> ViewIndex = 0; ViewIndex &lt; Views.Num(); ViewIndex++)
+    {
+        FViewInfo&amp; View = Views[ViewIndex];
+        NaniteCullingViews.Add(View.ViewFrustum);
+    }
+
+    <span class="fn">FNaniteVisibility</span>&amp; NaniteVisibility = Scene-&gt;NaniteVisibility[ENaniteMeshPass::BasePass];
+    <span class="kw">const</span> <span class="fn">FNaniteRasterPipelines</span>&amp;  NaniteRasterPipelines  = Scene-&gt;NaniteRasterPipelines[ENaniteMeshPass::BasePass];
+    <span class="kw">const</span> <span class="fn">FNaniteShadingPipelines</span>&amp; NaniteShadingPipelines = Scene-&gt;NaniteShadingPipelines[ENaniteMeshPass::BasePass];
+
+    <span class="cmt">// 开启可见性帧</span>
+    NaniteVisibility.<span class="fn">BeginVisibilityFrame</span>();
+
+    <span class="cmt">// 提交异步可见性查询</span>
+    NaniteBasePassVisibility.Visibility = &amp;NaniteVisibility;
+    NaniteBasePassVisibility.Query = NaniteVisibility.<span class="fn">BeginVisibilityQuery</span>(
+        Allocator,
+        *Scene,
+        NaniteCullingViews,
+        &amp;NaniteRasterPipelines,
+        &amp;NaniteShadingPipelines,
+        InitViewTaskDatas.VisibilityTaskData-&gt;GetComputeRelevanceTask()
+    );
+}</code>
+  </div>
+
+  <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">FNaniteVisibilityQuery 内部结构</h3>
+
+  <p>可见性查询通过 CPU 端图元遍历，对每个 Nanite 图元检查其引用的 RasterBin 和 ShadingBin 是否在视锥体内。结果存储在两个 <code>TBitArray</code> 中：</p>
+
+  <div class="src-block">
+    <code><span class="cmt">// NaniteVisibility.cpp: FNaniteVisibilityQuery</span>
+TArray&lt;FConvexVolume&gt; Views;          <span class="cmt">// 裁剪视锥体列表</span>
+TArray&lt;TAtomic&lt;bool&gt;&gt; RasterBinVisibility;  <span class="cmt">// 每个 RasterBin 的可见性</span>
+TArray&lt;TAtomic&lt;bool&gt;&gt; ShadingBinVisibility; <span class="cmt">// 每个 ShadingBin 的可见性</span>
+FNaniteVisibilityResults Results;        <span class="cmt">// 查询完成后的聚合结果</span>
+UE::Tasks::FTask CompletedEvent;         <span class="cmt">// 异步任务完成信号</span></code>
+  </div>
+
+  <p>查询结果通过 <code>FNaniteVisibilityResults</code> 暴露关键接口：</p>
+
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="feat-title">RasterBin 查询</div>
+      <div class="feat-desc"><code>IsRasterBinVisible(BinIndex)</code> —— 判断指定 RasterBin 是否在视锥体内。RasterBin 对应光栅化时的材质分组。</div>
+    </div>
+    <div class="feature-card">
+      <div class="feat-title">ShadingBin 查询</div>
+      <div class="feat-desc"><code>IsShadingBinVisible(BinIndex)</code> —— 判断指定 ShadingBin 是否可见。ShadingBin 对应着色阶段的 Material Bin。</div>
+    </div>
+    <div class="feature-card">
+      <div class="feat-title">取可见性任务句柄</div>
+      <div class="feat-desc"><code>Nanite::GetVisibilityTask(Query)</code> —— 获取 <code>UE::Tasks::FTask</code> 句柄，等待异步查询完成后才执行光栅化。</div>
+    </div>
+    <div class="feature-card">
+      <div class="feat-title">CustomDepth 检查</div>
+      <div class="feat-desc"><code>ShouldRenderCustomDepthPrimitive(PrimitiveId)</code> —— 检查指定图元是否需要渲染自定义深度。</div>
+    </div>
+  </div>
+
+  <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">关键 CVar</h3>
+
+  <table class="cvar-table">
+    <thead><tr><th>CVar</th><th>默认值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>r.Nanite.MaterialVisibility</td><td>0</td><td>是否启用 Nanite 材质可见性测试（只读）</td></tr>
+      <tr><td>r.Nanite.MaterialVisibility.Async</td><td>1</td><td>是否启用异步并行可见性测试</td></tr>
+      <tr><td>r.Nanite.MaterialVisibility.Primitives</td><td>1</td><td>是否对图元执行可见性测试</td></tr>
+      <tr><td>r.Nanite.MaterialVisibility.RasterBins</td><td>1</td><td>是否过滤不可见的 RasterBin</td></tr>
+      <tr><td>r.Nanite.MaterialVisibility.ShadingBins</td><td>1</td><td>是否过滤不可见的 ShadingBin</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===== 4. 光栅化阶段 ===== -->
+<section class="section-wrap" id="rasterization">
+  <h2>4. 光栅化阶段</h2>
+  <p class="section-desc">光栅化是 Nanite 核心步骤，在 GPU 端完成 BVH 裁剪 + 两级光栅化，输出 VisBuffer64 和深度缓冲。</p>
+
+  <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">RenderNanite 调用</h3>
+
+  <div class="src-block">
+    <code><span class="cmt">// DeferredShadingRenderer.cpp L2511-L2517</span>
+{
+    Scene-&gt;<span class="fn">WaitForCacheNaniteMaterialBinsTask</span>();
+
+    <span class="kw">if</span> (bNaniteEnabled &amp;&amp; InViews.Num() &gt; 0)
+    {
+        <span class="fn">RenderNanite</span>(GraphBuilder, InViews, LocalSceneTextures,
+            bIsEarlyDepthComplete, InNaniteBasePassVisibility,
+            NaniteRasterResults, PrimaryNaniteViews, FirstStageDepthBuffer);
+    }
+}</code>
+  </div>
+
+  <p><code>RenderNanite()</code> 内部流程：先调用 <code>Nanite::GStreamingManager.EndAsyncUpdate()</code> 确保流式数据就绪，再按视图遍历执行：</p>
+
+  <div class="src-block">
+    <code><span class="cmt">// 每个视图的执行流程</span>
+<span class="fn">InitRasterContext</span>(GraphBuilder, SharedContext, ViewFamily, InitParams)
+    <span class="arrow">→</span> <span class="fn">IRenderer::Create</span>(GraphBuilder, Scene, View, SharedContext, RasterContext, Configuration)
+    <span class="arrow">→</span> IRenderer-&gt;<span class="fn">Draw</span>() <span class="cmt">// 执行裁剪 + 光栅化</span></code>
+  </div>
+
+  <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">硬件光栅化 vs Compute Shader 光栅化</h3>
+
+  <table class="compare-table">
+    <thead><tr><th>特性</th><th>硬件光栅化 (HW Raster)</th><th>Compute Shader 光栅化 (SW Raster)</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>适用场景</td>
+        <td>屏幕空间较大的三角形</td>
+        <td>像素级小三角形（&lt; 若干像素）</td>
+      </tr>
+      <tr>
+        <td>实现路径</td>
+        <td>GPU 固定功能光栅器 + Pixel Shader</td>
+        <td>Compute Shader 原子操作写入 VisBuffer</td>
+      </tr>
+      <tr>
+        <td>调度策略</td>
+        <td><code>ERasterScheduling::HardwareOnly</code></td>
+        <td><code>ERasterScheduling::HardwareAndSoftwareOverlap</code></td>
+      </tr>
+      <tr>
+        <td>像素阈值</td>
+        <td>大于 <code>r.Nanite.MinPixelsPerEdgeHW</code> (默认 0.5)</td>
+        <td>小于等于 <code>r.Nanite.MinPixelsPerEdgeHW</code></td>
+      </tr>
+      <tr>
+        <td>控制 CVar</td>
+        <td><code>r.Nanite.Bundle.RasterHW</code></td>
+        <td><code>r.Nanite.ComputeRasterization</code> / <code>r.Nanite.Bundle.RasterSW</code></td>
+      </tr>
+      <tr>
+        <td>异步计算</td>
+        <td>图形管线</td>
+        <td>可通过 <code>r.Nanite.AsyncRasterization</code> 走 AsyncCompute</td>
+      </tr>
+      <tr>
+        <td>输出目标</td>
+        <td><code>OutDepthBuffer</code> + <code>OutVisBuffer64</code></td>
+        <td><code>OutDepthBuffer</code> + <code>OutVisBuffer64</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">VisBuffer 64 位编码</h3>
+
+  <p>VisBuffer64 是 Nantie 光栅化的核心输出（<code>FRasterParameters::OutVisBuffer64</code>, <code>RWTexture2D&lt;UlongType&gt;</code>），每个像素 64 位：</p>
+
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="feat-title">低 32 位: 深度 (Depth)</div>
+      <div class="feat-desc">以 float 格式编码的屏幕空间深度值，用于 Early-Z 和后续着色阶段确定像素所属的三角形位置。</div>
+    </div>
+    <div class="feature-card">
+      <div class="feat-title">高 29 位: 三角形/Cluster ID</div>
+      <div class="feat-desc">标识该像素属于哪个 Cluster 中的哪个三角形，着色阶段据此查找材质属性和顶点数据。</div>
+    </div>
+    <div class="feature-card">
+      <div class="feat-title">高 3 位: 标志位</div>
+      <div class="feat-desc">包含 Patch ID / Assembly 标志位，用于曲面细分和装配体渲染的像素分类。</div>
+    </div>
+    <div class="feature-card">
+      <div class="feat-title">光栅化竞争</div>
+      <div class="feat-desc">多个三角形可能覆盖同一像素，通过原子操作（InterlockedMax/Min）写入最近深度的三角形 ID。</div>
+    </div>
+  </div>
+
+  <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">裁剪 Pass 类型</h3>
+
+  <table class="compare-table">
+    <thead><tr><th>Pass 常量</th><th>值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>CULLING_PASS_NO_OCCLUSION</code></td><td>0</td><td>无遮挡裁剪：仅执行视锥、HZB、距离、LOD 裁剪</td></tr>
+      <tr><td><code>CULLING_PASS_OCCLUSION_MAIN</code></td><td>1</td><td>主遮挡裁剪：前一帧 HZB 遮挡测试</td></tr>
+      <tr><td><code>CULLING_PASS_OCCLUSION_POST</code></td><td>2</td><td>二阶段遮挡：当前帧 HZB 精确遮挡</td></tr>
+      <tr><td><code>CULLING_PASS_EXPLICIT_LIST</code></td><td>3</td><td>显式列表裁剪：用于阴影等预选 Cluster 列表</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===== 5. 着色阶段 ===== -->
+<section class="section-wrap" id="shading">
+  <h2>5. 着色阶段</h2>
+  <p class="section-desc">Nanite 着色管线采用延迟材质着色方案：先将 VisBuffer 像素按材质分批（Material Bin），再用 Compute Shader 并行计算 G-Buffer 属性。</p>
+
+  <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">BuildShadingCommands —— 提前执行优化</h3>
+
+  <p>着色命令的构建（CPU 端）在阶段 4 后立即执行（L2726-L2734），而非等到阶段 5。这是 UE5.8 的关键性能优化点，源码注释明确指出：</p>
+
+  <div class="src-block">
+    <code><span class="cmt">// DeferredShadingRenderer.cpp L2725-L2734</span>
+<span class="cmt">// Run Nanite compute commands early in the frame to allow some task overlap</span>
+<span class="cmt">// on the CPU until the base pass runs.</span>
+<span class="kw">if</span> (bNaniteEnabled &amp;&amp; RendererOutput != ERendererOutput::DepthPrepassOnly)
+{
+    <span class="fn">Nanite::BuildShadingCommands</span>(GraphBuilder, *Scene, ENaniteMeshPass::BasePass,
+        Scene-&gt;NaniteShadingCommands[ENaniteMeshPass::BasePass]);
+
+    <span class="kw">if</span> (bAnyLumenEnabled &amp;&amp; RendererOutput == ERendererOutput::FinalSceneColor)
+    {
+        <span class="fn">Nanite::BuildShadingCommands</span>(GraphBuilder, *Scene, ENaniteMeshPass::LumenCardCapture,
+            Scene-&gt;NaniteShadingCommands[ENaniteMeshPass::LumenCardCapture]);
+    }
+}</code>
+  </div>
+
+  <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">Material Bin 批处理机制</h3>
+
+  <p>Nanite 着色使用 <strong>ShadingBin</strong> 机制将 VisBuffer 中的像素按材质分组：</p>
+
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="feat-title">ShadingBin 扫描</div>
+      <div class="feat-desc"><code>FShadingBinBuildCS</code> 扫描 VisBuffer64，将每个像素分配到对应的 ShadingBin。相同材质的像素被收集到连续内存块中。</div>
+    </div>
+    <div class="feature-card">
+      <div class="feat-title">ShadingBin Reserve</div>
+      <div class="feat-desc"><code>FShadingBinReserveCS</code> 为每个 ShadingBin 预留内存空间，计算各 Bin 的像素数量和偏移量。</div>
+    </div>
+    <div class="feature-card">
+      <div class="feat-title">ShadingGroup CS</div>
+      <div class="feat-desc"><code>FShadingGroupCS</code> 将多个 ShadingBin 合并为 ShadingGroup，优化 Compute Shader 的线程组调度粒度。</div>
+    </div>
+    <div class="feature-card">
+      <div class="feat-title">Compute Shading Dispatch</div>
+      <div class="feat-desc"><code>FNaniteShadingPassParameters</code> 通过 Indirect Draw 方式提交 Compute Shader 着色 Pass，每个 Bin 独立 dispatch。</div>
+    </div>
+  </div>
+
+  <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">ShadingMask 与 GBuffer 合并流程</h3>
+
+  <p>着色管线通过 <em>ShadingMask</em> 中介实现从 VisBuffer 到 G-Buffer 的转换：</p>
+
+  <div class="src-block">
+    <code><span class="cmt">// 着色管线数据流</span>
+VisBuffer64 (每个像素: Depth|TriangleID|Flags)
+    <span class="arrow">→</span> <span class="fn">ShadeBinning</span>(GraphBuilder, Scene, View, ShadingCommands, RasterResults)
+        <span class="cmt">// ① 扫描 VisBuffer → 分配 ShadingBin</span>
+    <span class="arrow">→</span> <span class="fn">ShadingMask</span> (像素级材质分类图)
+        <span class="cmt">// ② 每像素映射到 ShadingBin Index</span>
+    <span class="arrow">→</span> <span class="fn">BuildShadingCommands</span> 构建的命令表
+        <span class="cmt">// ③ ShadingBin → PipelineState + Material 参数</span>
+    <span class="arrow">→</span> <span class="fn">RecordShadingParameters</span>
+        <span class="cmt">// ④ 为每个 Bin 设置 MaterialCB + Shader 资源</span>
+    <span class="arrow">→</span> Compute Shader <span class="fn">Dispatch</span> (按 Bin 分组)
+        <span class="cmt">// ⑤ 并行计算 GBuffer(A/B/C/D/E) 和 LightingChannels</span></code>
+  </div>
+
+  <div class="callout">
+    <strong>关键机制：</strong>ShadingMask 是一张像素级纹理，每个像素存储对应 ShadingBin 的索引。
+    GBuffer 写入由 Compute Shader 完成，直接通过 SV_DispatchThreadID 坐标读取 ShadingMask，
+    解码三角形 ID 后计算材质属性并写入 GBuffer RT。这与传统 Mesh Draw 的 Pixel Shader 路径完全不同。
+  </div>
+
+  <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">ENaniteMeshPass 类型</h3>
+
+  <table class="compare-table">
+    <thead><tr><th>枚举值</th><th>说明</th><th>使用场景</th></tr></thead>
+    <tbody>
+      <tr><td><code>ENaniteMeshPass::BasePass</code></td><td>BasePass 着色：写入 G-Buffer</td><td>主要的不透明渲染通道</td></tr>
+      <tr><td><code>ENaniteMeshPass::LumenCardCapture</code></td><td>Lumen 卡片捕获：写入 Lumen Surface Cache</td><td>Lumen GI 场景表示</td></tr>
+      <tr><td><code>ENaniteMeshPass::MaterialCache</code></td><td>材质缓存预渲染</td><td>材质系统离线/预热</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===== 6. 流式加载 ===== -->
+<section class="section-wrap" id="streaming">
+  <h2>6. 流式加载</h2>
+  <p class="section-desc">Nanite 流式管理器按需加载 Cluster Page 数据到 GPU 内存，支持异步 IO + GPU 驱动请求。</p>
+
+  <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">调用时序</h3>
+
+  <div class="timing-list">
+    <div class="timing-item">
+      <div class="t-step">1</div>
+      <div class="t-content">
+        <div class="t-api">Nanite::GStreamingManager.BeginAsyncUpdate(GraphBuilder)</div>
+        <div class="t-desc">在可见性阶段启动异步流式更新。向流式系统提交本帧的页面请求，启动 GPU 读回和 IO 加载。</div>
+        <div class="t-loc">DeferredShadingRenderer.cpp:2068</div>
+      </div>
+    </div>
+    <div class="timing-item">
+      <div class="t-step">2</div>
+      <div class="t-content">
+        <div class="t-api">Nanite::GStreamingManager.EndAsyncUpdate(GraphBuilder)</div>
+        <div class="t-desc">在预通道前完成异步更新。确保所有请求的页面已安装到 GPU 内存，才允许执行 Nanite 渲染。</div>
+        <div class="t-loc">DeferredShadingRenderer.cpp:2399</div>
+      </div>
+    </div>
+    <div class="timing-item">
+      <div class="t-step">3</div>
+      <div class="t-content">
+        <div class="t-api">GetAndClearModifiedResources()</div>
+        <div class="t-desc">获取并清除本帧修改过的资源 ID 集合。返回值 <code>TMap&lt;uint32, uint32&gt;</code> 用于通知下游系统（如光追管理器）。</div>
+        <div class="t-loc">DeferredShadingRenderer.cpp:2401</div>
+      </div>
+    </div>
+    <div class="timing-item">
+      <div class="t-step">4</div>
+      <div class="t-content">
+        <div class="t-api">GetAndClearModifiedPages(InstalledPages, UninstalledPages)</div>
+        <div class="t-desc">获取本帧安装/卸载的页面集合。返回值 <code>TSet&lt;FPageInfo&gt;</code>，InstalledPages 是新安装的页面，UninstalledPages 是被淘汰的页面。</div>
+        <div class="t-loc">DeferredShadingRenderer.cpp:2405</div>
+      </div>
+    </div>
+    <div class="timing-item">
+      <div class="t-step">5</div>
+      <div class="t-content">
+        <div class="t-api">Nanite::GRayTracingManager.RequestUpdates(ModifiedResources, InstalledPages, UninstalledPages)</div>
+        <div class="t-desc">通知光追管理器：Nanite 的几何页面发生了变化，需要更新光追加速结构（BLAS）。</div>
+        <div class="t-loc">DeferredShadingRenderer.cpp:2408</div>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">FStreamingManager 核心 API</h3>
+
+  <div class="src-block">
+    <code><span class="cmt">// Engine/Public/Rendering/NaniteStreamingManager.h</span>
+<span class="kw">class</span> <span class="fn">FStreamingManager</span> : <span class="kw">public</span> FRenderResource
+{
+<span class="kw">public</span>:
+    <span class="kw">void</span> <span class="fn">BeginAsyncUpdate</span>(FRDGBuilder&amp; GraphBuilder);     <span class="cmt">// 启动异步更新</span>
+    <span class="kw">void</span> <span class="fn">EndAsyncUpdate</span>(FRDGBuilder&amp; GraphBuilder);       <span class="cmt">// 完成异步更新</span>
+    <span class="kw">bool</span> <span class="fn">IsAsyncUpdateInProgress</span>();                       <span class="cmt">// 检查是否有正在进行的异步更新</span>
+    <span class="kw">bool</span> <span class="fn">IsSafeForRendering</span>() <span class="kw">const</span>;                     <span class="cmt">// 检查 GPU 数据是否安全可用</span>
+
+    FRDGBuffer*   <span class="fn">GetStreamingRequestsBuffer</span>(...) <span class="kw">const</span>;  <span class="cmt">// 获取 GPU 流式请求缓冲区</span>
+    FRDGBufferSRV* <span class="fn">GetHierarchySRV</span>(...) <span class="kw">const</span>;          <span class="cmt">// 获取 Hierarchy Buffer SRV</span>
+    FRDGBufferSRV* <span class="fn">GetClusterPageDataSRV</span>(...) <span class="kw">const</span>;     <span class="cmt">// 获取 Cluster Page Data SRV</span>
+
+    TMap&lt;uint32, uint32&gt; <span class="fn">GetAndClearModifiedResources</span>();
+    <span class="kw">void</span> <span class="fn">GetAndClearModifiedPages</span>(TSet&lt;FPageInfo&gt;&amp; OutInstalled, TSet&lt;FPageInfo&gt;&amp; OutUninstalled);
+
+    <span class="kw">void</span> <span class="fn">RequestNanitePages</span>(TArray&lt;uint32&gt;&amp;&amp; InRequestStream);  <span class="cmt">// 提交 GPU 驱动页面请求</span>
+    <span class="kw">void</span> <span class="fn">PrefetchResource</span>(<span class="kw">const</span> FResources* Resource, <span class="kw">uint32</span> NumFramesUntilRender);
+};</code>
+  </div>
+
+  <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">流式加载 CVar</h3>
+
+  <table class="cvar-table">
+    <thead><tr><th>CVar</th><th>默认值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>r.Nanite.Streaming.Async</td><td>1</td><td>是否启用异步流式加载</td></tr>
+      <tr><td>r.Nanite.Streaming.BandwidthLimit</td><td>0</td><td>流式加载带宽限制（0=不限制），MB/帧</td></tr>
+      <tr><td>r.Nanite.Streaming.StreamingPoolSize</td><td>视 GPU VRAM</td><td>GPU 流式池大小（MB）</td></tr>
+      <tr><td>r.Nanite.Streaming.NumInitialRootPages</td><td>视 GPU VRAM</td><td>初始根页面分配数量</td></tr>
+      <tr><td>r.Nanite.Streaming.DynamicallyGrowAllocations</td><td>1</td><td>是否允许动态增长根页面分配</td></tr>
+      <tr><td>r.Nanite.Streaming.MaxPendingPages</td><td>256</td><td>最大待处理页面数</td></tr>
+      <tr><td>r.Nanite.Streaming.MaxPageInstallsPerFrame</td><td>128</td><td>每帧最大页面安装数</td></tr>
+      <tr><td>r.Nanite.Streaming.NumRetries</td><td>3</td><td>页面加载失败重试次数</td></tr>
+      <tr><td>r.Nanite.Streaming.AsyncCompute</td><td>1</td><td>流式页面数据上传是否走 AsyncCompute</td></tr>
+      <tr><td>r.Nanite.Streaming.ReservedResources</td><td>""</td><td>预留资源列表（始终保持在 GPU 内存中）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===== 7. 与传统管线交互 ===== -->
+<section class="section-wrap" id="integration">
+  <h2>7. 与传统管线交互</h2>
+  <p class="section-desc">Nanite 通过明确定义的接口与 VSM、Lumen、光追等子系统集成。</p>
+
+  <table class="compare-table">
+    <thead><tr><th>子系统</th><th>交互接口</th><th>数据方向</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr>
+        <td style="color:var(--warn);font-weight:700">VSM (虚拟阴影贴图)</td>
+        <td><code>IRenderer::Create</code> 创建阴影上下文</td>
+        <td>Nanite &#x2192; VSM</td>
+        <td>Nanite 为 VSM 渲染阴影深度。通过 <code>EOutputBufferMode::DepthOnly</code> 模式仅输出深度，跳过 VisBuffer 编码。</td>
+      </tr>
+      <tr>
+        <td style="color:var(--warn);font-weight:700">VSM 性能反馈</td>
+        <td><code>FConfiguration::bExtractVSMPerformanceFeedback</code></td>
+        <td>VSM &#x2192; Nanite</td>
+        <td>VSM 将性能反馈传回 Nanite，调整裁剪和 LOD 策略。</td>
+      </tr>
+      <tr>
+        <td style="color:var(--green);font-weight:700">Lumen (全局光照)</td>
+        <td><code>ENaniteMeshPass::LumenCardCapture</code></td>
+        <td>Nanite &#x2192; Lumen</td>
+        <td>Nanite 以专用 MeshPass 渲染 Lumen Mesh Cards，用于构建 Surface Cache。</td>
+      </tr>
+      <tr>
+        <td style="color:var(--green);font-weight:700">Lumen AsyncCompute</td>
+        <td><code>r.Nanite.AsyncRasterization.LumenMeshCards</code></td>
+        <td>并行调度</td>
+        <td>Lumen Mesh Cards 光栅化可通过 AsyncCompute 并行执行。</td>
+      </tr>
+      <tr>
+        <td style="color:var(--red);font-weight:700">光追 (Ray Tracing)</td>
+        <td><code>Nanite::GRayTracingManager</code></td>
+        <td>Nanite &#x2192; RT</td>
+        <td>当 Nanite 页面发生变化时，通知光追管理器重建受影响的 BLAS。<br>源码：<code>NaniteRayTracing.cpp</code> / <code>NaniteRayTracingASCache.cpp</code></td>
+      </tr>
+      <tr>
+        <td style="color:var(--red);font-weight:700">光追覆盖模式</td>
+        <td><code>bHasRayTracedOverlay</code></td>
+        <td>控制开关</td>
+        <td>当光追覆盖模式启用时，跳过 Nanite BasePass（L3092 <code>if (!bHasRayTracedOverlay)</code>）。</td>
+      </tr>
+      <tr>
+        <td style="color:var(--accent);font-weight:700">BasePass</td>
+        <td><code>Scene->NaniteShadingCommands[ENaniteMeshPass::BasePass]</code></td>
+        <td>Nanite &#x2192; BasePass</td>
+        <td>BasePass 接收预构建的 Nanite 着色命令，通过 RenderBasePass 参数传入。传统材料和 Nanite 材料写入同一组 GBuffer。</td>
+      </tr>
+      <tr>
+        <td style="color:var(--accent);font-weight:700">SceneTextures</td>
+        <td><code>NaniteRasterResults.VisBuffer64</code> / <code>DepthBuffer</code></td>
+        <td>共享资源</td>
+        <td>Nanite 产出的深度和 VisBuffer 被后续阶段（Lumen、后处理）作为输入使用。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout green">
+    <strong>集成要点：</strong>Nanite 的 GBuffer 与传统的 BasePass GBuffer 完全兼容。
+    Nanite 通过 Compute Shader 写入的 G-Buffer 格式与传统硬件光栅化 Pixel Shader 写入的格式完全一致，
+    因此延迟光照阶段无需区分几何体来源——GBuffer 统一采样器同时适用于传统和 Nanite 路径。
+  </div>
+</section>
+
+<!-- ===== 8. CVar 速查 ===== -->
+<section class="section-wrap" id="cvars">
+  <h2>8. CVar 速查</h2>
+  <p class="section-desc">Nanite 系统的关键控制台变量，按功能分组排列。</p>
+
+  <h3 style="color:#fff;font-size:1.05rem;margin:20px 0 10px">光栅化</h3>
+  <table class="cvar-table">
+    <thead><tr><th>CVar</th><th>默认值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>r.Nanite.ComputeRasterization</td><td>1</td><td>是否允许 CS 光栅化。禁用后所有三角形走硬件路径</td></tr>
+      <tr><td>r.Nanite.ProgrammableRaster</td><td>1</td><td>是否允许可编程光栅化（用于 WPO 等）</td></tr>
+      <tr><td>r.Nanite.Tessellation</td><td>1</td><td>是否允许 Nanite 曲面细分</td></tr>
+      <tr><td>r.Nanite.MaxPixelsPerEdge</td><td>1.0</td><td>目标三角形边长（像素单位），控制 LOD 精度</td></tr>
+      <tr><td>r.Nanite.MinPixelsPerEdgeHW</td><td>0.5</td><td>硬件光栅化最小三角形像素阈值</td></tr>
+      <tr><td>r.Nanite.DicingRate</td><td>1.0</td><td>曲面切分精度倍率</td></tr>
+      <tr><td>r.Nanite.MaxPatchesPerGroup</td><td>32</td><td>每个 ThreadGroup 的最大 Patch 数</td></tr>
+      <tr><td>r.Nanite.AsyncRasterization</td><td>1</td><td>是否允许 CS 光栅化走 AsyncCompute</td></tr>
+      <tr><td>r.Nanite.AsyncRasterization.ShadowDepths</td><td>0</td><td>阴影深度 CS 光栅化是否走 AsyncCompute</td></tr>
+      <tr><td>r.Nanite.AsyncRasterization.CustomPass</td><td>1</td><td>CustomPass CS 光栅化是否走 AsyncCompute</td></tr>
+      <tr><td>r.Nanite.AsyncRasterization.LumenMeshCards</td><td>0</td><td>Lumen MeshCards CS 光栅化是否走 AsyncCompute</td></tr>
+      <tr><td>r.Nanite.FastVisBufferClear</td><td>1</td><td>VisBuffer 快速清除模式</td></tr>
+      <tr><td>r.Nanite.RasterSort</td><td>1</td><td>光栅化前排序模式</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="color:#fff;font-size:1.05rem;margin:24px 0 10px">裁剪</h3>
+  <table class="cvar-table">
+    <thead><tr><th>CVar</th><th>默认值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>r.Nanite.Culling.HZB</td><td>1</td><td>是否启用 HZB 遮挡裁剪</td></tr>
+      <tr><td>r.Nanite.Culling.Frustum</td><td>1</td><td>是否启用视锥裁剪</td></tr>
+      <tr><td>r.Nanite.Culling.GlobalClipPlane</td><td>1</td><td>是否启用全局裁剪平面</td></tr>
+      <tr><td>r.Nanite.Culling.DrawDistance</td><td>1</td><td>是否启用绘制距离裁剪</td></tr>
+      <tr><td>r.Nanite.Culling.TwoPass</td><td>1</td><td>是否启用两阶段遮挡裁剪</td></tr>
+      <tr><td>r.Nanite.Culling.MinLOD</td><td>0</td><td>最小 LOD 级别裁剪</td></tr>
+      <tr><td>r.Nanite.Culling.SkinnedNodeBounds</td><td>1</td><td>骨骼节点包围盒裁剪</td></tr>
+      <tr><td>r.Nanite.Culling.WPODisableDistance</td><td>0</td><td>WPO 禁用距离</td></tr>
+      <tr><td>r.Nanite.FilterPrimitives</td><td>1</td><td>是否过滤图元的可见性</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="color:#fff;font-size:1.05rem;margin:24px 0 10px">着色</h3>
+  <table class="cvar-table">
+    <thead><tr><th>CVar</th><th>默认值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>r.Nanite.MaterialVisibility</td><td>0</td><td>CPU 端材质可见性过滤</td></tr>
+      <tr><td>r.Nanite.MaterialVisibility.Async</td><td>1</td><td>可见性过滤异步并行</td></tr>
+      <tr><td>r.Nanite.MaxNodes</td><td>1,048,576</td><td>最大裁剪节点数</td></tr>
+      <tr><td>r.Nanite.PersistentThreadsCulling</td><td>1</td><td>持久线程裁剪模式</td></tr>
+      <tr><td>r.Nanite.VSMInvalidateOnLODDelta</td><td>1</td><td>LOD 变化时失效 VSM 缓存</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="color:#fff;font-size:1.05rem;margin:24px 0 10px">流式加载</h3>
+  <table class="cvar-table">
+    <thead><tr><th>CVar</th><th>默认值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>r.Nanite.Streaming.Async</td><td>1</td><td>启用异步流式加载</td></tr>
+      <tr><td>r.Nanite.Streaming.BandwidthLimit</td><td>0</td><td>带宽限制（MB/帧），0=不限制</td></tr>
+      <tr><td>r.Nanite.Streaming.StreamingPoolSize</td><td>视 VRAM</td><td>流式池大小</td></tr>
+      <tr><td>r.Nanite.Streaming.NumInitialRootPages</td><td>视 VRAM</td><td>初始根页面数</td></tr>
+      <tr><td>r.Nanite.Streaming.DynamicallyGrowAllocations</td><td>1</td><td>动态增长分配</td></tr>
+      <tr><td>r.Nanite.Streaming.MaxPendingPages</td><td>256</td><td>最大待处理页面数</td></tr>
+      <tr><td>r.Nanite.Streaming.MaxPageInstallsPerFrame</td><td>128</td><td>每帧最大安装页面数</td></tr>
+      <tr><td>r.Nanite.Streaming.NumRetries</td><td>3</td><td>失败重试次数</td></tr>
+      <tr><td>r.Nanite.Streaming.ReservedResources</td><td>""</td><td>常驻资源列表</td></tr>
+      <tr><td>r.Nanite.Streaming.ResetStreamingPool</td><td>0</td><td>重置流式池（设置后自动归零）</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="color:#fff;font-size:1.05rem;margin:24px 0 10px">Shader Bundle</h3>
+  <table class="cvar-table">
+    <thead><tr><th>CVar</th><th>默认值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>r.Nanite.Bundle.Raster</td><td>1</td><td>启用光栅化 Shader Bundle</td></tr>
+      <tr><td>r.Nanite.Bundle.RasterSW</td><td>1</td><td>SW 光栅化 Shader Bundle</td></tr>
+      <tr><td>r.Nanite.Bundle.RasterHW</td><td>1</td><td>HW 光栅化 Shader Bundle</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="color:#fff;font-size:1.05rem;margin:24px 0 10px">调试与统计</h3>
+  <table class="cvar-table">
+    <thead><tr><th>CVar</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>r.Nanite.Streaming.Debug.ExplicitRequests</td><td>记录显式页面请求</td></tr>
+      <tr><td>r.Nanite.Streaming.Debug.GPURequests</td><td>记录 GPU 驱动的页面请求</td></tr>
+      <tr><td>r.Nanite.Streaming.Debug.Prefetch</td><td>记录预取操作</td></tr>
+      <tr><td>r.Nanite.Streaming.Debug.StreamingPoolResize</td><td>记录流式池大小调整事件</td></tr>
+      <tr><td>r.Nanite.Streaming.Debug.VerificationLevel</td><td>流式加载验证级别（0=关闭）</td></tr>
+      <tr><td>r.Nanite.Debug.ValidateShadingBinUB</td><td>验证 ShadingBin MaterialUB 指针有效性</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===== 9. 核心源码索引 ===== -->
+<section class="section-wrap" id="source-index">
+  <h2>9. 核心源码索引</h2>
+  <p class="section-desc">所有涉及 Nanite 子系统的源文件路径和关键函数/类。</p>
+
+  <table class="source-table">
+    <thead><tr><th>源文件</th><th>关键函数 / 类</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Renderer/Private/<br>DeferredShadingRenderer.cpp</td>
+        <td>FDeferredShadingSceneRenderer::Render()</td>
+        <td>Nanite 调用入口：L1861 ShouldRenderNanite, L2007 BeginVisibilityFrame, L2068 BeginAsyncUpdate, L2399 EndAsyncUpdate, L2516 RenderNanite, L2729 BuildShadingCommands, L3098 RenderBasePass(Nanite)</td>
+      </tr>
+      <tr>
+        <td>Renderer/Private/<br>Nanite/NaniteCullRaster.cpp</td>
+        <td>InitRasterContext(), IRenderer::Create(), FRasterContext, FConfiguration</td>
+        <td>裁剪和光栅化核心实现：BVH 遍历、HW/SW 光栅化、VisBuffer 输出</td>
+      </tr>
+      <tr>
+        <td>Renderer/Private/<br>Nanite/NaniteCullRaster.h</td>
+        <td>FRasterParameters, FRasterResults, FRasterContextInitParams, ERasterScheduling, EOutputBufferMode</td>
+        <td>光栅化公共接口与数据结构定义</td>
+      </tr>
+      <tr>
+        <td>Renderer/Private/<br>Nanite/NaniteShading.cpp</td>
+        <td>BuildShadingCommands(), ShadeBinning(), FShadingBinBuildCS, FShadingBinReserveCS, FShadingGroupCS</td>
+        <td>着色命令构建 + ShadingBin 批处理 + Compute Shading Dispatch</td>
+      </tr>
+      <tr>
+        <td>Renderer/Private/<br>Nanite/NaniteShading.h</td>
+        <td>BuildShadingCommands(), ShadeBinning(), FShadeBinning, EBuildShadingCommandsMode</td>
+        <td>着色管线公共接口</td>
+      </tr>
+      <tr>
+        <td>Renderer/Private/<br>Nanite/NaniteVisibility.cpp</td>
+        <td>FNaniteVisibilityQuery, FNaniteVisibilityResults, BeginVisibilityFrame(), BeginVisibilityQuery()</td>
+        <td>CPU 端可见性查询：图元遍历 → RasterBin/ShadingBin 可见性标记</td>
+      </tr>
+      <tr>
+        <td>Renderer/Private/<br>Nanite/NaniteVisibility.h</td>
+        <td>FNaniteVisibility, FNaniteVisibilityResults, FNaniteScopedVisibilityFrame</td>
+        <td>可见性查询公共接口</td>
+      </tr>
+      <tr>
+        <td>Engine/Private/Rendering/<br>NaniteStreamingManager.cpp</td>
+        <td>FStreamingManager::BeginAsyncUpdate(), EndAsyncUpdate()</td>
+        <td>流式管理器实现：页面请求、IO 加载、GPU 安装/卸载</td>
+      </tr>
+      <tr>
+        <td>Engine/Public/Rendering/<br>NaniteStreamingManager.h</td>
+        <td>Nanite::FStreamingManager, FPageKey, FStreamingRequest</td>
+        <td>流式管理器公共接口与数据结构</td>
+      </tr>
+      <tr>
+        <td>Renderer/Private/<br>Nanite/NaniteShared.h</td>
+        <td>FPackedView, FPackedViewArray, FNaniteShadingBin, FNaniteShadingBinMeta</td>
+        <td>Nanite 公共数据结构：压缩视图、ShadingBin 元数据</td>
+      </tr>
+      <tr>
+        <td>Renderer/Private/<br>Nanite/Nanite.h</td>
+        <td>ExtractShadingDebug(), PrintStats(), EmitShadowMap()</td>
+        <td>Nanite 子系统聚合头文件与公用工具函数</td>
+      </tr>
+      <tr>
+        <td>Renderer/Private/<br>Nanite/NaniteStreamOut.cpp</td>
+        <td>FInitQueueCS, FNaniteStreamOutTraversalCS</td>
+        <td>GPU 驱动流式输出：BVH 遍历 → 页面请求队列</td>
+      </tr>
+      <tr>
+        <td>Renderer/Private/<br>Nanite/NaniteComposition.cpp</td>
+        <td>Nanite 合成 Pass</td>
+        <td>Nanite 深度与传统深度合并</td>
+      </tr>
+      <tr>
+        <td>Renderer/Private/<br>Nanite/NaniteVisualize.cpp</td>
+        <td>AddVisualizationPasses(), DisplayPicking()</td>
+        <td>Nanite 可视化调试：Overdraw、Cluster、LOD 等视图模式</td>
+      </tr>
+      <tr>
+        <td>Renderer/Private/<br>Nanite/NaniteRayTracing.cpp</td>
+        <td>GRayTracingManager</td>
+        <td>Nanite 光追集成：BLAS 构建与管理</td>
+      </tr>
+      <tr>
+        <td>Renderer/Public/<br>PrimitiveSceneInfo.h</td>
+        <td>ENaniteMeshPass::BasePass, LumenCardCapture, MaterialCache</td>
+        <td>Nanite MeshPass 枚举定义</td>
+      </tr>
+      <tr>
+        <td>Renderer/Private/<br>Nanite/NaniteMaterials.cpp</td>
+        <td>FNaniteRasterPipelines, FNaniteShadingPipelines, WaitForCacheNaniteMaterialBinsTask()</td>
+        <td>材质 Bin 管理：Raster/Shading Pipeline 注册与查找</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <strong>完整目录结构：</strong>Nanite 子系统在 <code>Renderer/Private/Nanite/</code> 下共有 18 个 .cpp 文件
+    和对应的头文件，覆盖可见性（NaniteVisibility.cpp）、裁剪光栅化（NaniteCullRaster.cpp）、着色（NaniteShading.cpp）、
+    流式输出（NaniteStreamOut.cpp）、可视化（NaniteVisualize.cpp）、光追集成（NaniteRayTracing.cpp）、
+    半透明（NaniteTranslucency.cpp）、材质管理（NaniteMaterials.cpp）、装配体（NaniteAssembly.cpp）等子模块。
+  </div>
+</section>
+
+<footer class="footer">
+  基于 UE5.8.0 引擎源码分析 &nbsp;|&nbsp; DeferredShadingRenderer.cpp + Nanite/ 目录 &nbsp;|&nbsp; GPU 驱动虚拟几何 &nbsp;|&nbsp; 约 3500 行核心代码
+</footer>
+
+<!-- 回到顶部 -->
+<a href="#" class="back-top" title="回到顶部">&#x2191;</a>
+
+</body>
+</html>
