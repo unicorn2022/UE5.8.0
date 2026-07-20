@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nanite 与 Lumen —— UE5.8.0 核心渲染技术深度解读</title>
+<style>
+/* ===== 基础变量 ===== */
+:root {
+  --bg: #0a0a0f;
+  --card: #131318;
+  --code-bg: #09090d;
+  --primary: #4FC3F7;
+  --primary-dim: #0288D1;
+  --text: #e0e0e0;
+  --text-dim: #909090;
+  --border: #1e1e28;
+  --accent-gold: #FFD54F;
+  --accent-green: #66BB6A;
+  --accent-red: #EF5350;
+  --accent-purple: #AB47BC;
+  --sidebar-w: 260px;
+  --radius: 8px;
+  --font-mono: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; font-size: 15px; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.72;
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ===== 侧边栏导航 ===== */
+.sidebar {
+  width: var(--sidebar-w);
+  min-width: var(--sidebar-w);
+  height: 100vh;
+  position: fixed;
+  top: 0; left: 0;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  z-index: 100;
+  padding: 24px 16px;
+}
+.sidebar h3 {
+  font-size: 0.95rem;
+  color: var(--primary);
+  margin-bottom: 16px;
+  letter-spacing: 0.04em;
+}
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+.sidebar nav a {
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 0.82rem;
+  padding: 6px 10px;
+  border-radius: 4px;
+  transition: all 0.15s;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar nav a:hover, .sidebar nav a.active {
+  color: var(--primary);
+  background: rgba(79,195,247,0.08);
+}
+.sidebar nav a.section-head {
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+.sidebar .search-box {
+  margin-bottom: 16px;
+}
+.sidebar .search-box input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--code-bg);
+  color: var(--text);
+  font-size: 0.8rem;
+  outline: none;
+}
+.sidebar .search-box input:focus {
+  border-color: var(--primary);
+}
+
+/* ===== 主内容区 ===== */
+.main {
+  margin-left: var(--sidebar-w);
+  flex: 1;
+  max-width: 960px;
+  padding: 40px 48px 80px;
+}
+.main h1 {
+  font-size: 2rem;
+  color: var(--text);
+  margin-bottom: 8px;
+  line-height: 1.3;
+}
+.main h2 {
+  font-size: 1.4rem;
+  color: var(--primary);
+  margin-top: 48px;
+  margin-bottom: 16px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.main h3 {
+  font-size: 1.1rem;
+  color: var(--text);
+  margin-top: 32px;
+  margin-bottom: 12px;
+}
+.main h4 {
+  font-size: 0.95rem;
+  color: var(--accent-gold);
+  margin-top: 20px;
+  margin-bottom: 8px;
+}
+.main p { margin-bottom: 14px; color: var(--text-dim); }
+.main p strong { color: var(--text); }
+
+/* ===== 面包屑 ===== */
+.breadcrumb {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin-bottom: 24px;
+}
+.breadcrumb a { color: var(--primary); text-decoration: none; }
+.breadcrumb a:hover { text-decoration: underline; }
+.breadcrumb span { color: var(--text-dim); }
+
+/* ===== 源码路径标签 ===== */
+.src-path {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  background: var(--code-bg);
+  color: var(--accent-green);
+  padding: 2px 8px;
+  border-radius: 3px;
+  margin: 2px 0;
+  word-break: break-all;
+}
+
+/* ===== 代码块 ===== */
+.code-block-wrapper {
+  position: relative;
+  margin: 16px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.code-block-wrapper .header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #0d0d14;
+  padding: 6px 12px;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+.code-block-wrapper .header .lang { color: var(--primary); }
+.code-block-wrapper .copy-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 0.68rem;
+  padding: 2px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.code-block-wrapper .copy-btn:hover { color: var(--primary); border-color: var(--primary); }
+.code-block-wrapper .copy-btn.copied { color: var(--accent-green); border-color: var(--accent-green); }
+.code-block-wrapper pre {
+  background: var(--code-bg);
+  margin: 0;
+  padding: 16px;
+  overflow-x: auto;
+  counter-reset: line;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+.code-block-wrapper code {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+.code-block-wrapper code .kw { color: #c792ea; }    /* 关键字 */
+.code-block-wrapper code .cm { color: #676e95; }    /* 注释 */
+.code-block-wrapper code .st { color: #c3e88d; }    /* 字符串 */
+.code-block-wrapper code .fn { color: #82aaff; }    /* 函数 */
+.code-block-wrapper code .ty { color: #ffcb6b; }    /* 类型 */
+.code-block-wrapper code .nu { color: #f78c6c; }    /* 数字 */
+
+/* ===== 表格 ===== */
+.table-wrap {
+  margin: 16px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+.table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+.table-wrap th {
+  background: #0d0d14;
+  color: var(--primary);
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.table-wrap td {
+  padding: 9px 14px;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.table-wrap td strong { color: var(--text); }
+
+/* ===== SVG 容器 ===== */
+.svg-wrap {
+  margin: 20px 0;
+  text-align: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.svg-wrap svg { max-width: 100%; height: auto; }
+.svg-wrap .caption {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-top: 8px;
+}
+
+/* ===== 高亮盒 ===== */
+.info-box {
+  border-left: 3px solid var(--primary);
+  background: rgba(79,195,247,0.06);
+  padding: 12px 16px;
+  margin: 14px 0;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-size: 0.86rem;
+}
+.info-box.warn {
+  border-left-color: var(--accent-gold);
+  background: rgba(255,213,79,0.06);
+}
+.info-box.tip {
+  border-left-color: var(--accent-green);
+  background: rgba(102,187,106,0.06);
+}
+
+/* ===== CVar 速查表 ===== */
+.cvar-table .cvar-name { font-family: var(--font-mono); color: var(--primary); font-size: 0.78rem; }
+.cvar-table .cvar-desc { color: var(--text-dim); font-size: 0.8rem; }
+.cvar-table .cvar-val { color: var(--accent-gold); font-size: 0.78rem; }
+
+/* ===== 底部导航 ===== */
+.footer-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 56px;
+  padding: 20px 0;
+  border-top: 1px solid var(--border);
+}
+.footer-nav a {
+  color: var(--primary);
+  text-decoration: none;
+  font-size: 0.88rem;
+  transition: color 0.15s;
+}
+.footer-nav a:hover { color: var(--text); }
+.footer-nav .prev::before { content: '\2190 '; }
+.footer-nav .next::after { content: ' \2192'; }
+
+/* ===== 响应式 ===== */
+@media (max-width: 860px) {
+  .sidebar { display: none; }
+  .main { margin-left: 0; padding: 20px; }
+}
+
+/* ===== 章节高亮 ===== */
+mark { background: rgba(79,195,247,0.18); color: var(--primary); padding: 0 4px; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ==================== 侧边栏 ==================== -->
+<aside class="sidebar" id="sidebar">
+  <div class="search-box">
+    <input type="text" id="search-input" placeholder="搜索章节..." oninput="searchSections()">
+  </div>
+  <h3>Nanite &amp; Lumen</h3>
+  <nav id="toc">
+    <a href="#s1" class="section-head">1. 概述与定位</a>
+    <a href="#s1-1">1.1 两个革命性技术</a>
+    <a href="#s1-2">1.2 管线全景图</a>
+
+    <a href="#s2" class="section-head">2. 顶层架构设计（Nanite）</a>
+    <a href="#s2-1">2.1 与传统管线对比</a>
+    <a href="#s2-2">2.2 四级裁剪流水线</a>
+    <a href="#s2-3">2.3 VisBuffer64 与双缓冲</a>
+    <a href="#s2-4">2.4 ShadeBinning 材质分桶</a>
+    <a href="#s2-5">2.5 光栅调度策略</a>
+    <a href="#s2-6">2.6 核心数据结构</a>
+
+    <a href="#s3" class="section-head">3. 顶层架构设计（Lumen）</a>
+    <a href="#s3-1">3.1 三级递进数据流</a>
+    <a href="#s3-2">3.2 Software RT vs Hardware RT</a>
+    <a href="#s3-3">3.3 ReSTIR 重要性重采样</a>
+    <a href="#s3-4">3.4 辐射度缓存体系</a>
+
+    <a href="#s4" class="section-head">4. 执行流程 / 数据流</a>
+    <a href="#s4-1">4.1 Nanite 帧内执行时序</a>
+    <a href="#s4-2">4.2 Lumen 帧内执行时序</a>
+
+    <a href="#s5" class="section-head">5. 设计决策与权衡</a>
+    <a href="#s5-1">5.1 软件光栅 vs 硬件光栅</a>
+    <a href="#s5-2">5.2 Surface Cache 内存与精度</a>
+    <a href="#s5-3">5.3 Screen Probe 信息限制</a>
+    <a href="#s5-4">5.4 SkeletalMesh/Foliage 限制</a>
+
+    <a href="#s6" class="section-head">6. UE5.8 演进变化</a>
+    <a href="#s6-1">6.1 异步光栅化增强</a>
+    <a href="#s6-2">6.2 Lumen Lite 简化模式</a>
+    <a href="#s6-3">6.3 SkeletalMesh/Foliage 进展</a>
+
+    <a href="#cvars" class="section-head">CVar 速查表</a>
+  </nav>
+</aside>
+
+<!-- ==================== 主内容 ==================== -->
+<main class="main" id="main-content">
+
+  <!-- 面包屑 -->
+  <div class="breadcrumb">
+    <a href="../index.html">文档首页</a> &gt;
+    <a href="../现代图形API/index.html">现代图形 API</a> &gt;
+    <span>Nanite 与 Lumen</span>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- 1. 概述与定位 -->
+  <!-- ================================================================ -->
+  <h1>Nanite 与 Lumen</h1>
+  <p style="font-size:1.05rem;color:var(--text);">UE5.8.0 核心渲染技术深度解读</p>
+
+  <div class="info-box">
+    源码位置：<span class="src-path">Engine/Source/Runtime/Renderer/Private/Nanite/</span> 与
+    <span class="src-path">Engine/Source/Runtime/Renderer/Private/Lumen/</span>
+  </div>
+
+  <h2 id="s1">1. 概述与定位</h2>
+
+  <h3 id="s1-1">1.1 两个革命 UE5 的技术</h3>
+  <p>
+    <strong>Nanite</strong> 用虚拟几何消灭了 DrawCall 瓶颈。传统的 GPU 渲染中，每个 DrawCall 都需要 CPU 提交几何数据——当场景包含数百万个三角形时，DrawCall 数量爆炸，CPU 成为瓶颈。Nanite 将可见性判定、裁剪和光栅化全部迁移到 GPU，CPU 仅需提交高层级的 BVH 节点，<mark>单帧 DrawCall 从数万个降到两位数</mark>。配合 Virtual Shadow Maps（VSM），阴影渲染同样受益于 GPU 驱动的几何管线。
+  </p>
+  <p>
+    <strong>Lumen</strong> 用实时全局光照替代了预烘焙。传统工作流中，光照贴图（Lightmap）需要数小时甚至数天的离线预计算；动态 GI 方案受限于性能只能在少数场景使用。Lumen 通过 <mark>Surface Cache（卡片表面缓存）+ Radiance Cache（世界空间辐射度探针）+ Screen Probe Gather（屏幕探针收集）</mark> 三级递进体系，在 4ms 内完成完整 GI 求解，同时支持 Software Ray Tracing（SDF/DF 追踪）与 Hardware Ray Tracing（DXR 加速）双路径。
+  </p>
+
+  <h3 id="s1-2">1.2 Nanite + Lumen 在 UE5 渲染管线中的位置</h3>
+  <div class="svg-wrap">
+    <svg viewBox="0 0 820 460" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#4FC3F7"/></marker>
+        <marker id="arrow-gray" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#909090"/></marker>
+        <linearGradient id="grad-nanite" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#66BB6A"/><stop offset="100%" stop-color="#43A047"/></linearGradient>
+        <linearGradient id="grad-lumen" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#AB47BC"/><stop offset="100%" stop-color="#8E24AA"/></linearGradient>
+        <linearGradient id="grad-other" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#4FC3F7"/><stop offset="100%" stop-color="#0288D1"/></linearGradient>
+      </defs>
+
+      <!-- 标题 -->
+      <text x="410" y="22" text-anchor="middle" fill="#e0e0e0" font-size="13" font-weight="600">UE5.8.0 延迟渲染管线全景 (FDeferredShadingSceneRenderer::Render)</text>
+
+      <!-- 阶段1: BeginInitViews -->
+      <rect x="16" y="38" width="180" height="36" rx="5" fill="#131318" stroke="#1e1e28"/>
+      <text x="106" y="61" text-anchor="middle" fill="#909090" font-size="11">1. CommitFinalPipelineState</text>
+
+      <!-- 箭头 -->
+      <line x1="196" y1="56" x2="230" y2="56" stroke="#909090" marker-end="url(#arrow-gray)"/>
+
+      <rect x="234" y="38" width="180" height="36" rx="5" fill="#131318" stroke="#1e1e28"/>
+      <text x="324" y="55" text-anchor="middle" fill="#909090" font-size="10.5">2. BeginInitViews / EndInitViews</text>
+      <text x="324" y="68" text-anchor="middle" fill="#555" font-size="9">Frustum/Occlusion Culling</text>
+
+      <line x1="414" y1="56" x2="448" y2="56" stroke="#909090" marker-end="url(#arrow-gray)"/>
+
+      <rect x="452" y="38" width="160" height="36" rx="5" fill="#131318" stroke="#1e1e28"/>
+      <text x="532" y="61" text-anchor="middle" fill="#909090" font-size="11">3. RenderPrePass（深度）</text>
+
+      <line x1="612" y1="56" x2="646" y2="56" stroke="#909090" marker-end="url(#arrow-gray)"/>
+
+      <!-- Nanite 阶段 - 突出 -->
+      <rect x="650" y="32" width="155" height="48" rx="6" fill="url(#grad-nanite)" opacity="0.92"/>
+      <text x="727" y="52" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">4. RenderNanite</text>
+      <text x="727" y="65" text-anchor="middle" fill="#c8e6c9" font-size="9">VisBuffer + 深度导出</text>
+      <text x="727" y="76" text-anchor="middle" fill="#c8e6c9" font-size="9">裁剪→光栅化→着色</text>
+
+      <!-- 第二行 -->
+      <line x1="36" y1="95" x2="36" y2="115" stroke="#909090"/>
+      <line x1="36" y1="115" x2="700" y2="115" stroke="#909090" marker-end="url(#arrow-gray)"/>
+
+      <rect x="16" y="120" width="155" height="36" rx="5" fill="#131318" stroke="#1e1e28"/>
+      <text x="93" y="143" text-anchor="middle" fill="#909090" font-size="11">5. RenderVelocities</text>
+
+      <line x1="171" y1="138" x2="205" y2="138" stroke="#909090" marker-end="url(#arrow-gray)"/>
+
+      <rect x="209" y="120" width="170" height="36" rx="5" fill="#131318" stroke="#1e1e28"/>
+      <text x="294" y="143" text-anchor="middle" fill="#909090" font-size="11">6. ShadowDepthMaps（VSM）</text>
+
+      <line x1="379" y1="138" x2="413" y2="138" stroke="#909090" marker-end="url(#arrow-gray)"/>
+
+      <rect x="417" y="120" width="155" height="36" rx="5" fill="url(#grad-nanite)" opacity="0.85"/>
+      <text x="494" y="143" text-anchor="middle" fill="#fff" font-size="11" font-weight="600">7. BasePass（G-Buffer）</text>
+
+      <line x1="572" y1="138" x2="606" y2="138" stroke="#909090" marker-end="url(#arrow-gray)"/>
+
+      <rect x="610" y="116" width="195" height="44" rx="6" fill="url(#grad-lumen)" opacity="0.92"/>
+      <text x="707" y="134" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">8. LumenSceneLighting</text>
+      <text x="707" y="148" text-anchor="middle" fill="#e1bee7" font-size="9">Surface Cache 更新 + 直接光照</text>
+      <text x="707" y="159" text-anchor="middle" fill="#e1bee7" font-size="9">+ Radiance Cache</text>
+
+      <!-- 第三行 -->
+      <line x1="36" y1="175" x2="36" y2="195" stroke="#909090"/>
+      <line x1="36" y1="195" x2="700" y2="195" stroke="#909090" marker-end="url(#arrow-gray)"/>
+
+      <rect x="16" y="200" width="200" height="36" rx="5" fill="url(#grad-lumen)" opacity="0.78"/>
+      <text x="116" y="223" text-anchor="middle" fill="#fff" font-size="11" font-weight="600">9. DiffuseIndirectAndAO</text>
+
+      <line x1="216" y1="218" x2="250" y2="218" stroke="#909090" marker-end="url(#arrow-gray)"/>
+
+      <rect x="254" y="200" width="155" height="36" rx="5" fill="#131318" stroke="#1e1e28"/>
+      <text x="331" y="223" text-anchor="middle" fill="#909090" font-size="11">10. RenderLights（延迟）</text>
+
+      <line x1="409" y1="218" x2="443" y2="218" stroke="#909090" marker-end="url(#arrow-gray)"/>
+
+      <rect x="447" y="200" width="180" height="36" rx="5" fill="url(#grad-lumen)" opacity="0.78"/>
+      <text x="537" y="223" text-anchor="middle" fill="#fff" font-size="11" font-weight="600">11. ReflectionsAndSky</text>
+
+      <line x1="627" y1="218" x2="661" y2="218" stroke="#909090" marker-end="url(#arrow-gray)"/>
+
+      <rect x="665" y="200" width="140" height="36" rx="5" fill="#131318" stroke="#1e1e28"/>
+      <text x="735" y="223" text-anchor="middle" fill="#909090" font-size="11">12. Translucency</text>
+
+      <!-- 第四行 -->
+      <line x1="36" y1="255" x2="36" y2="275" stroke="#909090"/>
+      <line x1="36" y1="275" x2="700" y2="275" stroke="#909090" marker-end="url(#arrow-gray)"/>
+
+      <rect x="16" y="280" width="155" height="36" rx="5" fill="#131318" stroke="#1e1e28"/>
+      <text x="93" y="303" text-anchor="middle" fill="#909090" font-size="11">13. PostProcessing</text>
+
+      <line x1="171" y1="298" x2="205" y2="298" stroke="#909090" marker-end="url(#arrow-gray)"/>
+
+      <rect x="209" y="280" width="120" height="36" rx="5" fill="#131318" stroke="#1e1e28"/>
+      <text x="269" y="303" text-anchor="middle" fill="#909090" font-size="11">14. RenderFog</text>
+
+      <!-- ========== 图例 ========== -->
+      <rect x="18" y="340" width="16" height="16" rx="3" fill="url(#grad-nanite)"/>
+      <text x="40" y="353" fill="#66BB6A" font-size="10.5">Nanite 参与</text>
+      <rect x="130" y="340" width="16" height="16" rx="3" fill="url(#grad-lumen)"/>
+      <text x="152" y="353" fill="#AB47BC" font-size="10.5">Lumen 参与</text>
+      <rect x="248" y="340" width="16" height="16" rx="3" fill="#131318" stroke="#1e1e28"/>
+      <text x="270" y="353" fill="#909090" font-size="10.5">通用渲染 Pass</text>
+
+      <!-- 数据流向注释 -->
+      <text x="18" y="390" fill="#666" font-size="9.5">Nanite 输出 VisBuffer64 + Depth → 后续的 BasePass 直接读取 VisBuffer 进行材质着色</text>
+      <text x="18" y="407" fill="#666" font-size="9.5">Lumen 消费 GBuffer + SceneDepth → 输出 GI（漫反射间接光 + 反射）→ 与直接光照合成最终像素</text>
+      <text x="18" y="424" fill="#666" font-size="9.5">MegaLights（5.8 新增）在 Lumen 之后、半透明之前介入，渲染大量动态可投影光源</text>
+    </svg>
+    <div class="caption">图 1：Nanite 与 Lumen 在 UE5.8.0 延迟渲染管线中的位置。绿色标注的为 Nanite 参与阶段，紫色标注的为 Lumen 参与阶段。</div>
+  </div>
+
+  <p>
+    <strong>关键关系：</strong>Nanite 和 Lumen 并非简单的先后依赖。Nanite 在第 4 阶段输出的 <mark>VisBuffer64（可见性缓冲区）</mark> 和 <mark>SceneDepth</mark> 是后续所有 Pass 的基础——BasePass 读取 VisBuffer 进行材质着色，Lumen 读取 SceneDepth 和 GBuffer 进行 GI 计算。同时，Lumen 的 Surface Cache 会单独捕获 Nanite 几何体的卡片表示（通过 <code>ENaniteMeshPass::LumenCardCapture</code>），使得 GI 系统能够感知 Nanite 的高细节几何。
+  </p>
+
+
+  <!-- ================================================================ -->
+  <!-- 2. 顶层架构设计（Nanite） -->
+  <!-- ================================================================ -->
+  <h2 id="s2">2. 顶层架构设计（Nanite）</h2>
+
+  <h3 id="s2-1">2.1 与传统管线的核心差异</h3>
+  <p>
+    Nanite 最大的变革在于将 <strong>可见性判定</strong> 从 CPU 完全迁移到 GPU。传统管线中，CPU 逐 Primitive 执行 Frustum Culling 和 Occlusion Culling，然后为每个可见 Mesh 提交 DrawCall——当场景包含数万个网格时，CPU 不堪重负。Nanite 将场景编码为 BVH（Bounding Volume Hierarchy），CPU 仅做实例级预裁剪，<mark>具体的 Cluster 裁剪、HZB 遮挡查询、光栅化全部在 GPU 以 Compute Shader 完成</mark>。
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>维度</th><th>传统渲染</th><th>Nanite</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>几何裁剪</strong></td><td>CPU Frustum/Occlusion Culling</td><td>GPU Cluster Culling + Two-Pass HZB</td></tr>
+        <tr><td><strong>中间输出</strong></td><td>直接写入 GBuffer</td><td>Visibility Buffer（VisBuffer64）</td></tr>
+        <tr><td><strong>光栅化</strong></td><td>硬件光栅化（PS）</td><td>软件+硬件混合光栅化（CS）</td></tr>
+        <tr><td><strong>材质着色</strong></td><td>逐像素 PS 调用</td><td>Compute Shader 屏幕空间分桶着色</td></tr>
+        <tr><td><strong>DrawCall</strong></td><td>CPU 提交（FMeshDrawCommand）</td><td>GPU Indirect Dispatch</td></tr>
+        <tr><td><strong>LOD</strong></td><td>CPU 离散切换（Pop）</td><td>GPU 连续微多边形（无 Pop）</td></tr>
+        <tr><td><strong>过绘制处理</strong></td><td>依赖 Early-Z / Pre-Z Pass</td><td>Two-Pass HZB 遮挡剔除 + 深度导出</td></tr>
+        <tr><td><strong>几何压缩</strong></td><td>逐顶点属性</td><td>Cluster 级别量化和流式传输</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 id="s2-2">2.2 四级裁剪流水线</h3>
+  <p>
+    Nanite 的 GPU 裁剪分为四个层级，从粗粒度到细粒度逐级过滤，每一级都剔除不在视野内或被遮挡的候选几何体。
+  </p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 840 420" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrow-dn" markerWidth="10" markerHeight="8" refX="5" refY="8" orient="auto"><path d="M0,0 L5,8 L10,0 Z" fill="#4FC3F7"/></marker>
+        <filter id="shadow"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000"/></filter>
+      </defs>
+
+      <text x="420" y="24" text-anchor="middle" fill="#e0e0e0" font-size="13" font-weight="600">Nanite 四级裁剪流水线</text>
+
+      <!-- 输入 -->
+      <rect x="290" y="40" width="260" height="40" rx="8" fill="#1a1a24" stroke="#4FC3F7" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="420" y="58" text-anchor="middle" fill="#4FC3F7" font-size="12" font-weight="600">GPU Scene（所有 Nanite 实例）</text>
+      <text x="420" y="73" text-anchor="middle" fill="#909090" font-size="9.5">InstanceData + PrimitiveData + BVH Nodes</text>
+
+      <line x1="420" y1="80" x2="420" y2="105" stroke="#4FC3F7" marker-end="url(#arrow-dn)" stroke-width="1.5"/>
+
+      <!-- 第1级：Instance Culling -->
+      <rect x="210" y="108" width="420" height="52" rx="8" fill="#0d1a14" stroke="#66BB6A" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="420" y="130" text-anchor="middle" fill="#66BB6A" font-size="13" font-weight="700">第 1 级：实例裁剪（Instance Culling）</text>
+      <text x="420" y="148" text-anchor="middle" fill="#a5d6a7" font-size="10">Frustum Culling + Distance Culling + Global Clip Plane + Scene Culling</text>
+
+      <line x1="420" y1="160" x2="420" y2="185" stroke="#4FC3F7" marker-end="url(#arrow-dn)" stroke-width="1.5"/>
+
+      <!-- 第2级：BVH Node Culling -->
+      <rect x="230" y="188" width="380" height="52" rx="8" fill="#0d121a" stroke="#FFD54F" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="420" y="210" text-anchor="middle" fill="#FFD54F" font-size="13" font-weight="700">第 2 级：BVH 节点裁剪</text>
+      <text x="420" y="228" text-anchor="middle" fill="#ffe082" font-size="10">层次包围盒遍历 + LOD 选择 + Streaming Priority</text>
+
+      <line x1="420" y1="240" x2="420" y2="265" stroke="#4FC3F7" marker-end="url(#arrow-dn)" stroke-width="1.5"/>
+
+      <!-- 第3级：Cluster Culling -->
+      <rect x="230" y="268" width="380" height="52" rx="8" fill="#0d121a" stroke="#FF8A65" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="420" y="290" text-anchor="middle" fill="#FF8A65" font-size="13" font-weight="700">第 3 级：Cluster 裁剪 + HZB 遮挡</text>
+      <text x="420" y="308" text-anchor="middle" fill="#ffab91" font-size="10">Cluster Bounds 裁剪 + 第一轮 HZB（CULLING_PASS_OCCLUSION_MAIN）</text>
+
+      <!-- 分支：Two-Pass HZB -->
+      <line x1="480" y1="320" x2="560" y2="320" stroke="#EF5350" marker-end="url(#arrow-dn)" stroke-width="1.5" stroke-dasharray="4,3"/>
+      <line x1="420" y1="320" x2="420" y2="345" stroke="#4FC3F7" marker-end="url(#arrow-dn)" stroke-width="1.5"/>
+
+      <rect x="500" y="310" width="180" height="36" rx="5" fill="#1a1010" stroke="#EF5350" stroke-width="1"/>
+      <text x="590" y="324" text-anchor="middle" fill="#EF5350" font-size="10" font-weight="600">二轮 HZB 遮挡</text>
+      <text x="590" y="339" text-anchor="middle" fill="#ef9a9a" font-size="9">CULLING_PASS_OCCLUSION_POST</text>
+
+      <line x1="590" y1="346" x2="590" y2="365" stroke="#EF5350"/>
+      <line x1="590" y1="365" x2="420" y2="365" stroke="#EF5350" stroke-dasharray="4,3"/>
+      <line x1="420" y1="365" x2="420" y2="380" stroke="#4FC3F7" marker-end="url(#arrow-dn)" stroke-width="1.5"/>
+
+      <!-- 第4级：Triangle Backface -->
+      <rect x="260" y="370" width="320" height="36" rx="8" fill="#0d1214" stroke="#90A4AE" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="420" y="393" text-anchor="middle" fill="#90A4AE" font-size="13" font-weight="700">第 4 级：三角形级背面剔除 + 光栅化</text>
+    </svg>
+    <div class="caption">图 2：Nanite 四级裁剪流水线 —— 从实例、BVH 节点、Cluster 到三角形，逐级缩小候选集。两轮 HZB 遮挡剔除是核心优化。</div>
+  </div>
+
+  <p>
+    特别注意 <strong>Two-Pass HZB 遮挡剔除</strong>（代码中通过 <code>CULLING_PASS_OCCLUSION_MAIN</code> 和 <code>CULLING_PASS_OCCLUSION_POST</code> 实现）：第一轮 (Main Pass) 用上一帧的 HZB 剔除当前帧新可见的 Cluster；第二轮 (Post Pass) 在 Main Pass 光栅化完成后，构建新的 HZB，<mark>重新测试上一帧被遮挡的对象，将其复活</mark>。这种设计避免了单帧遮挡带来的误剔除。
+  </p>
+
+  <h3 id="s2-3">2.3 VisBuffer64 与深度双缓冲策略</h3>
+  <p>
+    Nanite 的核心创新之一是 <strong>Visibility Buffer（VisBuffer64）</strong>。与传统管线直接在 GBuffer 中写入材质属性不同，Nanite 的光栅化阶段只输出 <mark>64-bit 的可见性 ID</mark>（包含 Cluster ID + Triangle ID + Material ID），而不计算任何材质。这带来了两个关键优势：
+  </p>
+  <ul style="color:var(--text-dim);margin:10px 0 10px 24px;line-height:1.9;">
+    <li><strong>光栅化极简</strong>：硬件光栅化阶段不需要执行复杂 PS，仅输出 ID；软件光栅化 Compute Shader 同样只需写入一个 64-bit 值。</li>
+    <li><strong>材质着色独立</strong>：材质计算在后续的 Compute Shader 阶段（ShadeBinning + DispatchBasePass）中完成，每个像素只执行一次材质计算，彻底消除过绘制造成的重复着色。</li>
+  </ul>
+
+  <p>
+    VisBuffer64 的分辨率与屏幕分辨率一致，同时 Nanite 还维护独立的 <strong>SceneDepth</strong> 目标。光栅化完成后，<code>EmitDepthTargets()</code>（<span class="src-path">NaniteComposition.cpp:256</span>）从 VisBuffer 解析深度，写入 SceneDepth 以便后续 Pass 使用。这种双缓冲设计使得深度测试和材质着色完全解耦。
+  </p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 760 200" xmlns="http://www.w3.org/2000/svg">
+      <rect x="20" y="20" width="220" height="80" rx="8" fill="#0d121a" stroke="#4FC3F7" stroke-width="1.2"/>
+      <text x="130" y="52" text-anchor="middle" fill="#4FC3F7" font-size="12" font-weight="600">VisBuffer64</text>
+      <text x="130" y="70" text-anchor="middle" fill="#909090" font-size="10">RWTexture2D&lt;UlongType&gt;</text>
+      <text x="130" y="86" text-anchor="middle" fill="#666" font-size="9.5">ClusterID + TriID + MaterialID</text>
+
+      <rect x="280" y="20" width="220" height="80" rx="8" fill="#0d121a" stroke="#66BB6A" stroke-width="1.2"/>
+      <text x="390" y="52" text-anchor="middle" fill="#66BB6A" font-size="12" font-weight="600">SceneDepth</text>
+      <text x="390" y="70" text-anchor="middle" fill="#909090" font-size="10">RWTexture2D&lt;float&gt;</text>
+      <text x="390" y="86" text-anchor="middle" fill="#666" font-size="9.5">EmitDepthTargets 写入</text>
+
+      <rect x="540" y="20" width="200" height="80" rx="8" fill="#0d121a" stroke="#AB47BC" stroke-width="1.2"/>
+      <text x="640" y="52" text-anchor="middle" fill="#AB47BC" font-size="12" font-weight="600">ShadingMask</text>
+      <text x="640" y="70" text-anchor="middle" fill="#909090" font-size="10">RWTexture2D&lt;uint&gt;</text>
+      <text x="640" y="86" text-anchor="middle" fill="#666" font-size="9.5">标明需着色的像素</text>
+
+      <!-- 箭头 -->
+      <line x1="240" y1="60" x2="275" y2="60" stroke="#909090" marker-end="url(#arrow-gray)" stroke-width="1"/>
+      <line x1="500" y1="60" x2="535" y2="60" stroke="#909090" marker-end="url(#arrow-gray)" stroke-width="1"/>
+
+      <text x="380" y="130" text-anchor="middle" fill="#909090" font-size="11">VisBuffer64 → DepthExportCS/FEmitSceneDepthPS → SceneDepth + ShadingMask</text>
+      <text x="380" y="150" text-anchor="middle" fill="#666" font-size="9.5">通过 ClusterPageData 和 HierarchyBuffer 解析每个像素的三角形深度</text>
+      <text x="380" y="166" text-anchor="middle" fill="#666" font-size="9.5">DepthExportCS（Compute Shader 路径）或 EmitSceneDepthPS/StencilPS（Pixel Shader 路径）</text>
+
+      <text x="380" y="190" text-anchor="middle" fill="#555" font-size="9">源码见 NaniteComposition.cpp:256 EmitDepthTargets() 和 NaniteDepthExport.usf:DepthExport</text>
+    </svg>
+    <div class="caption">图 3：Nanite 光栅化输出的三个核心纹理 —— VisBuffer64、SceneDepth、ShadingMask</div>
+  </div>
+
+  <h3 id="s2-4">2.4 ShadeBinning 屏幕空间材质分桶</h3>
+  <p>
+    VisBuffer 光栅化完成后，进入 <strong>ShadeBinning</strong> 阶段（<span class="src-path">NaniteShading.cpp:1953 ShadeBinning()</span>）。这个 Compute Shader 扫描全屏 VisBuffer，将每个像素归类到其对应材质的分桶（ShadingBin）中。每个 Bin 收集所有使用该材质的像素坐标，形成紧凑的 <mark>像素列表</mark>。
+  </p>
+  <p>
+    接着 <code>DispatchBasePass()</code>（<span class="src-path">NaniteShading.cpp:1665</span>）对每个 Bin 发起一次 Compute Shader Dispatch，该 Shader 读取 Bin 中的像素列表，从 VisBuffer 解码几何信息（顶点位置、法线、UV），并执行完整的材质计算写入 GBuffer。<mark>每个像素只计算一次材质</mark>，无论场景中有多少层重叠的几何体。
+  </p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 800 320" xmlns="http://www.w3.org/2000/svg">
+      <rect x="20" y="20" width="170" height="70" rx="8" fill="#0d121a" stroke="#4FC3F7" stroke-width="1"/>
+      <text x="105" y="48" text-anchor="middle" fill="#4FC3F7" font-size="11" font-weight="600">VisBuffer64</text>
+      <text x="105" y="64" text-anchor="middle" fill="#909090" font-size="9.5">每个像素 = 64-bit ID</text>
+      <text x="105" y="78" text-anchor="middle" fill="#666" font-size="9">（ClusterID | TriID | MatID）</text>
+
+      <line x1="190" y1="55" x2="240" y2="55" stroke="#909090" marker-end="url(#arrow-gray)" stroke-width="1.5"/>
+
+      <!-- ShadeBinning -->
+      <rect x="244" y="10" width="220" height="90" rx="8" fill="#0d141a" stroke="#FFD54F" stroke-width="1.5"/>
+      <text x="354" y="34" text-anchor="middle" fill="#FFD54F" font-size="11" font-weight="700">ShadeBinning (CS)</text>
+      <text x="354" y="52" text-anchor="middle" fill="#909090" font-size="9.5">扫描 VisBuffer → 按材质分组</text>
+      <text x="354" y="66" text-anchor="middle" fill="#909090" font-size="9.5">构建像素坐标列表（Bin Data）</text>
+      <text x="354" y="82" text-anchor="middle" fill="#666" font-size="9">GroupDim: 8x8 或 32x32</text>
+      <text x="354" y="96" text-anchor="middle" fill="#666" font-size="9">BinningTechnique: 0=legacy, 1=wave</text>
+
+      <line x1="464" y1="55" x2="514" y2="55" stroke="#909090" marker-end="url(#arrow-gray)" stroke-width="1.5"/>
+
+      <!-- Bins -->
+      <rect x="518" y="10" width="180" height="90" rx="8" fill="#0d121a" stroke="#66BB6A" stroke-width="1.2"/>
+      <text x="608" y="34" text-anchor="middle" fill="#66BB6A" font-size="11" font-weight="600">ShadingBinData</text>
+      <text x="608" y="52" text-anchor="middle" fill="#909090" font-size="9.5">Bin 0: 材质 A 像素列表</text>
+      <text x="608" y="66" text-anchor="middle" fill="#909090" font-size="9.5">Bin 1: 材质 B 像素列表</text>
+      <text x="608" y="80" text-anchor="middle" fill="#909090" font-size="9.5">Bin N: 材质 N 像素列表</text>
+      <text x="608" y="94" text-anchor="middle" fill="#666" font-size="9">+ BinMeta / GroupMeta</text>
+
+      <!-- 下方 Dispatch -->
+      <line x1="105" y1="90" x2="105" y2="140" stroke="#4FC3F7" stroke-dasharray="4,3"/>
+      <line x1="608" y1="100" x2="608" y2="140" stroke="#66BB6A"/>
+
+      <rect x="220" y="140" width="360" height="60" rx="8" fill="#0d141a" stroke="#AB47BC" stroke-width="1.5"/>
+      <text x="400" y="162" text-anchor="middle" fill="#AB47BC" font-size="12" font-weight="700">DispatchBasePass（Compute Shader）</text>
+      <text x="400" y="180" text-anchor="middle" fill="#909090" font-size="10">逐 Bin 发射 CS → 从 VisBuffer 解码几何 → 计算材质 → 写入 GBuffer</text>
+      <text x="400" y="195" text-anchor="middle" fill="#666" font-size="9.5">支持 Shader Bundle 合并 Dispatch / 并行 RHI 提交 / Bindless 材质绑定</text>
+
+      <!-- 输出 -->
+      <line x1="400" y1="200" x2="400" y2="240" stroke="#909090" marker-end="url(#arrow-gray)" stroke-width="1.5"/>
+
+      <rect x="250" y="242" width="300" height="42" rx="8" fill="#0d121a" stroke="#4FC3F7" stroke-width="1"/>
+      <text x="400" y="260" text-anchor="middle" fill="#4FC3F7" font-size="11" font-weight="600">GBuffer（A/B/C/D + Velocity）</text>
+      <text x="400" y="276" text-anchor="middle" fill="#909090" font-size="9.5">为每个像素执行一次完整材质管线计算</text>
+    </svg>
+    <div class="caption">图 4：ShadeBinning 屏幕空间材质分桶与 DispatchBasePass 流程</div>
+  </div>
+
+  <h3 id="s2-5">2.5 光栅调度策略</h3>
+  <p>
+    Nanite 支持三种光栅化调度策略（定义在 <span class="src-path">NaniteCullRaster.h:25</span> <code>ERasterScheduling</code> 枚举），通过 <code>r.Nanite.ComputeRasterization</code> 和 <code>r.Nanite.AsyncRasterization</code> 控制选择：
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>策略</th><th>枚举值</th><th>行为</th><th>适用场景</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>HardwareOnly</strong></td>
+          <td style="font-family:var(--font-mono);color:var(--accent-gold);">HardwareOnly = 0</td>
+          <td>所有三角形走硬件光栅化（VS/PS 或 Mesh Shader），不启用软件光栅</td>
+          <td>当 <code>r.Nanite.ComputeRasterization=0</code> 时强制此模式</td>
+        </tr>
+        <tr>
+          <td><strong>HardwareThenSoftware</strong></td>
+          <td style="font-family:var(--font-mono);color:var(--accent-gold);">HardwareThenSoftware = 1</td>
+          <td>大三角形硬件光栅化 + 小三角形软件光栅化，顺序执行</td>
+          <td>默认模式（AsyncCompute 不可用时）</td>
+        </tr>
+        <tr>
+          <td><strong>HardwareAndSoftwareOverlap</strong></td>
+          <td style="font-family:var(--font-mono);color:var(--accent-gold);">HardwareAndSoftwareOverlap = 2</td>
+          <td>硬件和软件光栅化异步并行执行，通过 AsyncCompute 重叠</td>
+          <td>当 <code>r.Nanite.AsyncRasterization=1</code> 且硬件支持时</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    软件光栅化与硬件光栅化的三角形大小分界线由 <code>r.Nanite.MinPixelsPerEdgeHW</code>（默认 32 像素）控制。当三角形的屏幕空间边长大于此阈值时走硬件路径（Mesh Shader / Vertex+Pixel Shader），小于时走软件 Compute Shader 路径。<mark>这是因为硬件光栅化对微小三角形效率极低（Rasterizer 以 2x2 像素块工作），而 Compute Shader 的软件光栅器可以精确到像素级</mark>。
+  </p>
+
+  <h3 id="s2-6">2.6 核心数据结构</h3>
+  <p>源码中定义了如下核心类（均位于 <span class="src-path">NaniteShared.h</span>）：</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>结构/类</th><th>作用</th><th>源文件行</th></tr></thead>
+      <tbody>
+        <tr><td><code>FPackedView</code></td><td>打包的视图矩阵和裁剪参数，GPU 端 (<code>NanitePackedNaniteView.ush</code>) 的镜像</td><td>59-129</td></tr>
+        <tr><td><code>FGlobalResources</code></td><td>全局 GPU Buffer（CandidateNodes、ClusterBatches、Stats），每帧更新一次</td><td>281-352</td></tr>
+        <tr><td><code>FNaniteRasterPipelines</code></td><td>光栅化管线注册表，管理 Raster Bin 的分配和释放</td><td>806-863</td></tr>
+        <tr><td><code>FNaniteShadingPipelines</code></td><td>材质着色管线注册表，管理 Shading Bin/Group 的注册和查询</td><td>1043-1101</td></tr>
+        <tr><td><code>FNaniteShadingCommands</code></td><td>单帧着色命令集，包含所有需要 Dispatch 的 Compute Shader 参数</td><td>1117-1134</td></tr>
+        <tr><td><code>FRasterContext</code></td><td>光栅化上下文（<span class="src-path">NaniteCullRaster.h:56</span>），持 VisBuffer、Depth 等 RDG 纹理</td><td>NaniteCullRaster.h</td></tr>
+        <tr><td><code>FRasterResults</code></td><td>光栅化结果（<span class="src-path">NaniteCullRaster.h:77</span>），VisBuffer + VisibleClusters 等</td><td>NaniteCullRaster.h</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>裁剪 Pass 标识（<span class="src-path">NaniteCullRaster.cpp:41-44</span>）：</p>
+
+  <div class="code-block-wrapper">
+    <div class="header"><span class="lang">C++</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+    <pre><code><span class="cm">// Nanite 裁剪 Pass 类型</span>
+<span class="kw">#define</span> CULLING_PASS_NO_OCCLUSION     <span class="nu">0</span>   <span class="cm">// 无遮挡裁剪（首帧或 HZB 不可用）</span>
+<span class="kw">#define</span> CULLING_PASS_OCCLUSION_MAIN  <span class="nu">1</span>   <span class="cm">// 主遮挡 Pass（使用上一帧 HZB）</span>
+<span class="kw">#define</span> CULLING_PASS_OCCLUSION_POST  <span class="nu">2</span>   <span class="cm">// 后遮挡 Pass（重新测试被遮挡对象）</span>
+<span class="kw">#define</span> CULLING_PASS_EXPLICIT_LIST   <span class="nu">3</span>   <span class="cm">// 显式列表裁剪（用于 VSM 等特殊路径）</span></code></pre>
+  </div>
+
+
+  <!-- ================================================================ -->
+  <!-- 3. 顶层架构设计（Lumen） -->
+  <!-- ================================================================ -->
+  <h2 id="s3">3. 顶层架构设计（Lumen）</h2>
+
+  <h3 id="s3-1">3.1 三级递进数据流：Surface Cache → Radiance Cache → Screen Probe Gather</h3>
+  <p>
+    Lumen 的 GI 计算遵循一个三级递进模型：从粗略的场景几何缓存到精细的屏幕空间光照。每一级都是上一级的"加速结构"，逐步提高精度和细节。
+  </p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 860 470" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrow-ln" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="#AB47BC"/></marker>
+      </defs>
+
+      <text x="430" y="22" text-anchor="middle" fill="#e0e0e0" font-size="13" font-weight="600">Lumen 三级递进数据流</text>
+
+      <!-- 第1级：Surface Cache -->
+      <rect x="16" y="42" width="250" height="110" rx="10" fill="#0d1018" stroke="#AB47BC" stroke-width="2"/>
+      <text x="141" y="67" text-anchor="middle" fill="#AB47BC" font-size="14" font-weight="700">第 1 级：Surface Cache</text>
+      <text x="141" y="86" text-anchor="middle" fill="#ce93d8" font-size="10">场景几何的卡片表示</text>
+      <line x1="36" y1="94" x2="246" y2="94" stroke="#2a1a2e"/>
+      <text x="141" y="112" text-anchor="middle" fill="#909090" font-size="9.5">将每个 Mesh 投影到 6 个轴向卡片</text>
+      <text x="141" y="127" text-anchor="middle" fill="#909090" font-size="9.5">每张卡片 = 128x128 物理页</text>
+      <text x="141" y="142" text-anchor="middle" fill="#666" font-size="9">SurfaceCacheAtlasSize: 4096</text>
+
+      <line x1="266" y1="97" x2="320" y2="97" stroke="#AB47BC" marker-end="url(#arrow-ln)" stroke-width="1.8"/>
+
+      <!-- 第2级：Radiance Cache -->
+      <rect x="326" y="42" width="250" height="110" rx="10" fill="#0d1018" stroke="#66BB6A" stroke-width="2"/>
+      <text x="451" y="67" text-anchor="middle" fill="#66BB6A" font-size="14" font-weight="700">第 2 级：Radiance Cache</text>
+      <text x="451" y="86" text-anchor="middle" fill="#a5d6a7" font-size="10">世界空间辐射度探针</text>
+      <line x1="346" y1="94" x2="556" y2="94" stroke="#1a2e1a"/>
+      <text x="451" y="112" text-anchor="middle" fill="#909090" font-size="9.5">多层 Clipmap（4 级，覆盖 50m~5km）</text>
+      <text x="451" y="127" text-anchor="middle" fill="#909090" font-size="9.5">Probe 追踪 → Filter → 存储辐射度</text>
+      <text x="451" y="142" text-anchor="middle" fill="#666" font-size="9">FinalProbeResolution + ProbeAtlasResolution</text>
+
+      <line x1="576" y1="97" x2="630" y2="97" stroke="#66BB6A" marker-end="url(#arrow-ln)" stroke-width="1.8"/>
+
+      <!-- 第3级：Screen Probe Gather -->
+      <rect x="636" y="42" width="210" height="110" rx="10" fill="#0d1018" stroke="#FFD54F" stroke-width="2"/>
+      <text x="741" y="67" text-anchor="middle" fill="#FFD54F" font-size="14" font-weight="700">第 3 级：Screen Probe</text>
+      <text x="741" y="86" text-anchor="middle" fill="#ffe082" font-size="10">屏幕空间探针收集</text>
+      <line x1="656" y1="94" x2="826" y2="94" stroke="#2e2a1a"/>
+      <text x="741" y="112" text-anchor="middle" fill="#909090" font-size="9.5">每 16x16 像素放置一个探针</text>
+      <text x="741" y="127" text-anchor="middle" fill="#909090" font-size="9.5">追踪 → Radiance Cache 融合</text>
+      <text x="741" y="142" text-anchor="middle" fill="#666" font-size="9">DownsampleFactor: 16</text>
+
+      <!-- 下半部分：数据流细节 -->
+      <rect x="16" y="175" width="828" height="130" rx="8" fill="#131318" stroke="#1e1e28"/>
+      <text x="430" y="198" text-anchor="middle" fill="#e0e0e0" font-size="12" font-weight="600">各层级数据流细节</text>
+
+      <!-- Albedo/Opacity/Emissive/Normal Atlas -->
+      <rect x="36" y="214" width="175" height="36" rx="5" fill="#0d1018" stroke="#AB47BC" stroke-width="1"/>
+      <text x="123" y="236" text-anchor="middle" fill="#ce93d8" font-size="9.5">Card Capture（Albedo/Normal/Emissive Atlas）</text>
+
+      <line x1="211" y1="232" x2="245" y2="232" stroke="#AB47BC"/>
+
+      <rect x="249" y="214" width="175" height="36" rx="5" fill="#0d1018" stroke="#66BB6A" stroke-width="1"/>
+      <text x="336" y="236" text-anchor="middle" fill="#a5d6a7" font-size="9.5">Direct Lighting（逐页增量更新）</text>
+
+      <line x1="424" y1="232" x2="458" y2="232" stroke="#66BB6A"/>
+
+      <rect x="462" y="214" width="180" height="36" rx="5" fill="#0d1018" stroke="#FFD54F" stroke-width="1"/>
+      <text x="552" y="236" text-anchor="middle" fill="#ffe082" font-size="9.5">Radiance Cache Trace Tiles</text>
+
+      <line x1="642" y1="232" x2="676" y2="232" stroke="#FFD54F"/>
+
+      <rect x="680" y="214" width="145" height="36" rx="5" fill="#0d1018" stroke="#4FC3F7" stroke-width="1"/>
+      <text x="752" y="236" text-anchor="middle" fill="#4FC3F7" font-size="9.5">Final Gather + 降噪</text>
+
+      <!-- 底部注释 -->
+      <text x="430" y="278" text-anchor="middle" fill="#666" font-size="9.5">CombineLumenSceneLighting (Albedo + Emissive + Direct + Indirect → FinalLightingAtlas)</text>
+      <text x="430" y="296" text-anchor="middle" fill="#555" font-size="9">LumenScene.cpp / LumenSceneLighting.cpp / LumenRadianceCache.cpp / LumenScreenProbeGather.cpp</text>
+
+      <!-- 底部 --- 最终输出说明 -->
+      <rect x="180" y="330" width="500" height="62" rx="8" fill="#0d121a" stroke="#4FC3F7" stroke-width="1.5"/>
+      <text x="430" y="354" text-anchor="middle" fill="#4FC3F7" font-size="12" font-weight="600">最终输出：DiffuseIndirect + Reflections + AO</text>
+      <text x="430" y="374" text-anchor="middle" fill="#909090" font-size="10">ScreenProbeGather 输出漫反射 GI → RenderDiffuseIndirectAndAmbientOcclusion</text>
+      <text x="430" y="389" text-anchor="middle" fill="#909090" font-size="10">LumenReflections 输出镜面反射 → RenderDeferredReflectionsAndSkyLighting</text>
+    </svg>
+    <div class="caption">图 5：Lumen 三级递进数据流 —— 从粗糙的 Surface Cache 到精细的 Screen Probe Gather</div>
+  </div>
+
+  <p>三级递进的含义：</p>
+  <ul style="color:var(--text-dim);margin:10px 0 10px 24px;line-height:1.9;">
+    <li><strong>Surface Cache（第 1 级）</strong>：将场景几何投影为 6 方向卡片（Card），每张卡片存储 Albedo、Opacity、Normal、Emissive 等材质属性。卡片以 128x128 物理页（Physical Page）为单位在 Atlas 中分配。远处的物体占用更少的页面，实现自动 LOD。</li>
+    <li><strong>Radiance Cache（第 2 级）</strong>：在世界空间中分布辐射度探针，多层 Clipmap（4 级，从 50m 覆盖到 5km）确保近处精度高、远处覆盖广。每个探针追踪半球方向的光线，将结果存储在 FinalRadianceAtlas 中。Radiance Cache 在帧间缓存，仅增量更新移动或变化区域。</li>
+    <li><strong>Screen Probe Gather（第 3 级）</strong>：屏幕空间最精细层，每 16x16 像素放置一个探针。追踪短距离光线，然后与 Radiance Cache 融合——近处用精确追踪，远处用缓存插值。通过自适应探针（Adaptive Probes）在几何边缘和光照变化剧烈区域放置额外探针。</li>
+  </ul>
+
+  <h3 id="s3-2">3.2 Software RT (SDF/DF) vs Hardware RT (DXR) 双路径</h3>
+  <p>
+    Lumen 支持两种光线追踪后端，根据硬件能力自动选择。
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>维度</th><th>Software RT（SDF / Mesh Distance Field）</th><th>Hardware RT（DXR / Ray Tracing）</th></tr></thead>
+      <tbody>
+        <tr><td><strong>追踪介质</strong></td><td>全局距离场 (Global SDF) + Mesh 距离场 (Mesh SDF)</td><td>DXR 加速结构（BLAS / TLAS）</td></tr>
+        <tr><td><strong>精度</strong></td><td>中：距离场存在细节损失，远距离足够</td><td>高：精确三角形级相交测试</td></tr>
+        <tr><td><strong>性能</strong></td><td>快：SDF 步进追踪，无 BVH 构建开销</td><td>中等：需维护 TLAS/BLAS，但有硬件加速</td></tr>
+        <tr><td><strong>硬件要求</strong></td><td>所有 SM6 GPU</td><td>需 DXR 支持的 GPU（RTX 系列 / RDNA2+）</td></tr>
+        <tr><td><strong>降噪</strong></td><td>需要（追踪结果噪声较大）</td><td>需要（但样本质量更高）</td></tr>
+        <tr><td><strong>Surface Cache 光照</strong></td><td>默认走 SDF 追踪</td><td>可选启用 HWRT 加速（<code>UseHardwareRayTracedDirectLighting</code>）</td></tr>
+        <tr><td><strong>反射</strong></td><td>Screen Probe Gather（SDF）</td><td>HWRT 反射更精确，尤其镜面反射</td></tr>
+        <tr><td><strong>Mesh SDF 细节</strong></td><td>每 Mesh 单独距离场，开销可控</td><td>N/A（直接追踪三角形）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    <strong>关键设计：</strong>Lumen 的 Software RT 并非"降级模式"，而是 <mark>默认模式</mark>。它在性能和质量的平衡上经过精心调校——Global SDF 提供粗粒度的世界表示，Mesh SDF 为近距离几何提供更精细的距离场。Hardware RT 作为可选加速，需要项目设置中的显式启用（<code>r.RayTracing.ForceAllRayTracingEffects</code>），提供更高质量的反射和更精确的 GI。
+  </p>
+
+  <h3 id="s3-3">3.3 ReSTIR 在直接光照和反射中的重要性重采样</h3>
+  <p>
+    <strong>ReSTIR（Reservoir-based Spatiotemporal Importance Resampling）</strong> 是 Lumen 用于高效采样大量光源的核心技术。在场景中存在成百上千个动态光源时，传统方案需要为每个像素追踪多条阴影光线——这在计算上不可行。ReSTIR 的工作原理是：
+  </p>
+  <ul style="color:var(--text-dim);margin:10px 0 10px 24px;line-height:1.9;">
+    <li><strong>每像素维护一个 Reservoir（水库）</strong>：存储从大量候选光源中重要性采样选出的少数"最佳"光源样本。</li>
+    <li><strong>时间复用</strong>：当前帧的 Reservoir 继承上一帧的采样结果，通过重采样（Resample）将旧样本与新候选合并。</li>
+    <li><strong>空间复用</strong>：相邻像素的 Reservoir 互相共享样本，通过加权重采样选出对当前像素最重要的光源。</li>
+    <li><strong>结果</strong>：每像素只需追踪 1~2 条阴影光线，就能准确渲染数百个动态光源的阴影效果。</li>
+  </ul>
+
+  <p>
+    在 Lumen 反射中，ReSTIR 也被用于重要性采样反射方向，提高粗糙表面反射的收敛速度。相关源码在 <code>LumenReSTIRGather.cpp</code> 中实现。
+  </p>
+
+  <h3 id="s3-4">3.4 辐射度缓存体系</h3>
+  <p>
+    Radiance Cache 是 Lumen 性能的关键。其设计要点（<span class="src-path">LumenRadianceCache.cpp</span>）：
+  </p>
+  <ul style="color:var(--text-dim);margin:10px 0 10px 24px;line-height:1.9;">
+    <li><strong>多层 Clipmap</strong>：默认 4 级 Clipmap，每级分辨率相同但覆盖范围不同（如 50m、200m、800m、3200m），确保近处探针密度高、远处覆盖广。</li>
+    <li><strong>增量更新</strong>：每帧只更新一小部分探针（约 1/32），通过 <code>GLumenDirectLightingUpdateFactor = 32</code> 控制更新速度。</li>
+    <li><strong>探针偏移</strong>：通过 <code>GRadianceCacheIrradianceProbeOffsetMode</code>（1=使用 GBuffer 偏移）将探针"推"到最近的表面上，避免探针落在几何体内部或空中。</li>
+    <li><strong>跟踪瓦片排序</strong>：<code>GRadianceCacheSortTraceTiles</code> 将追踪瓦片按方向排序以提取 GPU Cache 一致性。</li>
+    <li><strong>空间滤波</strong>：<code>CVarRadianceCacheFilterProbes</code> 对相邻探针进行空间滤波以减少噪声。</li>
+  </ul>
+
+
+  <!-- ================================================================ -->
+  <!-- 4. 执行流程 / 数据流 -->
+  <!-- ================================================================ -->
+  <h2 id="s4">4. 执行流程 / 数据流</h2>
+
+  <h3 id="s4-1">4.1 Nanite 帧内执行时序</h3>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 860 420" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrow-time" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#4FC3F7"/></marker>
+      </defs>
+
+      <text x="430" y="20" text-anchor="middle" fill="#e0e0e0" font-size="13" font-weight="600">Nanite 帧内执行时序（RenderNanite 内部）</text>
+
+      <!-- 时间轴 -->
+      <line x1="50" y1="52" x2="810" y2="52" stroke="#4FC3F7" stroke-width="1.5"/>
+      <text x="50" y="72" text-anchor="middle" fill="#666" font-size="9">帧开始</text>
+      <text x="810" y="72" text-anchor="middle" fill="#666" font-size="9">帧结束</text>
+
+      <!-- 1. InitRasterContext -->
+      <rect x="60" y="82" width="170" height="44" rx="6" fill="#0d121a" stroke="#66BB6A" stroke-width="1.5"/>
+      <text x="145" y="100" text-anchor="middle" fill="#66BB6A" font-size="10.5" font-weight="600">InitRasterContext</text>
+      <text x="145" y="117" text-anchor="middle" fill="#909090" font-size="9">分配 VisBuffer + Depth</text>
+      <line x1="145" y1="126" x2="145" y2="142" stroke="#66BB6A" stroke-width="1"/>
+
+      <!-- 2. Instance Culling -->
+      <rect x="240" y="148" width="180" height="44" rx="6" fill="#0d1018" stroke="#FFD54F" stroke-width="1.5"/>
+      <text x="330" y="166" text-anchor="middle" fill="#FFD54F" font-size="10.5" font-weight="600">GPU Instance Culling</text>
+      <text x="330" y="183" text-anchor="middle" fill="#909090" font-size="9">Frustum + Distance + ClipPlane</text>
+      <line x1="145" y1="148" x2="240" y2="170" stroke="#909090" stroke-dasharray="4,2" stroke-width="1"/>
+
+      <line x1="330" y1="192" x2="330" y2="208" stroke="#FFD54F" stroke-width="1"/>
+
+      <!-- 3. BVH Node Culling -->
+      <rect x="240" y="214" width="180" height="44" rx="6" fill="#0d1018" stroke="#FF8A65" stroke-width="1.5"/>
+      <text x="330" y="232" text-anchor="middle" fill="#FF8A65" font-size="10.5" font-weight="600">BVH Node + Cluster Cull</text>
+      <text x="330" y="249" text-anchor="middle" fill="#909090" font-size="9">Main Pass + HZB Occlusion</text>
+
+      <line x1="330" y1="258" x2="330" y2="274" stroke="#FF8A65" stroke-width="1"/>
+
+      <!-- 4. Two-Pass -->
+      <rect x="240" y="280" width="180" height="36" rx="6" fill="#1a1010" stroke="#EF5350" stroke-width="1.5"/>
+      <text x="330" y="303" text-anchor="middle" fill="#EF5350" font-size="10" font-weight="600">Two-Pass HZB Post Pass</text>
+
+      <line x1="330" y1="316" x2="330" y2="340" stroke="#EF5350"/>
+
+      <!-- 5. Rasterization -->
+      <rect x="440" y="280" width="180" height="56" rx="6" fill="#0d1018" stroke="#4FC3F7" stroke-width="1.5"/>
+      <text x="530" y="300" text-anchor="middle" fill="#4FC3F7" font-size="10.5" font-weight="600">Rasterization（HW+SW）</text>
+      <text x="530" y="318" text-anchor="middle" fill="#909090" font-size="9">大三角形 HW | 小三角形 SW</text>
+      <text x="530" y="332" text-anchor="middle" fill="#666" font-size="8.5">AsyncCompute Overlap</text>
+
+      <line x1="420" y1="298" x2="440" y2="308" stroke="#909090" stroke-dasharray="4,2" stroke-width="1"/>
+
+      <line x1="530" y1="336" x2="530" y2="355" stroke="#4FC3F7" stroke-width="1"/>
+
+      <!-- 6. EmitDepthTargets -->
+      <rect x="440" y="214" width="180" height="44" rx="6" fill="#0d121a" stroke="#AB47BC" stroke-width="1.5"/>
+      <text x="530" y="232" text-anchor="middle" fill="#AB47BC" font-size="10.5" font-weight="600">EmitDepthTargets</text>
+      <text x="530" y="249" text-anchor="middle" fill="#909090" font-size="9">VisBuffer → SceneDepth</text>
+
+      <line x1="420" y1="260" x2="440" y2="236" stroke="#909090" stroke-dasharray="4,2" stroke-width="1"/>
+      <line x1="530" y1="258" x2="530" y2="280" stroke="#AB47BC" stroke-width="1"/>
+
+      <!-- 7. ShadeBinning -->
+      <rect x="640" y="214" width="180" height="44" rx="6" fill="#0d121a" stroke="#66BB6A" stroke-width="1.5"/>
+      <text x="730" y="232" text-anchor="middle" fill="#66BB6A" font-size="10.5" font-weight="600">ShadeBinning</text>
+      <text x="730" y="249" text-anchor="middle" fill="#909090" font-size="9">VisBuffer → Bins</text>
+
+      <line x1="620" y1="236" x2="640" y2="236" stroke="#909090" stroke-width="1"/>
+
+      <line x1="730" y1="258" x2="730" y2="280" stroke="#66BB6A" stroke-width="1"/>
+
+      <!-- 8. DispatchBasePass -->
+      <rect x="640" y="280" width="180" height="44" rx="6" fill="#0d121a" stroke="#FFD54F" stroke-width="1.5"/>
+      <text x="730" y="298" text-anchor="middle" fill="#FFD54F" font-size="10.5" font-weight="600">DispatchBasePass</text>
+      <text x="730" y="315" text-anchor="middle" fill="#909090" font-size="9">逐 Bin CS → GBuffer</text>
+
+      <!-- 下半部分资源标注 -->
+      <text x="50" y="375" fill="#66BB6A" font-size="9.5">NaniteCullRaster.cpp: InitRasterContext / AddPass_InstanceHierarchyAndClusterCull</text>
+      <text x="50" y="393" fill="#AB47BC" font-size="9.5">NaniteComposition.cpp:256 EmitDepthTargets()</text>
+      <text x="50" y="411" fill="#FFD54F" font-size="9.5">NaniteShading.cpp:1953 ShadeBinning() / 1665 DispatchBasePass()</text>
+    </svg>
+    <div class="caption">图 6：Nanite RenderNanite() 内部的帧内执行时序</div>
+  </div>
+
+  <h3 id="s4-2">4.2 Lumen 帧内执行时序</h3>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 860 380" xmlns="http://www.w3.org/2000/svg">
+      <text x="430" y="20" text-anchor="middle" fill="#e0e0e0" font-size="13" font-weight="600">Lumen 帧内执行时序</text>
+
+      <!-- 时间轴 -->
+      <line x1="50" y1="45" x2="810" y2="45" stroke="#AB47BC" stroke-width="1.5"/>
+      <text x="50" y="63" text-anchor="middle" fill="#666" font-size="9">BeginInitViews 之后</text>
+      <text x="810" y="63" text-anchor="middle" fill="#666" font-size="9">PostProcessing 之前</text>
+
+      <!-- 1. Scene Update -->
+      <rect x="50" y="72" width="165" height="40" rx="6" fill="#0d1018" stroke="#AB47BC" stroke-width="1.5"/>
+      <text x="132" y="88" text-anchor="middle" fill="#AB47BC" font-size="10.5" font-weight="600">1. LumenSceneUpdate</text>
+      <text x="132" y="104" text-anchor="middle" fill="#909090" font-size="9">更新卡片/页面/移除</text>
+
+      <line x1="215" y1="92" x2="255" y2="92" stroke="#AB47BC" marker-end="url(#arrow-ln)" stroke-width="1.5"/>
+
+      <!-- 2. Scene Lighting -->
+      <rect x="260" y="72" width="170" height="40" rx="6" fill="#0d1018" stroke="#66BB6A" stroke-width="1.5"/>
+      <text x="345" y="88" text-anchor="middle" fill="#66BB6A" font-size="10.5" font-weight="600">2. SceneLighting（直接光）</text>
+      <text x="345" y="104" text-anchor="middle" fill="#909090" font-size="9">DirectLighting + Radiosity</text>
+
+      <line x1="430" y1="92" x2="470" y2="92" stroke="#66BB6A" marker-end="url(#arrow-ln)" stroke-width="1.5"/>
+
+      <!-- 3. Radiance Cache -->
+      <rect x="475" y="72" width="170" height="40" rx="6" fill="#0d1018" stroke="#FFD54F" stroke-width="1.5"/>
+      <text x="560" y="88" text-anchor="middle" fill="#FFD54F" font-size="10.5" font-weight="600">3. RadianceCache Update</text>
+      <text x="560" y="104" text-anchor="middle" fill="#909090" font-size="9">Probe Mark + Trace + Filter</text>
+
+      <line x1="645" y1="92" x2="685" y2="92" stroke="#FFD54F" marker-end="url(#arrow-ln)" stroke-width="1.5"/>
+
+      <!-- 4. Screen Probe -->
+      <rect x="690" y="72" width="160" height="40" rx="6" fill="#0d1018" stroke="#4FC3F7" stroke-width="1.5"/>
+      <text x="770" y="88" text-anchor="middle" fill="#4FC3F7" font-size="10.5" font-weight="600">4. ScreenProbe Gather</text>
+      <text x="770" y="104" text-anchor="middle" fill="#909090" font-size="9">追踪 + 插值 + 融合</text>
+
+      <line x1="770" y1="112" x2="770" y2="145" stroke="#4FC3F7" stroke-width="1"/>
+
+      <!-- 5. DiffuseIndirect -->
+      <rect x="690" y="148" width="160" height="40" rx="6" fill="#0d121a" stroke="#4FC3F7" stroke-width="1.5"/>
+      <text x="770" y="164" text-anchor="middle" fill="#4FC3F7" font-size="10.5" font-weight="600">5. DiffuseIndirect</text>
+      <text x="770" y="180" text-anchor="middle" fill="#909090" font-size="9">GI 写入 SceneColor</text>
+
+      <line x1="770" y1="188" x2="770" y2="220" stroke="#4FC3F7" stroke-width="1"/>
+
+      <!-- 6. Reflections -->
+      <rect x="690" y="223" width="160" height="40" rx="6" fill="#0d121a" stroke="#AB47BC" stroke-width="1.5"/>
+      <text x="770" y="239" text-anchor="middle" fill="#AB47BC" font-size="10.5" font-weight="600">6. LumenReflections</text>
+      <text x="770" y="255" text-anchor="middle" fill="#909090" font-size="9">反射光线追踪 + 降噪</text>
+
+      <!-- 下方细节 -->
+      <text x="50" y="300" fill="#666" font-size="9.5">并行关系：SceneLighting 和 RadianceCache 更新可独立进行，ScreenProbeGather 依赖两者完成</text>
+      <text x="50" y="320" fill="#666" font-size="9.5">分帧更新：直接光照每帧更新 1/32 卡片页（UpdateFactor=32），辐射度缓存同理</text>
+      <text x="50" y="340" fill="#666" font-size="9.5">CombineLumenSceneLighting：将 Albedo + Emissive + DirectLighting + IndirectLighting + Radiosity 合成到 FinalLightingAtlas</text>
+    </svg>
+    <div class="caption">图 7：Lumen 帧内执行时序 —— 从场景更新到最终 GI 输出</div>
+  </div>
+
+  <p>
+    值得注意的关键设计：Lumen 的场景光照更新是 <strong>分帧增量式</strong> 的——并非每帧更新所有卡片页，而是根据 <code>r.LumenScene.DirectLighting.UpdateFactor</code>（默认 32）控制每帧只更新约 1/32 的卡片。Radiance Cache 也是类似的机制（<code>GRadianceCacheUpdate</code> 控制是否更新，<code>GRadianceCacheForceFullUpdate</code> 可强制全量更新）。这种设计使 Lumen 的每帧开销可控且稳定。
+  </p>
+
+
+  <!-- ================================================================ -->
+  <!-- 5. 设计决策与权衡 -->
+  <!-- ================================================================ -->
+  <h2 id="s5">5. 设计决策与权衡</h2>
+
+  <h3 id="s5-1">5.1 软件光栅 vs 硬件光栅策略选择</h3>
+  <p>
+    Nanite 的核心权衡之一：<strong>在 Compute Shader 中做软件光栅化，还是走传统硬件光栅化管线？</strong>
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>因素</th><th>软件光栅（Compute Shader）</th><th>硬件光栅（HW Rasterizer）</th></tr></thead>
+      <tbody>
+        <tr><td><strong>小三角形</strong></td><td>优秀：精确像素级光栅化，无 Quad 浪费</td><td>极差：2x2 Quad 开销巨大，仅 1 像素有效</td></tr>
+        <tr><td><strong>大三角形</strong></td><td>较差：大量线程处理少数三角形效率低</td><td>优秀：硬件 Rasterizer 专门优化</td></tr>
+        <tr><td><strong>阈值</strong></td><td>三角形边长 &lt; 32 像素（<code>r.Nanite.MinPixelsPerEdgeHW</code>）</td><td>三角形边长 &ge; 32 像素</td></tr>
+        <tr><td><strong>可编程性</strong></td><td>完全灵活，可任意定制</td><td>受 Rasterizer 固定管线限制</td></tr>
+        <tr><td><strong>位移/曲面细分</strong></td><td>天然支持（Dice → Micropolygon）</td><td>需要 Mesh Shader 支持</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    <code>r.Nanite.MinPixelsPerEdgeHW = 32.0</code> 的默认值经过了大量性能测试：三角形边长超过 32 像素时，硬件光栅化的 Quad 利用率足够高；小于 32 像素时，软件光栅化（<code>FMicropolyRasterizeCS</code>）的逐像素精确控制更加高效。
+  </p>
+
+  <h3 id="s5-2">5.2 Surface Cache 内存占用 vs 精度权衡</h3>
+  <p>
+    Lumen 的 Surface Cache 使用一张 4096x4096 的 Atlas 纹理（<code>r.LumenScene.SurfaceCache.AtlasSize</code>），所有场景几何的卡片在此 Atlas 中分配空间。这带来了直接的内存 vs 精度的权衡：
+  </p>
+  <ul style="color:var(--text-dim);margin:10px 0 10px 24px;line-height:1.9;">
+    <li><strong>分辨率分配</strong>：每张卡片页（Card Page）为 128x128 物理像素。近距离物体分配更多页面（高分辨率），远距离物体分配更少页面（低分辨率）。页面的分配和释放通过 SurfaceCacheFeedback 系统驱动。</li>
+    <li><strong>Atlas 碎片化</strong>：长时间运行时，Atlas 可能出现碎片化。Lumen 通过 LRU 缓存淘汰和页面重分配处理碎片化问题。</li>
+    <li><strong>Atlas 放大可行</strong>：<code>r.LumenScene.SurfaceCache.AtlasSize</code> 可以放大到 8192 或更高，以支持更多几何细节，但会线性增加 VRAM 占用。</li>
+    <li><strong>分帧更新</strong>：<code>r.LumenScene.DirectLighting.UpdateFactor = 32</code> 确保每帧只更新约 3% 的卡片，将开销分摊到多帧。</li>
+  </ul>
+
+  <h3 id="s5-3">5.3 Screen Probe 的屏幕空间信息限制</h3>
+  <p>
+    Screen Probe Gather 虽然是 Lumen 最精细的 GI 层，但存在 <strong>屏幕空间的固有限制</strong>：
+  </p>
+  <ul style="color:var(--text-dim);margin:10px 0 10px 24px;line-height:1.9;">
+    <li><strong>屏幕外信息丢失</strong>：屏幕外的光源/几何无法直接通过 Screen Probe 感知。这由 Radiance Cache（世界空间探针）和 Surface Cache 来弥补。</li>
+    <li><strong>镜面反射回退</strong>：屏幕空间无法获取镜面反射的另一侧信息。Lumen 反射使用 Radiance Cache 作为 Ray Guiding 的远距离回退方案。</li>
+    <li><strong>自适应探针</strong>：在几何边缘、阴影边界等光照变化剧烈区域，通过 <code>r.Lumen.ScreenProbeGather.NumAdaptiveProbes</code>（默认 8 个/Uniform 探针）放置额外探针来减少漏光。</li>
+  </ul>
+
+  <h3 id="s5-4">5.4 SkeletalMesh/Foliage 对 Nanite 的支持限制及原因</h3>
+  <p>
+    Nanite 对骨骼网格（SkeletalMesh）和植被（Foliage）的支持在 UE5.8 中仍在发展中：
+  </p>
+  <ul style="color:var(--text-dim);margin:10px 0 10px 24px;line-height:1.9;">
+    <li><strong>SkeletalMesh Skinning</strong>：源码中通过 <code>NaniteSkinnedMeshesSupported()</code> 检查平台支持（<span class="src-path">NaniteCullRaster.cpp:1383, 1637</span>），并在 <code>FSkinningDim</code> 着色器排列中编译蒙皮路径。5.8 中 Skinned Mesh 的 Nanite 支持需要 Velocity 导出场景才启用（<span class="src-path">NaniteComposition.cpp:366</span>），且仅限于支持 WPO 动画类骨骼网格。</li>
+    <li><strong>植被限制</strong>：植被（随风吹动的树叶、草）的主要挑战是顶点动画和非刚性变形——Nanite 的 BVH 是预计算的，运行时骨骼/顶点动画需要更新 BVH 边界或使用动态节点边界。源码中有 <code>CVarNaniteCullingSkinnedNodeBounds</code>（默认开启）来使用皮肤节点边界替代实例边界。</li>
+    <li><strong>设计根源</strong>：Nanite 的核心假设是几何体在静态空间中是连续的、不变的——这使得 BVH 预计算和流式传输可行。骨骼网格需要每帧更新顶点位置，破坏了这一假设。5.8 的进展是引入了有限的蒙皮支持（通过 WPO/Displacement），但完整的 SkeletalMesh 支持仍需要更深入的架构改动。</li>
+    <li><strong>WPO Disable Distance</strong>：通过 <code>CVarNaniteCullingWPODisableDistance</code>，远距离的 WPO 可以被禁用，减少更新开销。</li>
+  </ul>
+
+
+  <!-- ================================================================ -->
+  <!-- 6. UE5.8 演进变化 -->
+  <!-- ================================================================ -->
+  <h2 id="s6">6. UE5.8 演进变化</h2>
+
+  <h3 id="s6-1">6.1 异步光栅化增强</h3>
+  <p>
+    UE5.8 引入了更细粒度的异步光栅化控制：
+  </p>
+  <ul style="color:var(--text-dim);margin:10px 0 10px 24px;line-height:1.9;">
+    <li><strong>Shadow Depths 异步</strong>：<code>r.Nanite.AsyncRasterization.ShadowDepths</code>（默认 0，实验性）允许 VSM 的深度渲染与主视图异步进行。</li>
+    <li><strong>Custom Pass 异步</strong>：<code>r.Nanite.AsyncRasterization.CustomPass</code>（默认 1）允许 Custom Depth/Stencil Pass 异步光栅化。</li>
+    <li><strong>Lumen Mesh Cards 异步</strong>：<code>r.Nanite.AsyncRasterization.LumenMeshCards</code>（默认 0，实验性）允许 Lumen Card 捕获异步进行。</li>
+    <li><strong>Shader Bundle</strong>：UE5.8 引入了 Shader Bundle 机制（<code>r.Nanite.Bundle.Raster</code>、<code>r.Nanite.Bundle.Shading</code>），允许将多个光栅化/着色 Dispatch 合并为一个 GPU 命令，减少 CPU 开销。</li>
+    <li><strong>动态分辨率缩放</strong>：<code>GDynamicNaniteScalingPrimary</code> 和 <code>GDynamicNaniteScalingShadow</code> 实现基于时间预算的动态 LOD 缩放——当 GPU 超预算时自动降低 MaxPixelsPerEdge 以提高性能。</li>
+  </ul>
+
+  <h3 id="s6-2">6.2 Lumen Lite 简化模式（5.8 新增）</h3>
+  <p>
+    UE5.8 中虽然没有直接名为 "LumenLite" 的代码文件，但通过以下机制实现了简化/降级路径：
+  </p>
+  <ul style="color:var(--text-dim);margin:10px 0 10px 24px;line-height:1.9;">
+    <li><strong>UpdateFactor 调节</strong>：提高 <code>r.LumenScene.DirectLighting.UpdateFactor</code>（从 32 到 64 或 128）可降低每帧更新的卡片数量，减少 GPU 开销。</li>
+    <li><strong>Surface Cache 冻结</strong>：<code>r.LumenScene.SurfaceCache.Freeze</code> 可冻结 Surface Cache，在静态场景中避免每帧重新捕获。</li>
+    <li><strong>降级到仅 Radiance Cache</strong>：关闭 <code>r.Lumen.ScreenProbeGather</code> 时，Lumen 回退到仅使用世界空间探针（Radiance Cache），省去屏幕探针开销。</li>
+    <li><strong>远场 Ray Tracing 遮挡模式</strong>：<code>r.LumenScene.FarField.OcclusionOnly</code> 将远场追踪限制为仅遮挡查询，跳过着色计算。</li>
+  </ul>
+
+  <h3 id="s6-3">6.3 SkeletalMesh/Foliage 的 Nanite 支持进展</h3>
+  <p>
+    UE5.8 中的进展包括：
+  </p>
+  <ul style="color:var(--text-dim);margin:10px 0 10px 24px;line-height:1.9;">
+    <li><strong>FSkinningDim 排列</strong>：Nanite 光栅化和深度导出着色器现在包含蒙皮排列（<span class="src-path">NaniteCullRaster.cpp:1383</span>），允许在光栅化时执行骨骼变换。</li>
+    <li><strong>Assembly Transforms</strong>：<span class="src-path">NaniteShared.h</span> 中定义了 <code>AssemblyTransforms</code> 缓冲区，用于将蒙皮后的顶点位置传递给后续 Pass。</li>
+    <li><strong>Voxel 和 Curve 支持</strong>：<code>FNaniteRasterPipeline</code> 结构中包含 <code>bVoxel</code> 和 <code>bCurve</code> 标志（<span class="src-path">NaniteShared.h:633-634</span>），材质可见性测试中也区分了 Triangle、Voxel、Curve 三种 Bin 可见性，表明 Nanite 正在扩展到非三角形几何类型。</li>
+    <li><strong>Tessellation Displacement</strong>：<code>r.Nanite.Tessellation</code> 默认启用运行时曲面细分/位移，支持雕刻类几何的细节增强。相关参数 <code>r.Nanite.DicingRate</code> 控制微多边形大小。</li>
+  </ul>
+
+
+  <!-- ================================================================ -->
+  <!-- CVar 速查表 -->
+  <!-- ================================================================ -->
+  <h2 id="cvars">CVar 速查表</h2>
+
+  <h3>Nanite 核心 CVar</h3>
+  <div class="table-wrap cvar-table">
+    <table>
+      <thead><tr><th>CVar 名称</th><th>默认值</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="cvar-name">r.Nanite</td><td class="cvar-val">1</td><td class="cvar-desc">Nanite 主开关</td></tr>
+        <tr><td class="cvar-name">r.Nanite.ComputeRasterization</td><td class="cvar-val">1</td><td class="cvar-desc">启用软件光栅化（CS 路径）。关闭后全部走硬件光栅化</td></tr>
+        <tr><td class="cvar-name">r.Nanite.AsyncRasterization</td><td class="cvar-val">1</td><td class="cvar-desc">启用异步计算光栅化（HardwareAndSoftwareOverlap）</td></tr>
+        <tr><td class="cvar-name">r.Nanite.MaxPixelsPerEdge</td><td class="cvar-val">1.0</td><td class="cvar-desc">目标三角形边长（像素）——LOD 选择的核心参数</td></tr>
+        <tr><td class="cvar-name">r.Nanite.MinPixelsPerEdgeHW</td><td class="cvar-val">32.0</td><td class="cvar-desc">三角形边长低于此值改用软件光栅化</td></tr>
+        <tr><td class="cvar-name">r.Nanite.DicingRate</td><td class="cvar-val">2.0</td><td class="cvar-desc">曲面细分微多边形大小（像素）</td></tr>
+        <tr><td class="cvar-name">r.Nanite.Tessellation</td><td class="cvar-val">1</td><td class="cvar-desc">运行时曲面细分/位移开关</td></tr>
+        <tr><td class="cvar-name">r.Nanite.Culling.HZB</td><td class="cvar-val">1</td><td class="cvar-desc">HZB 遮挡剔除开关</td></tr>
+        <tr><td class="cvar-name">r.Nanite.Culling.TwoPass</td><td class="cvar-val">1</td><td class="cvar-desc">Two-Pass 遮挡剔除开关</td></tr>
+        <tr><td class="cvar-name">r.Nanite.Culling.Frustum</td><td class="cvar-val">1</td><td class="cvar-desc">视锥体裁剪开关</td></tr>
+        <tr><td class="cvar-name">r.Nanite.FastVisBufferClear</td><td class="cvar-val">1</td><td class="cvar-desc">VisBuffer 快速清除优化（0=关闭, 1=像素清除, 2=瓦片清除）</td></tr>
+        <tr><td class="cvar-name">r.Nanite.ProgrammableRaster</td><td class="cvar-val">1</td><td class="cvar-desc">可编程光栅化开关（关闭后只用固定函数路径）</td></tr>
+        <tr><td class="cvar-name">r.Nanite.PrimaryRaster.TimeBudgetMs</td><td class="cvar-val">Disabled</td><td class="cvar-desc">主视图 Nanite 光栅化时间预算（毫秒）</td></tr>
+        <tr><td class="cvar-name">r.Nanite.FilterPrimitives</td><td class="cvar-val">1</td><td class="cvar-desc">每视图 Primitive 过滤开关</td></tr>
+        <tr><td class="cvar-name">r.Nanite.Bundle.Raster</td><td class="cvar-val">0</td><td class="cvar-desc">Shader Bundle 光栅化（实验性）</td></tr>
+        <tr><td class="cvar-name">r.Nanite.Bundle.Shading</td><td class="cvar-val">0</td><td class="cvar-desc">Shader Bundle 着色（实验性）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Lumen 核心 CVar</h3>
+  <div class="table-wrap cvar-table">
+    <table>
+      <thead><tr><th>CVar 名称</th><th>默认值</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="cvar-name">r.Lumen.DiffuseIndirect.Allow</td><td class="cvar-val">1</td><td class="cvar-desc">Lumen GI 开关</td></tr>
+        <tr><td class="cvar-name">r.Lumen.Reflections.Allow</td><td class="cvar-val">1</td><td class="cvar-desc">Lumen 反射开关</td></tr>
+        <tr><td class="cvar-name">r.LumenScene.SurfaceCache.AtlasSize</td><td class="cvar-val">4096</td><td class="cvar-desc">Surface Cache 卡片 Atlas 尺寸</td></tr>
+        <tr><td class="cvar-name">r.LumenScene.DirectLighting.UpdateFactor</td><td class="cvar-val">32</td><td class="cvar-desc">直接光照更新因子（越大更新越少）</td></tr>
+        <tr><td class="cvar-name">r.LumenScene.Radiosity.UpdateFactor</td><td class="cvar-val">64</td><td class="cvar-desc">辐射度更新因子</td></tr>
+        <tr><td class="cvar-name">r.LumenScene.Lighting.AsyncCompute</td><td class="cvar-val">1</td><td class="cvar-desc">异步计算管线运行 Lumen 光照</td></tr>
+        <tr><td class="cvar-name">r.LumenScene.FarField</td><td class="cvar-val">0</td><td class="cvar-desc">远场光线追踪（实验性）</td></tr>
+        <tr><td class="cvar-name">r.LumenScene.GlobalSDF.Resolution</td><td class="cvar-val">252</td><td class="cvar-desc">全局距离场分辨率</td></tr>
+        <tr><td class="cvar-name">r.Lumen.RadianceCache.Update</td><td class="cvar-val">1</td><td class="cvar-desc">Radiance Cache 更新开关</td></tr>
+        <tr><td class="cvar-name">r.Lumen.ScreenProbeGather</td><td class="cvar-val">1</td><td class="cvar-desc">Screen Probe Gather 开关</td></tr>
+        <tr><td class="cvar-name">r.Lumen.ScreenProbeGather.DownsampleFactor</td><td class="cvar-val">16</td><td class="cvar-desc">屏幕探针间距（像素）</td></tr>
+        <tr><td class="cvar-name">r.Lumen.ScreenProbeGather.TracingOctahedronResolution</td><td class="cvar-val">8</td><td class="cvar-desc">每探针追踪方向数</td></tr>
+        <tr><td class="cvar-name">r.Lumen.ScreenProbeGather.Temporal</td><td class="cvar-val">1</td><td class="cvar-desc">屏幕探针时序滤波器</td></tr>
+        <tr><td class="cvar-name">r.Lumen.Reflections.DownsampleFactor</td><td class="cvar-val">1</td><td class="cvar-desc">反射追踪降采样因子</td></tr>
+        <tr><td class="cvar-name">r.Lumen.Reflections.RadianceCache</td><td class="cvar-val">0</td><td class="cvar-desc">反射复用 Radiance Cache（实验性）</td></tr>
+        <tr><td class="cvar-name">r.Lumen.Reflections.MaxRoughnessToTrace</td><td class="cvar-val">-1（PPV 控制）</td><td class="cvar-desc">追踪反射的最大粗糙度阈值</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="info-box tip">
+    <strong>提示：</strong>以上 CVar 均为 <code>ECVF_RenderThreadSafe</code> 或 <code>ECVF_Scalability</code> 可扩展性级别，支持在运行时通过控制台或配置文件调整。标记为 <code>ECVF_Default</code> 的 CVar 通常还与 <code>DynamicRenderScaling</code> 系统集成，能在 GPU 超预算时自动调整。
+  </div>
+
+
+  <!-- ================================================================ -->
+  <!-- 底部导航 -->
+  <!-- ================================================================ -->
+  <div class="footer-nav">
+    <a href="../现代图形API/index.html" class="prev">上一章：现代图形 API</a>
+    <a href="../MegaLights/index.html" class="next">下一章：MegaLights</a>
+  </div>
+
+</main>
+
+<!-- ==================== JS ==================== -->
+<script>
+// ===== 代码复制 =====
+function copyCode(btn) {
+  const pre = btn.closest('.code-block-wrapper').querySelector('pre');
+  const text = pre.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '已复制';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = '复制';
+      btn.classList.remove('copied');
+    }, 1800);
+  }).catch(() => {});
+}
+
+// ===== 章节搜索 =====
+function searchSections() {
+  const query = document.getElementById('search-input').value.toLowerCase();
+  const links = document.querySelectorAll('#toc a');
+  links.forEach(a => {
+    const text = (a.textContent || '').toLowerCase();
+    a.style.display = (!query || text.includes(query)) ? '' : 'none';
+  });
+}
+
+// ===== 大纲滚动高亮 =====
+function updateActiveLink() {
+  const sections = document.querySelectorAll('h2[id], h3[id]');
+  const links = document.querySelectorAll('#toc a');
+  let current = '';
+  sections.forEach(s => {
+    if (window.scrollY >= s.offsetTop - 120) {
+      current = s.id;
+    }
+  });
+  links.forEach(a => {
+    a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+  });
+}
+window.addEventListener('scroll', updateActiveLink);
+window.addEventListener('load', updateActiveLink);
+
+// ===== 表格行悬停 =====
+document.querySelectorAll('.table-wrap tbody tr').forEach(tr => {
+  tr.addEventListener('mouseenter', () => { tr.style.background = 'rgba(79,195,247,0.04)'; });
+  tr.addEventListener('mouseleave', () => { tr.style.background = ''; });
+});
+</script>
+
+</body>
+</html>

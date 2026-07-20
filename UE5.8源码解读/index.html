@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UE5.8.0 渲染体系源码解读 — 总览</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --card: #131318;
+  --code: #09090d;
+  --accent: #4FC3F7;
+  --accent-dim: rgba(79,195,247,0.12);
+  --text: #e0e0e0;
+  --text-dim: #909090;
+  --border: rgba(255,255,255,0.06);
+  --font-sans: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  --font-mono: 'Cascadia Code','Fira Code','Consolas',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:15px}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--text);line-height:1.72;min-height:100vh}
+a{color:var(--accent);text-decoration:none;transition:0.2s}
+a:hover{text-decoration:underline}
+
+/* ===== 顶部横幅 ===== */
+.hero{text-align:center;padding:80px 24px 60px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:800px;height:400px;background:radial-gradient(ellipse at center,rgba(79,195,247,0.08) 0%,transparent 70%);pointer-events:none}
+.hero h1{font-size:2.4rem;font-weight:800;letter-spacing:0.5px;position:relative}
+.hero h1 span{color:var(--accent)}
+.hero .subtitle{margin-top:12px;font-size:1.05rem;color:var(--text-dim);max-width:640px;margin-inline:auto;position:relative}
+.hero .meta{margin-top:20px;display:flex;gap:16px;justify-content:center;flex-wrap:wrap;position:relative}
+.hero .meta .tag{font-family:var(--font-mono);font-size:0.8rem;padding:4px 14px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-dim)}
+
+/* ===== 分层架构大图 ===== */
+.arch-diagram{max-width:1100px;margin:0 auto 60px;padding:0 24px}
+.arch-diagram h2{text-align:center;font-size:1.6rem;margin-bottom:32px;color:var(--accent)}
+.layer-wrap{margin-bottom:16px}
+.layer-title{font-family:var(--font-mono);font-size:0.78rem;color:var(--accent);text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;padding-left:4px}
+.layer-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.mod-card{display:block;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:22px 20px;transition:all 0.25s;position:relative;overflow:hidden}
+.mod-card:hover{border-color:rgba(79,195,247,0.35);transform:translateY(-2px);text-decoration:none;box-shadow:0 8px 30px rgba(0,0,0,0.4)}
+.mod-card:hover .mod-num{color:var(--accent)}
+.mod-card .mod-num{font-family:var(--font-mono);font-size:0.72rem;color:var(--text-dim);margin-bottom:6px;transition:color 0.2s}
+.mod-card .mod-title{font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:6px}
+.mod-card .mod-desc{font-size:0.85rem;color:var(--text-dim);line-height:1.55}
+.mod-card .mod-source{font-family:var(--font-mono);font-size:0.7rem;color:rgba(79,195,247,0.5);margin-top:10px;word-break:break-all}
+
+/* ===== 依赖关系图 ===== */
+.deps-section{max-width:1100px;margin:0 auto 60px;padding:0 24px}
+.deps-section h2{text-align:center;font-size:1.6rem;margin-bottom:32px;color:var(--accent)}
+.flow-rows{display:flex;flex-direction:column;align-items:center;gap:0}
+.flow-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center}
+.flow-node{font-family:var(--font-mono);font-size:0.8rem;color:var(--text);background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 16px;white-space:nowrap;transition:all 0.2s}
+.flow-node:hover{border-color:var(--accent);color:var(--accent)}
+a.flow-node:hover{text-decoration:none}
+.flow-arrow{color:var(--text-dim);font-size:1.2rem;margin:0 2px}
+.flow-arrow-down{color:var(--text-dim);font-size:1.4rem;text-align:center;padding:4px 0}
+
+/* ===== 推荐阅读路径 ===== */
+.reading-path{max-width:1100px;margin:0 auto 60px;padding:0 24px}
+.reading-path h2{text-align:center;font-size:1.6rem;margin-bottom:32px;color:var(--accent)}
+.path-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px}
+.path-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:24px}
+.path-card h3{font-size:1.05rem;color:var(--accent);margin-bottom:10px}
+.path-card ol{font-size:0.88rem;color:var(--text-dim);padding-left:1.4em}
+.path-card ol li{margin-bottom:6px}
+.path-card ol li a{font-size:0.88rem}
+
+/* ===== 全量目录 ===== */
+.toc-section{max-width:900px;margin:0 auto 80px;padding:0 24px}
+.toc-section h2{text-align:center;font-size:1.6rem;margin-bottom:32px;color:var(--accent)}
+.toc-table{width:100%;border-collapse:collapse;font-size:0.9rem}
+.toc-table th{text-align:left;padding:10px 16px;background:var(--card);color:var(--accent);border-bottom:2px solid rgba(255,255,255,0.08);font-weight:600}
+.toc-table td{padding:10px 16px;border-bottom:1px solid var(--border);vertical-align:top}
+.toc-table tr:hover td{background:var(--accent-dim)}
+.toc-table .toc-idx{color:var(--text-dim);font-family:var(--font-mono);font-size:0.82rem}
+.toc-table .toc-name{font-weight:600}
+.toc-table .toc-name a{color:#fff}
+.toc-table .toc-name a:hover{color:var(--accent);text-decoration:none}
+.toc-table .toc-desc{color:var(--text-dim);font-size:0.85rem}
+.toc-table .toc-tag{font-size:0.7rem;padding:2px 8px;border-radius:10px;white-space:nowrap}
+.toc-table .tag-redesign{background:rgba(255,183,77,0.12);color:#FFB74D}
+.toc-table .tag-new{background:rgba(129,199,132,0.12);color:#81C784}
+.toc-table .tag-arch{background:rgba(79,195,247,0.12);color:var(--accent)}
+
+/* ===== Footer ===== */
+.footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);color:var(--text-dim);font-size:0.83rem}
+
+/* ===== 响应式 ===== */
+@media(max-width:768px){
+  .hero{padding:48px 18px 36px}
+  .hero h1{font-size:1.6rem}
+  .layer-cards{grid-template-columns:1fr}
+  .flow-row{gap:6px}
+  .flow-node{font-size:0.72rem;padding:6px 10px}
+  .flow-arrow{font-size:0.9rem}
+  .path-list{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 顶部横幅 ===== -->
+<section class="hero">
+  <h1>UE<span>5.8.0</span> 渲染体系源码解读</h1>
+  <p class="subtitle">基于 UE5.8.0 引擎源码的深入分析，以顶层设计图解为入口下钻到源码实现，涵盖 13 个核心渲染模块</p>
+  <div class="meta">
+    <span class="tag">Unreal Engine 5.8.0</span>
+    <span class="tag">Deferred Shading</span>
+    <span class="tag">Nanite &amp; Lumen</span>
+    <span class="tag">MegaLights</span>
+    <span class="tag">VSM</span>
+  </div>
+</section>
+
+<!-- ===== 分层架构大图 ===== -->
+<section class="arch-diagram">
+  <h2>模块分层架构</h2>
+  <p style="text-align:center;color:var(--text-dim);margin-bottom:36px;max-width:700px;margin-inline:auto;">UE5.8 渲染体系按抽象层级分为四层：从底层的线程模型和硬件抽象，到中间层的渲染框架，再到上层的核心管线和子系统。各层之间通过清晰接口通信。</p>
+
+  <div class="layer-wrap">
+    <div class="layer-title">▸ 子系统层 — 渲染特性</div>
+    <div class="layer-cards">
+      <a href="part/光源和阴影/index.html" class="mod-card">
+        <div class="mod-num">05</div>
+        <div class="mod-title">光源和阴影</div>
+        <div class="mod-desc">Clustered Deferred 光照 + Virtual Shadow Maps</div>
+        <div class="mod-source">LightRendering.cpp / VirtualShadowMaps/</div>
+      </a>
+      <a href="part/Nanite和Lumen/index.html" class="mod-card">
+        <div class="mod-num">06</div>
+        <div class="mod-title">Nanite 和 Lumen</div>
+        <div class="mod-desc">虚拟几何 + 实时全局光照，UE5 双核心技术</div>
+        <div class="mod-source">Nanite/ / Lumen/</div>
+      </a>
+      <a href="part/MegaLights/index.html" class="mod-card">
+        <div class="mod-num">&#9733;</div>
+        <div class="mod-title">MegaLights</div>
+        <div class="mod-desc">UE5.8 全新：数百个可投影动态光源</div>
+        <div class="mod-source">MegaLights/</div>
+      </a>
+      <a href="part/实时光线追踪/index.html" class="mod-card">
+        <div class="mod-num">17</div>
+        <div class="mod-title">实时光线追踪</div>
+        <div class="mod-desc">DXR/VulkanRT 封装，加速结构，路径追踪</div>
+        <div class="mod-source">RayTracing/</div>
+      </a>
+      <a href="part/移动端渲染/index.html" class="mod-card">
+        <div class="mod-num">12</div>
+        <div class="mod-title">移动端渲染</div>
+        <div class="mod-desc">TBDR 适配、Vulkan Mobile、带宽极致优化</div>
+        <div class="mod-source">MobileShadingRenderer.cpp</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="layer-wrap">
+    <div class="layer-title">▸ 核心管线层 — 帧内渲染流程</div>
+    <div class="layer-cards">
+      <a href="part/渲染机制/index.html" class="mod-card">
+        <div class="mod-num">03</div>
+        <div class="mod-title">渲染机制</div>
+        <div class="mod-desc">场景渲染器、可见性计算、Mesh Pass 处理器</div>
+        <div class="mod-source">SceneRendering.cpp / MeshPassProcessor.cpp</div>
+      </a>
+      <a href="part/延迟渲染管线/index.html" class="mod-card">
+        <div class="mod-num">04</div>
+        <div class="mod-title">延迟渲染管线</div>
+        <div class="mod-desc">PrePass → BasePass → Lighting → PostProcess 全流程</div>
+        <div class="mod-source">DeferredShadingRenderer.cpp</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="layer-wrap">
+    <div class="layer-title">▸ 渲染框架层 — 资源 &amp; 调度基础设施</div>
+    <div class="layer-cards">
+      <a href="part/RHI/index.html" class="mod-card">
+        <div class="mod-num">10</div>
+        <div class="mod-title">RHI</div>
+        <div class="mod-desc">渲染硬件接口层，封装 DX12/Vulkan/Metal 差异</div>
+        <div class="mod-source">RHI/ / D3D12RHI/</div>
+      </a>
+      <a href="part/RDG/index.html" class="mod-card">
+        <div class="mod-num">11</div>
+        <div class="mod-title">RDG</div>
+        <div class="mod-desc">渲染依赖图，自动资源生命周期 + Pass 调度</div>
+        <div class="mod-source">RenderGraphBuilder.h</div>
+      </a>
+      <a href="part/Shader体系/index.html" class="mod-card">
+        <div class="mod-num">08</div>
+        <div class="mod-title">Shader 体系</div>
+        <div class="mod-desc">跨平台编译链：.usf → FXC/DXC/glslang → GPU</div>
+        <div class="mod-source">ShaderCompiler/ / Shader.h</div>
+      </a>
+      <a href="part/材质体系/index.html" class="mod-card">
+        <div class="mod-num">09</div>
+        <div class="mod-title">材质体系</div>
+        <div class="mod-desc">材质蓝图 → 表达式图 → Shader 代码的完整转化</div>
+        <div class="mod-source">Material.cpp / MaterialExpressions.cpp</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="layer-wrap">
+    <div class="layer-title">▸ 基础层 — 线程模型 &amp; 平台抽象</div>
+    <div class="layer-cards">
+      <a href="part/多线程机制/index.html" class="mod-card">
+        <div class="mod-num">02</div>
+        <div class="mod-title">多线程机制</div>
+        <div class="mod-desc">TaskGraph 调度、GameThread/RenderThread/RHIThread 模型</div>
+        <div class="mod-source">TaskGraphInterfaces.h / RenderingThread.cpp</div>
+      </a>
+      <a href="part/现代图形API/index.html" class="mod-card">
+        <div class="mod-num">13</div>
+        <div class="mod-title">现代图形 API</div>
+        <div class="mod-desc">DX12 / Vulkan / Metal 特性封装与对比</div>
+        <div class="mod-source">D3D12RHI/ / VulkanRHI/</div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 模块依赖关系 ===== -->
+<section class="deps-section">
+  <h2>模块依赖关系</h2>
+  <p style="text-align:center;color:var(--text-dim);margin-bottom:28px;">箭头表示 "被依赖/使用于" 关系。上层模块构建在下层基础设施之上。</p>
+
+  <div class="flow-rows">
+    <div class="flow-row">
+      <span class="flow-node">光源和阴影</span>
+      <span class="flow-arrow">&#x2190;</span>
+      <span class="flow-node">Nanite &amp; Lumen</span>
+      <span class="flow-arrow">&#x2190;</span>
+      <span class="flow-node">MegaLights</span>
+      <span class="flow-arrow">&#x2190;</span>
+      <span class="flow-node">实时光追</span>
+      <span class="flow-node">移动端渲染</span>
+    </div>
+    <div class="flow-arrow-down">&#x2191; &nbsp; 依赖 &nbsp; &#x2193;</div>
+    <div class="flow-row">
+      <a href="part/渲染机制/index.html" class="flow-node">渲染机制</a>
+      <span class="flow-arrow">+</span>
+      <a href="part/延迟渲染管线/index.html" class="flow-node">延迟渲染管线</a>
+    </div>
+    <div class="flow-arrow-down">&#x2191; &nbsp; 依赖 &nbsp; &#x2193;</div>
+    <div class="flow-row">
+      <a href="part/RDG/index.html" class="flow-node">RDG</a>
+      <span class="flow-arrow">+</span>
+      <a href="part/Shader体系/index.html" class="flow-node">Shader</a>
+      <span class="flow-arrow">+</span>
+      <a href="part/材质体系/index.html" class="flow-node">材质</a>
+      <span class="flow-arrow">+</span>
+      <a href="part/RHI/index.html" class="flow-node">RHI</a>
+    </div>
+    <div class="flow-arrow-down">&#x2191; &nbsp; 依赖 &nbsp; &#x2193;</div>
+    <div class="flow-row">
+      <a href="part/多线程机制/index.html" class="flow-node">多线程机制</a>
+      <span class="flow-arrow">+</span>
+      <a href="part/现代图形API/index.html" class="flow-node">现代图形 API</a>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 推荐阅读路径 ===== -->
+<section class="reading-path">
+  <h2>推荐阅读路径</h2>
+  <div class="path-list">
+    <div class="path-card">
+      <h3>&#x2460; 自底向上（初学者）</h3>
+      <ol>
+        <li><a href="part/多线程机制/index.html">多线程机制</a> — 理解线程模型</li>
+        <li><a href="part/现代图形API/index.html">现代图形 API</a> — 了解平台差异</li>
+        <li><a href="part/RHI/index.html">RHI</a> — 硬件抽象层</li>
+        <li><a href="part/RDG/index.html">RDG</a> — Pass 调度系统</li>
+        <li><a href="part/Shader体系/index.html">Shader 体系</a> — Shader 编译链</li>
+        <li><a href="part/材质体系/index.html">材质体系</a> — 材质到 Shader</li>
+        <li><a href="part/渲染机制/index.html">渲染机制</a> — 场景渲染入口</li>
+        <li><a href="part/延迟渲染管线/index.html">延迟渲染管线</a> — 一帧全流程</li>
+        <li>→ 子系统层各章按兴趣阅读</li>
+      </ol>
+    </div>
+    <div class="path-card">
+      <h3>&#x2461; 自顶向下（有经验者）</h3>
+      <ol>
+        <li><a href="part/延迟渲染管线/index.html">延迟渲染管线</a> — 俯瞰全帧</li>
+        <li><a href="part/Nanite和Lumen/index.html">Nanite 和 Lumen</a> — UE5 核心</li>
+        <li><a href="part/光源和阴影/index.html">光源和阴影</a> — 光照方案</li>
+        <li><a href="part/MegaLights/index.html">MegaLights</a> — 5.8 亮点</li>
+        <li><a href="part/实时光线追踪/index.html">实时光线追踪</a> — HWRT</li>
+        <li>→ 按需深挖框架层和基础层</li>
+      </ol>
+    </div>
+    <div class="path-card">
+      <h3>&#x2462; 问题驱动（排错/优化）</h3>
+      <ol>
+        <li>性能问题 → <a href="part/多线程机制/index.html">多线程机制</a> + <a href="part/RDG/index.html">RDG</a></li>
+        <li>画面问题 → <a href="part/延迟渲染管线/index.html">延迟管线</a> + <a href="part/Shader体系/index.html">Shader</a></li>
+        <li>阴影问题 → <a href="part/光源和阴影/index.html">光源和阴影</a></li>
+        <li>移动端适配 → <a href="part/移动端渲染/index.html">移动端渲染</a></li>
+        <li>材质编译慢 → <a href="part/材质体系/index.html">材质体系</a> + <a href="part/Shader体系/index.html">Shader 体系</a></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 全量目录 ===== -->
+<section class="toc-section">
+  <h2>完整目录</h2>
+  <table class="toc-table">
+    <thead><tr><th>#</th><th>章节</th><th>说明</th><th>标记</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="toc-idx">02</td>
+        <td class="toc-name"><a href="part/多线程机制/index.html">多线程机制</a></td>
+        <td class="toc-desc">TaskGraph 调度、命名线程体系、无锁队列、Fence 同步</td>
+        <td><span class="toc-tag tag-redesign">重设计</span></td>
+      </tr>
+      <tr>
+        <td class="toc-idx">03</td>
+        <td class="toc-name"><a href="part/渲染机制/index.html">渲染机制</a></td>
+        <td class="toc-desc">场景渲染器、可见性计算、Mesh Pass 处理、GPU Scene</td>
+        <td><span class="toc-tag tag-arch">核心</span></td>
+      </tr>
+      <tr>
+        <td class="toc-idx">04</td>
+        <td class="toc-name"><a href="part/延迟渲染管线/index.html">延迟渲染管线</a></td>
+        <td class="toc-desc">Deferred Shading 全流程、G-Buffer、Clustered Deferred</td>
+        <td><span class="toc-tag tag-arch">核心</span></td>
+      </tr>
+      <tr>
+        <td class="toc-idx">10</td>
+        <td class="toc-name"><a href="part/RHI/index.html">RHI</a></td>
+        <td class="toc-desc">FDynamicRHI 接口、FRHICommandList、D3D12/Vulkan 实现</td>
+        <td><span class="toc-tag tag-arch">架构层</span></td>
+      </tr>
+      <tr>
+        <td class="toc-idx">11</td>
+        <td class="toc-name"><a href="part/RDG/index.html">RDG</a></td>
+        <td class="toc-desc">FRDGBuilder、Transient 资源池、自动屏障、Pass 调度</td>
+        <td><span class="toc-tag tag-arch">架构层</span></td>
+      </tr>
+      <tr>
+        <td class="toc-idx">08</td>
+        <td class="toc-name"><a href="part/Shader体系/index.html">Shader 体系</a></td>
+        <td class="toc-desc">FShader 类型层级、SHADER_PARAMETER_STRUCT、排列系统</td>
+        <td><span class="toc-tag tag-arch">架构层</span></td>
+      </tr>
+      <tr>
+        <td class="toc-idx">09</td>
+        <td class="toc-name"><a href="part/材质体系/index.html">材质体系</a></td>
+        <td class="toc-desc">UMaterial → FMaterialRenderProxy、表达式编译、MID 链</td>
+        <td><span class="toc-tag tag-arch">架构层</span></td>
+      </tr>
+      <tr>
+        <td class="toc-idx">05</td>
+        <td class="toc-name"><a href="part/光源和阴影/index.html">光源和阴影</a></td>
+        <td class="toc-desc">FLightSceneInfo、VSM 页面映射与缓存、Clipmap 层级</td>
+        <td><span class="toc-tag tag-arch">核心</span></td>
+      </tr>
+      <tr>
+        <td class="toc-idx">13</td>
+        <td class="toc-name"><a href="part/现代图形API/index.html">现代图形 API</a></td>
+        <td class="toc-desc">DX12/Vulkan/Metal 封装对比、Bindless、异步计算</td>
+        <td><span class="toc-tag tag-arch">架构层</span></td>
+      </tr>
+      <tr>
+        <td class="toc-idx">06</td>
+        <td class="toc-name"><a href="part/Nanite和Lumen/index.html">Nanite 和 Lumen</a></td>
+        <td class="toc-desc">GPU 裁剪流水线、VisBuffer、Surface Cache、Screen Probe</td>
+        <td><span class="toc-tag tag-arch">核心</span></td>
+      </tr>
+      <tr>
+        <td class="toc-idx">&#9733;</td>
+        <td class="toc-name"><a href="part/MegaLights/index.html">MegaLights</a></td>
+        <td class="toc-desc">随机光源采样、HWRT/SDF 双路径、时序降噪、5.8 新特性</td>
+        <td><span class="toc-tag tag-new">UE5.8 新增</span></td>
+      </tr>
+      <tr>
+        <td class="toc-idx">17</td>
+        <td class="toc-name"><a href="part/实时光线追踪/index.html">实时光线追踪</a></td>
+        <td class="toc-desc">BLAS/TLAS、SBT 封装、内联光追 vs 动态管线、路径追踪</td>
+        <td><span class="toc-tag tag-arch">核心</span></td>
+      </tr>
+      <tr>
+        <td class="toc-idx">12</td>
+        <td class="toc-name"><a href="part/移动端渲染/index.html">移动端渲染</a></td>
+        <td class="toc-desc">TBDR Subpass 链、Mobile GBuffer 精简、Vulkan Mobile</td>
+        <td><span class="toc-tag tag-arch">专题</span></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<footer class="footer">
+  基于 UE5.8.0 引擎源码分析 &nbsp;|&nbsp; 2026.07 &nbsp;|&nbsp; 13 模块 &nbsp;|&nbsp; 每章含 SVG 架构图 + 源码锚点 + CVar 速查表
+</footer>
+
+</body>
+</html>

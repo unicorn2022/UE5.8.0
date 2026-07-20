@@ -1,0 +1,1206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>材质体系——UE5.8.0 渲染管线深度解析</title>
+<style>
+/* ===== 基础重置 & 变量 ===== */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f; --card:#131318; --code:#09090d; --primary:#4FC3F7; --primary-dim:#2a8fbf;
+  --text:#e0e0e0; --text2:#909090; --border:#1e1e28; --accent1:#7C4DFF; --accent2:#00E676;
+  --accent3:#FF6D00; --accent4:#FF4081; --radius:8px; --sidebar-w:260px;
+}
+html{scroll-behavior:smooth;scroll-padding-top:20px}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);line-height:1.72;display:flex;min-height:100vh}
+a{color:var(--primary);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ===== 左侧大纲导航 ===== */
+.sidebar{
+  position:fixed;top:0;left:0;width:var(--sidebar-w);height:100vh;
+  background:var(--card);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;z-index:100;overflow:hidden;
+}
+.sidebar-header{
+  padding:20px 22px 16px;border-bottom:1px solid var(--border);
+  font-size:15px;font-weight:700;color:var(--primary);
+  display:flex;align-items:center;gap:8px;
+}
+.sidebar-header svg{flex-shrink:0}
+.sidebar-search{padding:10px 16px;border-bottom:1px solid var(--border)}
+.sidebar-search input{
+  width:100%;padding:8px 12px;border-radius:6px;border:1px solid var(--border);
+  background:var(--bg);color:var(--text);font-size:13px;outline:none;
+  transition:border-color .2s;
+}
+.sidebar-search input:focus{border-color:var(--primary)}
+.sidebar-nav{flex:1;overflow-y:auto;padding:10px 0}
+.sidebar-nav a{
+  display:block;padding:8px 22px;font-size:13px;color:var(--text2);
+  border-left:3px solid transparent;transition:all .15s;
+}
+.sidebar-nav a:hover,.sidebar-nav a.active{
+  color:var(--text);background:rgba(79,195,247,.06);border-left-color:var(--primary);text-decoration:none
+}
+.sidebar-nav a.h2{padding-left:36px;font-size:12px}
+.sidebar-nav a.h3{padding-left:50px;font-size:11px;color:#666}
+
+/* ===== 主内容区 ===== */
+.main{margin-left:var(--sidebar-w);flex:1;min-width:0;padding:32px 48px 60px;max-width:1100px}
+
+/* 面包屑 */
+.breadcrumb{font-size:12px;color:var(--text2);margin-bottom:20px;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.breadcrumb span{color:#555}
+.breadcrumb a{font-family:"Cascadia Code","Fira Code",monospace;font-size:11px}
+.breadcrumb .file{background:var(--code);padding:2px 8px;border-radius:4px;font-size:11px}
+
+/* 标题 */
+h1{font-size:32px;font-weight:800;margin-bottom:8px;background:linear-gradient(135deg,var(--primary),var(--accent1));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.subtitle{font-size:15px;color:var(--text2);margin-bottom:32px;max-width:680px}
+
+h2{font-size:22px;font-weight:700;margin:48px 0 16px;padding-bottom:10px;border-bottom:2px solid var(--border);color:#fff}
+h3{font-size:17px;font-weight:600;margin:32px 0 12px;color:var(--primary)}
+h4{font-size:15px;font-weight:600;margin:20px 0 8px;color:#ccc}
+
+p{margin-bottom:14px;font-size:14.5px;color:var(--text)}
+
+/* ===== 卡片 ===== */
+.card{
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:22px 26px;margin-bottom:20px;
+}
+.card-header{font-weight:700;font-size:15px;margin-bottom:12px;color:var(--primary);display:flex;align-items:center;gap:8px}
+
+/* ===== SVG 图表区 ===== */
+.diagram{text-align:center;margin:20px 0}
+.diagram svg{max-width:100%;height:auto}
+
+/* ===== 代码块 ===== */
+.code-wrapper{position:relative;margin:16px 0;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border)}
+.code-header{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:8px 14px;background:#16161e;font-size:12px;color:var(--text2);
+  font-family:"Cascadia Code","Fira Code",monospace;
+}
+.code-header .lang{color:var(--primary)}
+.copy-btn{
+  background:transparent;border:1px solid #333;color:var(--text2);padding:4px 12px;
+  border-radius:4px;cursor:pointer;font-size:11px;transition:all .2s
+}
+.copy-btn:hover{border-color:var(--primary);color:var(--primary)}
+.copy-btn.copied{border-color:var(--accent2);color:var(--accent2)}
+.code-body{
+  display:flex;background:var(--code);overflow-x:auto;
+  font-family:"Cascadia Code","Fira Code",Consolas,monospace;font-size:13px;line-height:1.65;
+}
+.line-numbers{
+  flex-shrink:0;padding:14px 0;text-align:right;user-select:none;
+  color:#444;font-size:12px;min-width:44px;border-right:1px solid #1a1a24;
+}
+.line-numbers span{display:block;padding:0 12px 0 8px}
+.code-body pre{flex:1;padding:14px 16px;margin:0;overflow-x:auto;color:#c8d6e5;white-space:pre;tab-size:2}
+/* 语法高亮 */
+.kw{color:#c792ea} /* keyword */
+.str{color:#c3e88d} /* string */
+.cm{color:#546e7a;font-style:italic} /* comment */
+.fn{color:#82aaff} /* function */
+.ty{color:#ffcb6b} /* type/class */
+.num{color:#f78c6c} /* number */
+.macro{color:#f07178} /* macro/preprocessor */
+.op{color:#89ddff} /* operator */
+.attr{color:#ffcb6b} /* attribute */
+.member{color:#82aaff} /* member access */
+
+/* ===== CVar 速查表 ===== */
+.cvar-table{width:100%;border-collapse:collapse;font-size:13px;margin:16px 0}
+.cvar-table th{
+  text-align:left;padding:10px 14px;background:rgba(79,195,247,.08);
+  color:var(--primary);font-weight:600;border-bottom:2px solid var(--border);
+  white-space:nowrap;
+}
+.cvar-table td{
+  padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top;
+  font-family:"Cascadia Code","Fira Code",monospace;font-size:12px;color:var(--accent3)
+}
+.cvar-table td:last-child{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:13px;color:var(--text2)}
+
+/* ===== 信息框 ===== */
+.info-box{
+  border-left:3px solid var(--primary);padding:12px 16px;margin:16px 0;
+  background:rgba(79,195,247,.04);border-radius:0 6px 6px 0;font-size:13.5px;color:var(--text)
+}
+.info-box strong{color:var(--primary)}
+.info-box.warn{border-left-color:var(--accent3);background:rgba(255,109,0,.06)}
+.info-box.tip{border-left-color:var(--accent2);background:rgba(0,230,118,.05)}
+
+/* ===== 流程图步骤 ===== */
+.flow-steps{display:flex;flex-wrap:wrap;gap:0;margin:16px 0;align-items:flex-start}
+.flow-step{
+  flex:1;min-width:120px;text-align:center;padding:16px 12px;
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  position:relative;
+}
+.flow-step .step-num{
+  width:28px;height:28px;border-radius:50%;background:var(--primary);
+  color:#000;font-weight:700;font-size:13px;display:inline-flex;align-items:center;justify-content:center;
+  margin-bottom:8px;
+}
+.flow-step .step-label{font-size:12px;color:var(--text);font-weight:600}
+.flow-arrow{
+  display:flex;align-items:center;padding:0 8px;color:var(--primary);
+  font-size:20px;font-weight:700;flex-shrink:0;margin-top:20px;
+}
+
+/* ===== 底部导航 ===== */
+.bottom-nav{
+  display:flex;justify-content:space-between;align-items:center;
+  margin-top:60px;padding-top:24px;border-top:1px solid var(--border);
+}
+.bottom-nav a{
+  display:flex;align-items:center;gap:8px;padding:10px 18px;
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  font-size:13px;transition:all .2s;
+}
+.bottom-nav a:hover{background:rgba(79,195,247,.06);border-color:var(--primary);text-decoration:none}
+.bottom-nav .prev{color:var(--text2)}
+.bottom-nav .next{color:var(--primary)}
+.bottom-nav .nav-label{font-size:11px;color:#555}
+.bottom-nav .nav-title{font-size:13px;font-weight:600}
+
+/* ===== 标签 ===== */
+.tag{
+  display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;
+  margin-right:6px;
+}
+.tag-core{background:rgba(79,195,247,.15);color:var(--primary)}
+.tag-nanite{background:rgba(124,77,255,.15);color:var(--accent1)}
+.tag-new{background:rgba(0,230,118,.15);color:var(--accent2)}
+.tag-dep{background:rgba(255,109,0,.15);color:var(--accent3)}
+
+/* ===== 列表 ===== */
+ul,ol{margin:8px 0 14px 20px}
+li{font-size:14px;color:var(--text);margin-bottom:4px}
+li strong{color:#fff}
+
+/* ===== 响应式 ===== */
+@media(max-width:900px){
+  .sidebar{display:none}
+  .main{margin-left:0;padding:20px 16px}
+  h1{font-size:24px}
+  .flow-steps{flex-direction:column}
+  .flow-arrow{transform:rotate(90deg)}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 左侧大纲导航 ===== -->
+<nav class="sidebar">
+  <div class="sidebar-header">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="8"/><line x1="12" y1="16" x2="12" y2="22"/></svg>
+    材质体系
+  </div>
+  <div class="sidebar-search">
+    <input type="text" id="navSearch" placeholder="搜索章节..." oninput="filterNav()">
+  </div>
+  <div class="sidebar-nav" id="sidebarNav">
+    <a href="#s1">1. 概述与定位</a>
+    <a href="#s2">2. 顶层架构设计</a>
+    <a href="#s2-1" class="h2">材质的三层表示</a>
+    <a href="#s2-2" class="h2">材质参数系统</a>
+    <a href="#s2-3" class="h2">Material Instance Override 链</a>
+    <a href="#s2-4" class="h2">UMaterialExpression 节点体系</a>
+    <a href="#s3">3. 执行流程与数据流</a>
+    <a href="#s3-1" class="h2">编译流水线全景</a>
+    <a href="#s3-2" class="h2">MaterialTemplate.ush 模板展开</a>
+    <a href="#s3-3" class="h2">运行时参数绑定</a>
+    <a href="#s4">4. 设计决策与权衡</a>
+    <a href="#s5">5. 底层实现关联</a>
+    <a href="#s6">6. UE5.8 演进变化</a>
+    <a href="#cvar" class="h2">CVar 速查表</a>
+  </div>
+</nav>
+
+<!-- ===== 主内容区 ===== -->
+<main class="main">
+
+<!-- 面包屑 -->
+<div class="breadcrumb">
+  <a href="../">docs</a><span>/</span><strong>材质体系</strong>
+  <span style="margin-left:12px">源码路径:</span>
+  <span class="file">Engine/Source/Runtime/Engine/Private/Materials/Material.cpp</span>
+  <span class="file">MaterialInstance.cpp</span>
+  <span class="file">MaterialRenderProxy.h</span>
+  <span class="file">MaterialExpressions.cpp</span>
+  <span class="file">HLSLMaterialTranslator.cpp</span>
+  <span class="file">Engine/Shaders/Private/MaterialTemplate.ush</span>
+</div>
+
+<!-- ===== 标题 ===== -->
+<h1>材质体系</h1>
+<div class="subtitle">
+  从材质蓝图节点到 GPU 像素着色器的完整转化链路——深入理解 UE5.8.0 材质框架的编辑器层、
+  引擎层、渲染层三层架构，掌握编译流水线、参数绑定、Nanite 材质管线与 Substrate 前瞻设计。
+</div>
+
+<!-- ================================================================ -->
+<!-- 1. 概述与定位 -->
+<!-- ================================================================ -->
+<section id="s1">
+<h2>1. 概述与定位</h2>
+
+<p>
+  UE5.8.0 的材质系统是整个渲染管线的<strong>可编程核心</strong>。从用户在材质编辑器中拖拽的蓝图节点出发，
+  经过多层抽象转换，最终生成运行在 GPU 上的 HLSL 像素/顶点着色器代码。
+  这一链路跨越了三个关键的运行时域：
+</p>
+
+<div class="diagram">
+<svg viewBox="0 0 880 460" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#4FC3F7"/><stop offset="1" stop-color="#7C4DFF"/></linearGradient>
+    <linearGradient id="g2" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#7C4DFF"/><stop offset="1" stop-color="#FF6D00"/></linearGradient>
+    <linearGradient id="g3" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#FF6D00"/><stop offset="1" stop-color="#00E676"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.4"/></filter>
+  </defs>
+
+  <!-- 背景 -->
+  <rect x="0" y="0" width="880" height="460" rx="10" fill="#131318" stroke="#1e1e28" stroke-width="1"/>
+
+  <!-- 三层 -->
+  <!-- 编辑器层 -->
+  <rect x="30" y="20" width="820" height="100" rx="8" fill="rgba(79,195,247,0.04)" stroke="#4FC3F7" stroke-width="1.5"/>
+  <text x="50" y="45" fill="#4FC3F7" font-size="13" font-weight="700">编辑器层 (Editor)</text>
+  <text x="50" y="68" fill="#909090" font-size="11.5">UMaterial / UMaterialInstance / UMaterialExpression 节点图</text>
+  <text x="50" y="88" fill="#909090" font-size="11.5">蓝图可视化编辑、实时预览、母材质与实例分离</text>
+  <!-- 编辑器层元素 -->
+  <rect x="310" y="48" width="130" height="28" rx="4" fill="rgba(79,195,247,0.12)" stroke="#4FC3F7" stroke-width="1"/>
+  <text x="320" y="66" fill="#4FC3F7" font-size="11" font-weight="600">UMaterial (母材质)</text>
+  <rect x="460" y="48" width="140" height="28" rx="4" fill="rgba(79,195,247,0.08)" stroke="#4FC3F7" stroke-width="0.8"/>
+  <text x="470" y="66" fill="#999" font-size="11">UMaterialInstance</text>
+  <rect x="620" y="48" width="150" height="28" rx="4" fill="rgba(79,195,247,0.08)" stroke="#4FC3F7" stroke-width="0.8"/>
+  <text x="628" y="66" fill="#999" font-size="11">UMaterialInstanceDynamic</text>
+
+  <!-- 箭头 1->2 -->
+  <text x="420" y="132" fill="#7C4DFF" font-size="11" font-weight="600" text-anchor="middle">编译 (HLSLMaterialTranslator)</text>
+  <line x1="420" y1="120" x2="420" y2="155" stroke="#7C4DFF" stroke-width="2" marker-end="url(#arrowP)"/>
+
+  <!-- 引擎层 -->
+  <rect x="30" y="165" width="820" height="110" rx="8" fill="rgba(124,77,255,0.04)" stroke="#7C4DFF" stroke-width="1.5"/>
+  <text x="50" y="190" fill="#7C4DFF" font-size="13" font-weight="700">引擎层 (Engine)</text>
+  <text x="50" y="213" fill="#909090" font-size="11.5">FMaterialResource + FMaterialShaderMap + FMaterialRenderProxy</text>
+  <text x="50" y="233" fill="#909090" font-size="11.5">表达式编译为 Shader Code Chunk、ShaderMap 缓存、参数 Uniform Buffer 管理</text>
+  <!-- 引擎层元素 -->
+  <rect x="250" y="195" width="178" height="30" rx="4" fill="rgba(124,77,255,0.12)" stroke="#7C4DFF" stroke-width="1"/>
+  <text x="260" y="215" fill="#c0a0ff" font-size="11" font-weight="600">FMaterialResource (编译结果)</text>
+  <rect x="450" y="195" width="178" height="30" rx="4" fill="rgba(124,77,255,0.08)" stroke="#7C4DFF" stroke-width="0.8"/>
+  <text x="460" y="215" fill="#999" font-size="11">FMaterialShaderMap (ShaderMap)</text>
+  <rect x="650" y="195" width="178" height="30" rx="4" fill="rgba(124,77,255,0.08)" stroke="#7C4DFF" stroke-width="0.8"/>
+  <text x="660" y="215" fill="#999" font-size="11">FMaterialRenderProxy (代理)</text>
+  <rect x="340" y="238" width="200" height="28" rx="4" fill="rgba(124,77,255,0.05)" stroke="#7C4DFF" stroke-width="0.5"/>
+  <text x="355" y="256" fill="#888" font-size="10.5">HLSLMaterialTranslator → HLSL Code</text>
+
+  <!-- 箭头 2->3 -->
+  <text x="420" y="290" fill="#FF6D00" font-size="11" font-weight="600" text-anchor="middle">运行时绑定 & GPU Dispatch</text>
+  <line x1="420" y1="275" x2="420" y2="310" stroke="#FF6D00" stroke-width="2"/>
+
+  <!-- 渲染层 -->
+  <rect x="30" y="320" width="820" height="125" rx="8" fill="rgba(0,230,118,0.04)" stroke="#00E676" stroke-width="1.5"/>
+  <text x="50" y="345" fill="#00E676" font-size="13" font-weight="700">渲染层 (Renderer)</text>
+  <text x="50" y="368" fill="#909090" font-size="11.5">FMaterialShader / FShader / RHISetShaderParameters</text>
+  <text x="50" y="388" fill="#909090" font-size="11.5">RHI 层提交 PSO、绑定 Uniform Buffer、Dispatch Draw/Compute</text>
+  <!-- 渲染层元素 -->
+  <rect x="200" y="348" width="190" height="30" rx="4" fill="rgba(0,230,118,0.12)" stroke="#00E676" stroke-width="1"/>
+  <text x="210" y="368" fill="#80e8a0" font-size="11" font-weight="600">FMaterialShader (Base Pass)</text>
+  <rect x="410" y="348" width="190" height="30" rx="4" fill="rgba(0,230,118,0.08)" stroke="#00E676" stroke-width="0.8"/>
+  <text x="420" y="368" fill="#999" font-size="11">RHI PSO (Pipeline State)</text>
+  <rect x="620" y="348" width="200" height="30" rx="4" fill="rgba(0,230,118,0.08)" stroke="#00E676" stroke-width="0.8"/>
+  <text x="630" y="368" fill="#999" font-size="11">GPU Shader Unit 执行</text>
+  <rect x="330" y="395" width="220" height="28" rx="4" fill="rgba(0,230,118,0.05)" stroke="#00E676" stroke-width="0.5"/>
+  <text x="345" y="413" fill="#888" font-size="10.5">SetShaderParameters → DispatchDraw</text>
+</svg>
+</div>
+
+<div class="info-box">
+  <strong>核心关系：</strong> 一个 <code>UMaterial</code> 编辑器中定义的材质蓝图图，在编译后生成一个
+  <code>FMaterialShaderMap</code>（包含针对不同 Shader Platform / Quality Level 的多套 Shader），
+  运行时通过轻量的 <code>FMaterialRenderProxy</code> 提供参数访问，最终由 <code>FMaterialShader</code>
+  配合 Mesh Pass 的 PSO 提交给 GPU 执行。
+</div>
+</section>
+
+<!-- ================================================================ -->
+<!-- 2. 顶层架构设计 -->
+<!-- ================================================================ -->
+<section id="s2">
+<h2>2. 顶层架构设计</h2>
+
+<!-- 2-1 三层表示 -->
+<section id="s2-1">
+<h3>2.1 材质的三层表示详解</h3>
+
+<p>
+  UE5 的材质系统采用了<strong>严格的关注点分离</strong>设计：编辑器侧的 <code>UMaterial</code> 负责用户可见的节点图结构，
+  引擎侧的 <code>FMaterialResource</code> 负责编译结果和 Shader 管理，
+  渲染侧的 <code>FMaterialRenderProxy</code> 负责运行时的参数读取和 Uniform Buffer 缓存。
+</p>
+
+<div class="diagram">
+<svg viewBox="0 0 840 520" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="840" height="520" rx="8" fill="#131318" stroke="#1e1e28" stroke-width="1"/>
+
+  <!-- UMaterial -->
+  <rect x="30" y="25" width="780" height="130" rx="6" fill="rgba(79,195,247,0.03)" stroke="#4FC3F7" stroke-width="1.2"/>
+  <rect x="30" y="25" width="200" height="28" rx="6" fill="#4FC3F7"/>
+  <text x="45" y="43" fill="#000" font-size="12" font-weight="700">UMaterial / UMaterialInstance</text>
+  <text x="250" y="43" fill="#909090" font-size="11">继承自 UMaterialInterface</text>
+
+  <text x="50" y="70" fill="#ccc" font-size="12" font-weight="600">核心职责：</text>
+  <text x="50" y="90" fill="#909090" font-size="11.5">- 存储材质蓝图节点图（Expressions 数组）</text>
+  <text x="50" y="108" fill="#909090" font-size="11.5">- 提供 Compile() 入口，驱动表达式图 → HLSL 的编译过程</text>
+  <text x="50" y="126" fill="#909090" font-size="11.5">- 管理 ShaderPlatform × QualityLevel 的多维 FMaterialResource 数组</text>
+  <text x="50" y="144" fill="#909090" font-size="11.5">- Instance 维护参数覆盖集（Scalar/Vector/Texture 覆盖值）</text>
+
+  <rect x="590" y="55" width="190" height="26" rx="4" fill="rgba(79,195,247,0.1)" stroke="#4FC3F7" stroke-width="0.6"/>
+  <text x="600" y="72" fill="#4FC3F7" font-size="10.5">MaterialResources[N] 数组</text>
+  <rect x="590" y="88" width="190" height="26" rx="4" fill="rgba(79,195,247,0.1)" stroke="#4FC3F7" stroke-width="0.6"/>
+  <text x="600" y="105" fill="#4FC3F7" font-size="10.5">Expressions 节点图</text>
+
+  <!-- 向下箭头 -->
+  <line x1="420" y1="158" x2="420" y2="185" stroke="#7C4DFF" stroke-width="2" stroke-dasharray="5,3"/>
+  <text x="440" y="176" fill="#7C4DFF" font-size="10">创建 & 持有</text>
+
+  <!-- FMaterialResource -->
+  <rect x="30" y="190" width="780" height="130" rx="6" fill="rgba(124,77,255,0.03)" stroke="#7C4DFF" stroke-width="1.2"/>
+  <rect x="30" y="190" width="210" height="28" rx="6" fill="#7C4DFF"/>
+  <text x="45" y="208" fill="#fff" font-size="12" font-weight="700">FMaterialResource : FMaterial</text>
+  <text x="258" y="208" fill="#909090" font-size="11">编译产物容器 + Shader Map 持有者</text>
+
+  <text x="50" y="238" fill="#ccc" font-size="12" font-weight="600">核心职责：</text>
+  <text x="50" y="258" fill="#909090" font-size="11.5">- CompilePropertyAndSetMaterialProperty() 逐个编译材质属性</text>
+  <text x="50" y="276" fill="#909090" font-size="11.5">- 持有 FMaterialShaderMap — 编译完成的全部 Shader 变体集合</text>
+  <text x="50" y="294" fill="#909090" font-size="11.5">- 存储 CompileErrors，在 Shader 无效时触发 Fallback 机制</text>
+
+  <rect x="570" y="220" width="210" height="26" rx="4" fill="rgba(124,77,255,0.1)" stroke="#7C4DFF" stroke-width="0.6"/>
+  <text x="580" y="237" fill="#c0a0ff" font-size="10.5">FMaterialShaderMap* ShaderMap</text>
+  <rect x="570" y="253" width="210" height="26" rx="4" fill="rgba(124,77,255,0.1)" stroke="#7C4DFF" stroke-width="0.6"/>
+  <text x="580" y="270" fill="#c0a0ff" font-size="10.5">TArray&lt;FString&gt; CompileErrors</text>
+  <rect x="570" y="286" width="210" height="26" rx="4" fill="rgba(124,77,255,0.1)" stroke="#7C4DFF" stroke-width="0.6"/>
+  <text x="580" y="303" fill="#c0a0ff" font-size="10.5">UUniformExpressionSet</text>
+
+  <!-- 向下箭头 -->
+  <line x1="420" y1="323" x2="420" y2="350" stroke="#FF6D00" stroke-width="2" stroke-dasharray="5,3"/>
+  <text x="440" y="341" fill="#FF6D00" font-size="10">运行时访问</text>
+
+  <!-- FMaterialRenderProxy -->
+  <rect x="30" y="355" width="780" height="150" rx="6" fill="rgba(0,230,118,0.03)" stroke="#00E676" stroke-width="1.2"/>
+  <rect x="30" y="355" width="250" height="28" rx="6" fill="#00E676"/>
+  <text x="45" y="373" fill="#000" font-size="12" font-weight="700">FMaterialRenderProxy : FRenderResource</text>
+  <text x="298" y="373" fill="#909090" font-size="11">渲染线程的材质轻量代理</text>
+
+  <text x="50" y="405" fill="#ccc" font-size="12" font-weight="600">核心职责：</text>
+  <text x="50" y="425" fill="#909090" font-size="11.5">- UpdateUniformExpressionCacheIfNeeded() 按需刷新 Uniform Buffer</text>
+  <text x="50" y="443" fill="#909090" font-size="11.5">- GetParameterValue() 解析 Instance 覆盖链参数</text>
+  <text x="50" y="461" fill="#909090" font-size="11.5">- 持有 FUniformExpressionCache，含 RHI Uniform Buffer 引用</text>
+  <text x="50" y="479" fill="#909090" font-size="11.5">- GetMaterialWithFallback() 在材质未就绪时提供 Default Material 回退</text>
+
+  <rect x="560" y="380" width="220" height="26" rx="4" fill="rgba(0,230,118,0.1)" stroke="#00E676" stroke-width="0.6"/>
+  <text x="570" y="397" fill="#80e8a0" font-size="10.5">FUniformExpressionCache Cache</text>
+  <rect x="560" y="413" width="220" height="26" rx="4" fill="rgba(0,230,118,0.1)" stroke="#00E676" stroke-width="0.6"/>
+  <text x="570" y="430" fill="#80e8a0" font-size="10.5">MaterialName (调试信息)</text>
+</svg>
+</div>
+
+<div class="info-box">
+  <strong>关键设计决策：</strong> FMaterialRenderProxy 的虚函数 <code>GetParameterValue()</code>
+  是 Parameter Override 链的核心钩子——Instance 覆盖父材质，MID 覆盖 Instance，
+  未找到则沿 Parent 链向上查找，最终落到母材质默认值。
+</div>
+</section>
+
+<!-- 2-2 材质参数系统 -->
+<section id="s2-2">
+<h3>2.2 材质参数系统：类型化绑定</h3>
+
+<p>
+  UE5.8 的材质参数系统支持完整的类型化绑定。参数通过 <code>FHashedMaterialParameterInfo</code>
+  标识（含 Name + Association + Index），值通过 <code>EMaterialParameterType</code> 枚举分类。
+  参数数据在编译时被序列化为 <code>FUniformExpressionSet</code>，在运行时通过
+  <code>FMaterialRenderProxy::GetParameterValue()</code> 进行逐参数查找和解析。
+</p>
+
+<div class="card">
+<div class="card-header">EMaterialParameterType 枚举（MaterialRenderProxy.h / MaterialInstanceSupport.h）</div>
+<table class="cvar-table">
+<tr><th>参数类型</th><th>C++ 值类型</th><th>用途</th></tr>
+<tr><td>Scalar</td><td>float</td><td>单个浮点值（粗糙度、金属度等）</td></tr>
+<tr><td>Vector</td><td>FLinearColor</td><td>4 分量向量（Base Color、Emissive 等）</td></tr>
+<tr><td>DoubleVector</td><td>FVector4d</td><td>双精度向量（大世界坐标偏移）</td></tr>
+<tr><td>Texture</td><td>const UTexture*</td><td>2D 纹理绑定</td></tr>
+<tr><td>TextureCollection</td><td>const UTextureCollection*</td><td>纹理集合（5.8 新增）</td></tr>
+<tr><td>RuntimeVirtualTexture</td><td>const URuntimeVirtualTexture*</td><td>运行时虚拟纹理</td></tr>
+<tr><td>SparseVolumeTexture</td><td>const USparseVolumeTexture*</td><td>稀疏体积纹理（异构体积）</td></tr>
+<tr><td>StaticSwitch</td><td>bool</td><td>静态分支开关（编译期）</td></tr>
+</table>
+</div>
+
+<p>
+  参数数据在 Instance 侧以 <code>THashedMaterialParameterMap&lt;ValueType&gt;</code> 结构存储——
+  每种类型一个哈希表，支持 O(1) 查找。MID（MaterialInstanceDynamic）在运行时通过
+  <code>RenderThread_UpdateParameter()</code> 安全地更新渲染线程侧的数据，并触发
+  <code>InvalidateUniformExpressionCache()</code> 使缓存的 Uniform Buffer 失效。
+</p>
+
+<div class="code-wrapper">
+<div class="code-header"><span class="lang">C++</span><span>MaterialInstanceSupport.h — THashedMaterialParameterMap 哈希绑定结构</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="line-numbers"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span></div>
+<pre><span class="kw">template</span>&lt;<span class="kw">typename</span> <span class="ty">ParameterValueType</span>&gt;
+<span class="kw">struct</span> <span class="ty">THashedMaterialParameterMap</span>
+{
+    <span class="kw">struct</span> <span class="ty">TNamedParameter</span> {
+        <span class="ty">FHashedMaterialParameterInfo</span> Info;  <span class="cm">// Name + Association</span>
+        <span class="ty">ParameterValueType</span> Value;
+    };
+    <span class="ty">TArray</span>&lt;<span class="ty">TNamedParameter</span>&gt; Array;
+    <span class="ty">TArray</span>&lt;<span class="kw">int32</span>&gt; HashTable;  <span class="cm">// 稀疏哈希表，O(1) 查找</span>
+};</pre>
+</div>
+</div>
+</section>
+
+<!-- 2-3 Material Instance Override 链 -->
+<section id="s2-3">
+<h3>2.3 Material Instance 的 Override 链</h3>
+
+<p>
+  UE5 的材质实例系统支持<strong>多层级参数覆盖链</strong>：<code>UMaterial</code>（母材质）
+  &#8594; <code>UMaterialInstanceConstant</code>（常量实例）&#8594; <code>UMaterialInstanceDynamic</code>（动态实例）。
+  每一级可以覆盖任意参数，查找时从最下层（MID）向最上层（UMaterial）逐级回溯。
+</p>
+
+<div class="diagram">
+<svg viewBox="0 0 820 280" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="820" height="280" rx="8" fill="#131318" stroke="#1e1e28" stroke-width="1"/>
+
+  <!-- UMaterial 层 -->
+  <rect x="50" y="40" width="700" height="65" rx="8" fill="rgba(79,195,247,0.06)" stroke="#4FC3F7" stroke-width="1.5"/>
+  <text x="80" y="63" fill="#4FC3F7" font-size="13" font-weight="700">UMaterial (母材质)</text>
+  <text x="80" y="85" fill="#909090" font-size="11.5">定义所有参数的默认值（DefaultValue），提供表达式图和 Shader 编译</text>
+
+  <!-- 向下箭头 -->
+  <text x="380" y="118" fill="#7C4DFF" font-size="10.5" text-anchor="middle">Parent 指针</text>
+  <line x1="380" y1="105" x2="380" y2="135" stroke="#7C4DFF" stroke-width="1.5"/>
+
+  <!-- MIC 层 -->
+  <rect x="50" y="140" width="700" height="65" rx="8" fill="rgba(124,77,255,0.06)" stroke="#7C4DFF" stroke-width="1.5"/>
+  <text x="80" y="163" fill="#c0a0ff" font-size="13" font-weight="700">UMaterialInstanceConstant (常量实例)</text>
+  <text x="80" y="185" fill="#909090" font-size="11.5">固化参数覆盖（ScalarParameterValues / VectorParameterValues / TextureParameterValues）</text>
+
+  <!-- 向下箭头 -->
+  <text x="380" y="218" fill="#FF6D00" font-size="10.5" text-anchor="middle">Parent 指针</text>
+  <line x1="380" y1="205" x2="380" y2="235" stroke="#FF6D00" stroke-width="1.5"/>
+
+  <!-- MID 层 -->
+  <rect x="50" y="240" width="700" height="30" rx="8" fill="rgba(255,109,0,0.08)" stroke="#FF6D00" stroke-width="1"/>
+  <text x="80" y="259" fill="#FF9140" font-size="12" font-weight="700">UMaterialInstanceDynamic (运行时动态实例) — 可在游戏线程动态修改参数</text>
+</svg>
+</div>
+
+<p>
+  运行时参数解析的核心路径（<code>FMaterialInstanceRenderProxy::GetParameterValue()</code>）：
+</p>
+
+<div class="code-wrapper">
+<div class="code-header"><span class="lang">C++</span><span>MaterialInstance.cpp:295-394 — GetParameterValue Override 链</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="line-numbers"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span><span>21</span><span>22</span><span>23</span><span>24</span></div>
+<pre><span class="kw">bool</span> <span class="ty">FMaterialInstanceRenderProxy</span>::<span class="fn">GetParameterValue</span>(
+    <span class="ty">EMaterialParameterType</span> Type,
+    <span class="kw">const</span> <span class="ty">FHashedMaterialParameterInfo</span>&amp; ParameterInfo,
+    <span class="ty">FMaterialParameterValue</span>&amp; OutValue,
+    <span class="kw">const</span> <span class="ty">FMaterialRenderContext</span>&amp; Context) <span class="kw">const</span>
+{
+    <span class="cm">// Step 1: 检查硬编码参数（SubsurfaceProfile 等）</span>
+    <span class="kw">if</span> (Type == <span class="ty">EMaterialParameterType</span>::Scalar &amp;&amp;
+        ParameterInfo.Name == <span class="ty">SubsurfaceProfile</span>::<span class="fn">GetSubsurfaceProfileParameterName</span>()) { <span class="cm">/*...*/</span> }
+
+    <span class="cm">// Step 2: 检查当前 Instance 的覆盖值</span>
+    <span class="kw">switch</span> (Type) {
+        <span class="kw">case</span> <span class="ty">EMaterialParameterType</span>::Scalar:
+            bResult = <span class="fn">RenderThread_GetParameterValue</span>&lt;<span class="kw">float</span>&gt;(ParameterInfo, OutValue); <span class="kw">break</span>;
+        <span class="kw">case</span> <span class="ty">EMaterialParameterType</span>::Vector:
+            bResult = <span class="fn">RenderThread_GetParameterValue</span>&lt;<span class="ty">FLinearColor</span>&gt;(ParameterInfo, OutValue); <span class="kw">break</span>;
+        <span class="cm">// ... Texture, RVT, SparseVolumeTexture 等</span>
+    }
+
+    <span class="cm">// Step 3: 未找到则沿 Parent 链向上查找</span>
+    <span class="kw">if</span> (!bResult &amp;&amp; Parent) {
+        bResult = Parent-&gt;<span class="fn">GetRenderProxy</span>()-&gt;<span class="fn">GetParameterValue</span>(Type, ParentParameterInfo, OutValue, Context);
+    }
+    <span class="kw">return</span> bResult;
+}</pre>
+</div>
+</div>
+
+<div class="info-box">
+  <strong>Override 链的设计优势：</strong> 母材质编译一次，所有 Instance 复用同一套 Shader 编译结果。
+  只有 <code>StaticSwitch</code> 参数变化时才会触发全新的 Shader 编译（因为改变了控制流），
+  普通 Scalar/Vector/Texture 参数仅影响 Uniform Buffer 的内容，不影响 Shader 二进制。
+</div>
+</section>
+
+<!-- 2-4 UMaterialExpression -->
+<section id="s2-4">
+<h3>2.4 UMaterialExpression 节点体系</h3>
+
+<p>
+  材质蓝图的每个节点都是 <code>UMaterialExpression</code> 的子类。UE5.8.0 拥有超过 200 种表达式类型，
+  涵盖数学运算、纹理采样、材质函数调用、参数节点、Substrate 材质分层等。
+  核心结构如下：
+</p>
+
+<div class="code-wrapper">
+<div class="code-header"><span class="lang">C++</span><span>MaterialExpressions.cpp — UMaterialExpression 核心虚函数</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="line-numbers"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span></div>
+<pre><span class="kw">class</span> <span class="ty">UMaterialExpression</span> : <span class="kw">public</span> <span class="ty">UObject</span>
+{
+    <span class="cm">// 编译核心函数 — 将表达式编译为 HLSL 代码片段</span>
+    <span class="kw">virtual</span> <span class="kw">int32</span> <span class="fn">Compile</span>(<span class="kw">class</span> <span class="ty">FMaterialCompiler</span>* Compiler, <span class="kw">int32</span> OutputIndex);
+
+    <span class="cm">// 返回此表达式输出的值类型 (MCT_Float, MCT_Float3, MCT_Texture2D 等)</span>
+    <span class="kw">virtual</span> <span class="ty">EMaterialValueType</span> <span class="fn">GetOutputType</span>(<span class="kw">int32</span> OutputIndex);
+
+    <span class="cm">// Substrate 拓扑树生成 — 5.8 材质分层</span>
+    <span class="kw">virtual</span> <span class="ty">FSubstrateOperator</span>* <span class="fn">SubstrateGenerateMaterialTopologyTree</span>(
+        <span class="kw">class</span> <span class="ty">FMaterialCompiler</span>* Compiler,
+        <span class="kw">class</span> <span class="ty">UMaterialExpression</span>* Parent, <span class="kw">int32</span> OutputIndex);
+};</pre>
+</div>
+</div>
+
+<div class="card">
+<div class="card-header">材质表达式分类速览</div>
+<table class="cvar-table">
+<tr><th>类别</th><th>代表性表达式</th><th>说明</th></tr>
+<tr><td>参数</td><td>UMaterialExpressionScalarParameter, VectorParameter, TextureSampleParameter</td><td>暴露给 Instance 的可覆盖参数</td></tr>
+<tr><td>数学</td><td>Multiply, Add, Divide, Sine, Power, Lerp, Clamp</td><td>标量/向量数学运算</td></tr>
+<tr><td>纹理</td><td>TextureSample, TextureObject, TextureSampleParameter2D</td><td>纹理采样与绑定</td></tr>
+<tr><td>材质属性</td><td>MakeMaterialAttributes, BreakMaterialAttributes, SetMaterialAttributes</td><td>MaterialAttributes 结构体打包/解包</td></tr>
+<tr><td>材质函数</td><td>MaterialFunctionCall, FunctionOutput, FunctionInput</td><td>材质函数复用机制</td></tr>
+<tr><td>开关</td><td>StaticSwitchParameter, QualitySwitch, FeatureLevelSwitch, ShadingPathSwitch</td><td>编译期/质量级分支</td></tr>
+<tr><td>Substrate</td><td>UMaterialExpressionSubstrate*, SubstrateGenerateMaterialTopologyTree()</td><td>5.8 材质分层拓扑</td></tr>
+<tr><td>坐标</td><td>WorldPosition, ObjectPosition, VertexNormal, PixelNormalWS</td><td>世界/局部空间坐标获取</td></tr>
+</table>
+</div>
+</section>
+</section>
+
+<!-- ================================================================ -->
+<!-- 3. 执行流程 & 数据流 -->
+<!-- ================================================================ -->
+<section id="s3">
+<h2>3. 执行流程与数据流</h2>
+
+<!-- 3-1 编译流水线 -->
+<section id="s3-1">
+<h3>3.1 编译流水线全景</h3>
+
+<div class="diagram">
+<svg viewBox="0 0 880 520" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="880" height="520" rx="8" fill="#131318" stroke="#1e1e28" stroke-width="1"/>
+
+  <!-- Step 1 -->
+  <rect x="40" y="30" width="180" height="70" rx="8" fill="rgba(79,195,247,0.06)" stroke="#4FC3F7" stroke-width="1.2"/>
+  <text x="130" y="55" fill="#4FC3F7" font-size="12" font-weight="700" text-anchor="middle">材质编辑</text>
+  <text x="130" y="75" fill="#909090" font-size="10.5" text-anchor="middle">UMaterial 蓝图节点图</text>
+  <text x="130" y="90" fill="#909090" font-size="10.5" text-anchor="middle">Expressions 数组</text>
+
+  <text x="235" y="62" fill="#4FC3F7" font-size="14">&#8594;</text>
+
+  <!-- Step 2 -->
+  <rect x="255" y="30" width="180" height="70" rx="8" fill="rgba(79,195,247,0.06)" stroke="#4FC3F7" stroke-width="1.2"/>
+  <text x="345" y="55" fill="#4FC3F7" font-size="12" font-weight="700" text-anchor="middle">表达式编译</text>
+  <text x="345" y="75" fill="#909090" font-size="10.5" text-anchor="middle">HLSLMaterialTranslator</text>
+  <text x="345" y="90" fill="#909090" font-size="10.5" text-anchor="middle">每个 Expr → Code Chunk</text>
+
+  <text x="450" y="62" fill="#4FC3F7" font-size="14">&#8594;</text>
+
+  <!-- Step 3 -->
+  <rect x="470" y="30" width="180" height="70" rx="8" fill="rgba(79,195,247,0.06)" stroke="#4FC3F7" stroke-width="1.2"/>
+  <text x="560" y="55" fill="#4FC3F7" font-size="12" font-weight="700" text-anchor="middle">模板展开</text>
+  <text x="560" y="75" fill="#909090" font-size="10.5" text-anchor="middle">MaterialTemplate.ush</text>
+  <text x="560" y="90" fill="#909090" font-size="10.5" text-anchor="middle">%{param} 占位符替换</text>
+
+  <text x="665" y="62" fill="#4FC3F7" font-size="14">&#8594;</text>
+
+  <!-- Step 4 -->
+  <rect x="685" y="30" width="170" height="70" rx="8" fill="rgba(79,195,247,0.06)" stroke="#4FC3F7" stroke-width="1.2"/>
+  <text x="770" y="55" fill="#4FC3F7" font-size="12" font-weight="700" text-anchor="middle">Shader 编译</text>
+  <text x="770" y="75" fill="#909090" font-size="10.5" text-anchor="middle">D3DCompiler / Vulkan</text>
+  <text x="770" y="90" fill="#909090" font-size="10.5" text-anchor="middle">二进制 + ShaderMap</text>
+
+  <!-- 第二行 -->
+  <line x1="440" y1="105" x2="440" y2="125" stroke="#666" stroke-width="1" stroke-dasharray="4,3"/>
+
+  <!-- Step 5 -->
+  <rect x="40" y="130" width="195" height="75" rx="8" fill="rgba(124,77,255,0.06)" stroke="#7C4DFF" stroke-width="1.2"/>
+  <text x="137" y="155" fill="#c0a0ff" font-size="12" font-weight="700" text-anchor="middle">ShaderMap 缓存</text>
+  <text x="137" y="175" fill="#909090" font-size="10.5" text-anchor="middle">FMaterialShaderMap</text>
+  <text x="137" y="192" fill="#909090" font-size="10.5" text-anchor="middle">DDC 派生数据缓存</text>
+
+  <text x="250" y="165" fill="#7C4DFF" font-size="14">&#8594;</text>
+
+  <!-- Step 6 -->
+  <rect x="270" y="130" width="195" height="75" rx="8" fill="rgba(124,77,255,0.06)" stroke="#7C4DFF" stroke-width="1.2"/>
+  <text x="367" y="155" fill="#c0a0ff" font-size="12" font-weight="700" text-anchor="middle">材质资源绑定</text>
+  <text x="367" y="175" fill="#909090" font-size="10.5" text-anchor="middle">FMaterialRenderProxy</text>
+  <text x="367" y="192" fill="#909090" font-size="10.5" text-anchor="middle">UniformExpressionCache</text>
+
+  <text x="480" y="165" fill="#7C4DFF" font-size="14">&#8594;</text>
+
+  <!-- Step 7 -->
+  <rect x="500" y="130" width="195" height="75" rx="8" fill="rgba(124,77,255,0.06)" stroke="#7C4DFF" stroke-width="1.2"/>
+  <text x="597" y="155" fill="#c0a0ff" font-size="12" font-weight="700" text-anchor="middle">运行时参数更新</text>
+  <text x="597" y="175" fill="#909090" font-size="10.5" text-anchor="middle">EvaluateUniformExpressions</text>
+  <text x="597" y="192" fill="#909090" font-size="10.5" text-anchor="middle">Uniform Buffer 重建</text>
+
+  <text x="710" y="165" fill="#7C4DFF" font-size="14">&#8594;</text>
+
+  <!-- Step 8 -->
+  <rect x="730" y="130" width="125" height="75" rx="8" fill="rgba(0,230,118,0.06)" stroke="#00E676" stroke-width="1.2"/>
+  <text x="792" y="155" fill="#00E676" font-size="12" font-weight="700" text-anchor="middle">GPU Dispatch</text>
+  <text x="792" y="175" fill="#909090" font-size="10.5" text-anchor="middle">PSO 提交</text>
+  <text x="792" y="192" fill="#909090" font-size="10.5" text-anchor="middle">Draw / CS</text>
+
+  <!-- 第三行：详细分解 -->
+  <rect x="40" y="230" width="810" height="270" rx="6" fill="rgba(255,255,255,0.01)" stroke="#333" stroke-width="0.8"/>
+
+  <text x="60" y="258" fill="#ccc" font-size="12" font-weight="700">编译流程详细分解</text>
+
+  <text x="60" y="282" fill="#909090" font-size="11">1. UMaterial::CacheShadersForResources() — 入口函数，检查是否需要编译</text>
+  <text x="60" y="300" fill="#909090" font-size="11">2. FMaterialResource::CompilePropertyAndSetMaterialProperty() — 逐属性编译（MP_BaseColor, MP_Normal, ...）</text>
+  <text x="60" y="318" fill="#909090" font-size="11">3. FHLSLMaterialTranslator — 遍历 Expressions 数组，为每个表达式生成 Code Chunk</text>
+  <text x="60" y="336" fill="#909090" font-size="11">4. FHLSLMaterialTranslator::GetMaterialShaderCode() — 将 Code Chunk 注入 MaterialTemplate.ush 中 %{...} 占位符</text>
+  <text x="60" y="354" fill="#909090" font-size="11">5. FMaterialSourceTemplate::BeginResolve() / Finalize() — 模板引擎执行字符串替换</text>
+  <text x="60" y="372" fill="#909090" font-size="11">6. FShaderCompileUtilities::CompileShader() — 调用平台编译器（FXC / DXC / glslang）</text>
+  <text x="60" y="390" fill="#909090" font-size="11">7. FMaterialShaderMap — 收集编译结果、错误信息，存入 DDC 缓存</text>
+  <text x="60" y="410" fill="#909090" font-size="11">8. FMaterialRenderProxy::UpdateUniformExpressionCacheIfNeeded() — 运行时按需更新 Uniform Buffer</text>
+  <text x="60" y="430" fill="#909090" font-size="11">9. FMaterialShader::SetParameters() — 绑定 Uniform Buffer 到 PSO</text>
+  <text x="60" y="450" fill="#909090" font-size="11">10. RHISetShaderParameters → DrawIndexedPrimitive / Dispatch — GPU 执行着色器</text>
+</svg>
+</div>
+
+<div class="info-box tip">
+  <strong>异步编译：</strong> UE5.8 的 Shader 编译完全异步——<code>BeginCacheShadersForResources()</code>
+  触发编译作业后立即返回，Shader 就绪前渲染使用 Default Material Fallback，
+  就绪后通过 <code>FMaterialRenderProxy::UpdateUniformExpressionCacheIfNeeded()</code>
+  检测 ShaderMap 是否变化并刷新 Uniform Buffer。
+</div>
+</section>
+
+<!-- 3-2 MaterialTemplate.ush -->
+<section id="s3-2">
+<h3>3.2 MaterialTemplate.ush 模板展开机制</h3>
+
+<p>
+  <code>Engine/Shaders/Private/MaterialTemplate.ush</code> 是材质 HLSL 代码生成的<strong>核心模板</strong>。
+  它包含大量 <code>%{parameter_name}</code> 占位符，编译器将表达式图编译为 HLSL 字符串后，
+  通过 <code>FMaterialSourceTemplate</code> 模板引擎进行占位符替换，生成最终的 Shader 源码。
+</p>
+
+<div class="code-wrapper">
+<div class="code-header"><span class="lang">HLSL</span><span>MaterialTemplate.ush — 模板占位符示例</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="line-numbers"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span></div>
+<pre><span class="cm">// MaterialTemplate.ush — 编译器填充此文件生成每个材质的 Shader</span>
+<span class="macro">#define</span> NUM_MATERIAL_TEXCOORDS_VERTEX %{num_material_texcoords_vertex}
+<span class="macro">#define</span> NUM_MATERIAL_TEXCOORDS %{num_material_texcoords}
+<span class="macro">#define</span> NUM_CUSTOM_VERTEX_INTERPOLATORS %{num_custom_vertex_interpolators}
+
+<span class="cm">// 生成的材质属性函数 — 由 C++ HLSLMaterialTranslator 填充</span>
+<span class="cm">// GetMaterialBaseColor(), GetMaterialNormal(), GetMaterialEmissive() 等</span>
+%{material_attributes_declarations}
+
+<span class="cm">// 材质表达式生成的代码块</span>
+%{pixel_members_declaration}
+%{pixel_members_initialization}</pre>
+</div>
+</div>
+
+<p>
+  关键的占位符替换发生在 <code>FHLSLMaterialTranslator::GetMaterialShaderCode()</code>：
+</p>
+
+<div class="code-wrapper">
+<div class="code-header"><span class="lang">C++</span><span>HLSLMaterialTranslator.cpp:2740-2752 — GetMaterialShaderCode</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="line-numbers"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span></div>
+<pre><span class="ty">FString</span> <span class="ty">FHLSLMaterialTranslator</span>::<span class="fn">GetMaterialShaderCode</span>()
+{
+    <span class="cm">// 使用 MaterialTemplate.ush 创建获取数据/代码的函数</span>
+    <span class="kw">int32</span> MaterialTemplateLineNumberNew;
+    <span class="ty">FStringTemplateResolver</span> Resolver = <span class="ty">FMaterialSourceTemplate</span>::<span class="fn">Get</span>()
+        .<span class="fn">BeginResolve</span>(<span class="fn">GetShaderPlatform</span>(), &amp;MaterialTemplateLineNumberNew);
+
+    <span class="fn">Resolver</span>.<span class="fn">SetParameterMap</span>(&amp;MaterialSourceTemplateParams);
+    MaterialSourceTemplateParams.<span class="fn">Add</span>({ <span class="fn">TEXT</span>(<span class="str">"line_number"</span>),
+        <span class="ty">FString</span>::<span class="fn">Printf</span>(<span class="fn">TEXT</span>(<span class="str">"%u"</span>), MaterialTemplateLineNumberNew) });
+
+    <span class="kw">return</span> Resolver.<span class="fn">Finalize</span>();  <span class="cm">// 执行所有 %{...} 替换</span>
+}</pre>
+</div>
+</div>
+</section>
+
+<!-- 3-3 运行时参数绑定 -->
+<section id="s3-3">
+<h3>3.3 运行时参数绑定与 GPU Dispatch</h3>
+
+<p>
+  运行时，渲染线程通过 <code>FMaterialRenderProxy</code> 获取参数，由
+  <code>FMaterialShader::SetParameters()</code> 将材质 Uniform Buffer 绑定到 PSO，
+  最终提交 Draw Call 或 Compute Dispatch。
+</p>
+
+<div class="code-wrapper">
+<div class="code-header"><span class="lang">C++</span><span>MaterialRenderProxy.cpp:738-755 — UpdateUniformExpressionCacheIfNeeded</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="line-numbers"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span></div>
+<pre><span class="kw">const</span> <span class="ty">FMaterial</span>* <span class="ty">FMaterialRenderProxy</span>::<span class="fn">UpdateUniformExpressionCacheIfNeeded</span>(
+    <span class="ty">FRHICommandListBase</span>&amp; RHICmdList,
+    <span class="ty">ERHIFeatureLevel</span>::<span class="ty">Type</span> InFeatureLevel) <span class="kw">const</span>
+{
+    <span class="kw">const</span> <span class="ty">FMaterial</span>* Material = <span class="fn">GetMaterialNoFallback</span>(InFeatureLevel);
+
+    <span class="ty">UE</span>::<span class="fn">TScopeLock</span> Lock(Mutex);
+    <span class="cm">// 关键检查：只有当 ShaderMap 变更时才刷新 Uniform Buffer</span>
+    <span class="kw">if</span> (Material &amp;&amp;
+        Material-&gt;<span class="fn">GetRenderingThreadShaderMap</span>() !=
+        UniformExpressionCache[InFeatureLevel].CachedUniformExpressionShaderMap)
+    {
+        <span class="ty">FRDGBuilder</span>::<span class="fn">WaitForAsyncExecuteTask</span>();
+        <span class="ty">FMaterialRenderContext</span> MaterialRenderContext(<span class="kw">this</span>, *Material, <span class="kw">nullptr</span>);
+        MaterialRenderContext.bShowSelection = GIsEditor;
+        <span class="fn">EvaluateUniformExpressions</span>(RHICmdList,
+            UniformExpressionCache[InFeatureLevel], MaterialRenderContext, <span class="kw">nullptr</span>);
+    }
+    <span class="kw">return</span> Material;
+}</pre>
+</div>
+</div>
+
+<div class="info-box warn">
+  <strong>线程安全：</strong> <code>UE::FMutex Mutex</code> 保护 UniformExpressionCache 的并发访问。
+  异步 RDG 任务（Async Compute）可能在任意时刻调用 <code>FMaterialShader::SetParameters</code>，
+  因此需要在 RDG 异步任务执行期间等待，防止 Uniform Buffer 在被读取时被覆盖。
+</div>
+
+<p>
+  渲染线程中，<code>FMaterialShader::SetParameters()</code> 根据 <code>FMaterialShaderMap</code>
+  中记录的 Uniform Buffer Layout 来绑定数据：
+</p>
+
+<div class="code-wrapper">
+<div class="code-header"><span class="lang">C++</span><span>MaterialShader.h:55-80 — FMaterialShader 基类</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="line-numbers"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span></div>
+<pre><span class="kw">class</span> <span class="ty">FMaterialShader</span> : <span class="kw">public</span> <span class="ty">FShader</span>
+{
+    <span class="kw">static</span> <span class="ty">FName</span> UniformBufferLayoutName;  <span class="cm">// Material Uniform Buffer 名称</span>
+
+    <span class="kw">void</span> <span class="fn">SetViewParameters</span>(<span class="cm">/*...*/</span>);     <span class="cm">// 绑定 ViewUniformBuffer</span>
+    <span class="cm">// 材质特定参数通过 FMeshDrawCommand 中的 Uniform Buffer 绑定</span>
+};</pre>
+</div>
+</div>
+</section>
+</section>
+
+<!-- ================================================================ -->
+<!-- 4. 设计决策 & 权衡 -->
+<!-- ================================================================ -->
+<section id="s4">
+<h2>4. 设计决策与权衡</h2>
+
+<div class="card">
+<div class="card-header">
+  <span class="tag tag-core">统一表达式</span> 统一材质表达式 vs 性能开销
+</div>
+<p>
+  UE5 采用<strong>统一的表达式图</strong>表示所有材质逻辑：无论 Shader 频率（Vertex/Pixel/Compute），
+  所有节点都用同一套 <code>UMaterialExpression</code> 体系描述。这极大简化了工具链和用户心智模型，
+  但引入了表达式编译开销——每个表达式需生成独立的 Code Chunk，大量节点时编译耗时显著。
+  UE5.8 引入了<strong>新的实验性材质翻译器</strong>来优化此流程。
+</p>
+</div>
+
+<div class="card">
+<div class="card-header">
+  <span class="tag tag-core">MID 动态性</span> MID 参数的动态性 vs 编译优化限制
+</div>
+<p>
+  <code>UMaterialInstanceDynamic</code> 允许在运行时任意修改参数（每帧、甚至逐 Draw），
+  提供了极大的灵活性。但代价是：MID 修改不会触发 Shader 重编译，因此<strong>不能改变 Shader 的控制流</strong>。
+  StaticSwitch 参数必须在编译时确定，不能在 MID 中修改——这是 UI 中"静态开关"区别于"动态参数"的根本原因。
+</p>
+</div>
+
+<div class="card">
+<div class="card-header">
+  <span class="tag tag-core">质量分层</span> Material Quality Level 的分层策略
+</div>
+<p>
+  UE5 支持 <strong>EMaterialQualityLevel::Low / Medium / High / Epic</strong> 四级材质质量。
+  每个 Quality Level 对应独立的 <code>FMaterialResource</code> 和 Shader 编译。
+  <code>UMaterialExpressionQualitySwitch</code> 让美术在材质图中直接为不同质量级分支——
+  高质量使用复杂计算（多层纹理混合），低质量回退到简单近似。这一策略在编译时决定，
+  运行时切换 Quality Level 会切换整个 Shader。
+</p>
+
+<div class="code-wrapper">
+<div class="code-header"><span class="lang">C++</span><span>MaterialQualityLevel 编译维度</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="line-numbers"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
+<pre><span class="cm">// 每个材质 = ShaderPlatform × QualityLevel 的二维编译矩阵</span>
+<span class="ty">TArray</span>&lt;<span class="ty">FMaterialResource</span>*&gt; MaterialResources;  <span class="cm">// 索引: PlatformIndex * NumQuality + QualityIndex</span>
+<span class="kw">uint32</span> CompileCount = <span class="ty">NumShaderPlatforms</span> * <span class="ty">EMaterialQualityLevel</span>::Num;
+<span class="cm">// 实际编译数还受 UsedQualityLevels 位掩码限制</span></pre>
+</div>
+</div>
+</div>
+
+<div class="card">
+<div class="card-header">
+  <span class="tag tag-core">内存与灵活性</span> 材质 Instance 的内存 vs 灵活性
+</div>
+<p>
+  Instance 只存储参数覆盖值（不复制整个表达式图），因此内存占用极小——每个覆盖值仅数十字节。
+  但这意味着 Instance 无法添加新节点：所有 Instance 必须<strong>共享母材质的 Shader 结构</strong>。
+  如需结构性修改（添加纹理采样、改变混合模式），必须创建新母材质。这种设计在内存和灵活性之间取得了良好的平衡。
+  5.8 的 <strong>Material Layers</strong> 系统通过 <code>UMaterialExpressionMaterialAttributeLayers</code>
+  部分缓解了这一限制——允许 Instance 动态选择不同的材质功能层组合。
+</p>
+</div>
+</section>
+
+<!-- ================================================================ -->
+<!-- 5. 底层实现关联 -->
+<!-- ================================================================ -->
+<section id="s5">
+<h2>5. 底层实现关联</h2>
+
+<h3>5.1 UMaterial::CacheShadersForResources() 编译流程</h3>
+
+<p>
+  材质编译的真正入口是 <code>UMaterial::CacheShadersForResources()</code>（Material.cpp:2767）。
+  它接收一组 <code>FMaterialResource*</code>，逐个启动异步 Shader 编译作业。
+</p>
+
+<div class="code-wrapper">
+<div class="code-header"><span class="lang">C++</span><span>Material.cpp:2767-2778 — CacheShadersForResources</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="line-numbers"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span></div>
+<pre><span class="kw">void</span> <span class="ty">UMaterial</span>::<span class="fn">CacheShadersForResources</span>(
+    <span class="ty">EShaderPlatform</span> ShaderPlatform,
+    <span class="kw">const</span> <span class="ty">TArray</span>&lt;<span class="ty">FMaterialResource</span>*&gt;&amp; ResourcesToCache,
+    <span class="ty">EMaterialShaderPrecompileMode</span> PrecompileMode,
+    <span class="kw">const</span> <span class="ty">ITargetPlatform</span>* TargetPlatform)
+{
+    <span class="kw">for</span> (<span class="ty">FMaterialResource</span>* CurrentResource : ResourcesToCache) {
+        <span class="kw">bool</span> bSuccess = CurrentResource-&gt;<span class="fn">CacheShaders</span>(ShaderPlatform, PrecompileMode, TargetPlatform);
+        <span class="ty">MaterialImpl</span>::<span class="fn">HandleCacheShadersForResourcesErrors</span>(bSuccess, ShaderPlatform, <span class="kw">this</span>, CurrentResource);
+    }
+}</pre>
+</div>
+</div>
+
+<p>
+  调用链如下：
+</p>
+
+<ol>
+  <li><strong>UMaterial::CacheShadersForResources()</strong> — 入口，按 ShaderPlatform × QualityLevel 遍历 Resources</li>
+  <li><strong>FMaterialResource::CacheShaders()</strong> — 调用 FMaterialShaderMap::BeginCacheShaders() 启动异步编译</li>
+  <li><strong>FHLSLMaterialTranslator::Translate()</strong> — 遍历 Expressions，生成 Code Chunk + Shader Code 字符串</li>
+  <li><strong>FHLSLMaterialTranslator::GetMaterialShaderCode()</strong> — MaterialTemplate.ush 模板替换</li>
+  <li><strong>FShaderCompileUtilities::CompileShader()</strong> — 平台编译器（FXC/DXC）编译 HLSL</li>
+  <li><strong>FMaterialShaderMap::FinalizeCompilation()</strong> — 收集结果，通知渲染线程</li>
+  <li><strong>RecacheUniformExpressions(true)</strong> — 强制所有 Instance 刷新 Uniform Buffer</li>
+</ol>
+
+<h3>5.2 FMaterialRenderProxy::UpdateUniformExpressionCacheIfNeeded() 参数更新路径</h3>
+
+<p>
+  这是材质参数从 CPU 内存流向 GPU Uniform Buffer 的<strong>核心传输通道</strong>。
+  路径覆盖了 Instance Override 链解析、Uniform Expression 求值、RHI Uniform Buffer 创建三个关键步骤：
+</p>
+
+<div class="code-wrapper">
+<div class="code-header"><span class="lang">C++</span><span>MaterialRenderProxy.cpp:738-760 — 两重载版本</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="line-numbers"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span></div>
+<pre><span class="cm">// 版本 1: 需要 RHICmdList — 用于渲染线程上下文</span>
+<span class="kw">const</span> <span class="ty">FMaterial</span>* <span class="fn">UpdateUniformExpressionCacheIfNeeded</span>(
+    <span class="ty">FRHICommandListBase</span>&amp; RHICmdList, <span class="ty">ERHIFeatureLevel</span>::<span class="ty">Type</span> InFeatureLevel) <span class="kw">const</span>;
+
+<span class="cm">// 版本 2: 便捷包装 — 自动获取当前 RHICmdList</span>
+<span class="kw">void</span> <span class="fn">UpdateUniformExpressionCacheIfNeeded</span>(
+    <span class="ty">ERHIFeatureLevel</span>::<span class="ty">Type</span> InFeatureLevel) <span class="kw">const</span>
+{
+    <span class="fn">UpdateUniformExpressionCacheIfNeeded</span>(
+        <span class="ty">FRHICommandListImmediate</span>::<span class="fn">Get</span>(), InFeatureLevel);
+}
+
+<span class="cm">// 核心逻辑: 比较 ShaderMap 指针判断缓存是否过时</span>
+<span class="cm">// 过时则调用 EvaluateUniformExpressions 重建 Uniform Buffer</span></pre>
+</div>
+</div>
+
+<p>
+  <code>EvaluateUniformExpressions()</code> 内部遍历 <code>FUniformExpressionSet</code> 中所有表达式，
+  逐一求值并填入 Uniform Buffer 的内存布局。该 Layout 由 <code>FMaterialShaderMap</code>
+  编译时确定，包含所有 Scalar/Vector/Texture 参数的精确偏移量和类型信息。
+</p>
+
+<div class="info-box tip">
+  <strong>优化策略：</strong> ShaderMap 指针比对是 O(1) 操作——只有当材质重新编译（ShaderMap 指针变化）
+  或 Uniform Buffer 被显式失效时，才会触发昂贵的 <code>EvaluateUniformExpressions()</code>
+  重建缓冲区。日常的参数修改（如 MID 修改颜色）只标记缓存为脏，延迟到下一次渲染时重建。
+</div>
+</section>
+
+<!-- ================================================================ -->
+<!-- 6. UE5.8 演进变化 -->
+<!-- ================================================================ -->
+<section id="s6">
+<h2>6. UE5.8 演进变化</h2>
+
+<h3>6.1 Nanite 材质管线的 ShadingBin 机制</h3>
+
+<p>
+  在 UE5.8 的 Nanite 管线中，传统 Pixel Shader 材质计算被<strong>全 Compute Shader 流程</strong>替代。
+  Nanite 使用 <code>Visibility Buffer</code>（64-bit ID + Depth）代替 GBuffer 存储可见三角形标识，
+  材质着色在屏幕空间通过 <strong>ShadeBinning</strong> 按材质分桶，然后批量 Dispatch Compute Shader。
+</p>
+
+<div class="diagram">
+<svg viewBox="0 0 860 360" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="860" height="360" rx="8" fill="#131318" stroke="#1e1e28" stroke-width="1"/>
+
+  <!-- 流程 -->
+  <rect x="30" y="30" width="175" height="60" rx="6" fill="rgba(79,195,247,0.06)" stroke="#4FC3F7" stroke-width="1"/>
+  <text x="117" y="55" fill="#4FC3F7" font-size="11" font-weight="700" text-anchor="middle">VisBuffer 光栅化</text>
+  <text x="117" y="75" fill="#909090" font-size="10.5" text-anchor="middle">64-bit ID + Depth</text>
+
+  <text x="220" y="60" fill="#4FC3F7" font-size="14">&#8594;</text>
+
+  <rect x="240" y="30" width="175" height="60" rx="6" fill="rgba(124,77,255,0.06)" stroke="#7C4DFF" stroke-width="1"/>
+  <text x="327" y="55" fill="#c0a0ff" font-size="11" font-weight="700" text-anchor="middle">BuildShadingCommands</text>
+  <text x="327" y="75" fill="#909090" font-size="10.5" text-anchor="middle">构建着色命令列表</text>
+
+  <text x="430" y="60" fill="#7C4DFF" font-size="14">&#8594;</text>
+
+  <rect x="450" y="30" width="175" height="60" rx="6" fill="rgba(255,109,0,0.06)" stroke="#FF6D00" stroke-width="1"/>
+  <text x="537" y="55" fill="#FF9140" font-size="11" font-weight="700" text-anchor="middle">ShadeBinning (分桶)</text>
+  <text x="537" y="75" fill="#909090" font-size="10.5" text-anchor="middle">按材质 ID 聚合同类像素</text>
+
+  <text x="640" y="60" fill="#FF6D00" font-size="14">&#8594;</text>
+
+  <rect x="660" y="30" width="175" height="60" rx="6" fill="rgba(0,230,118,0.06)" stroke="#00E676" stroke-width="1"/>
+  <text x="747" y="55" fill="#00E676" font-size="11" font-weight="700" text-anchor="middle">DispatchBasePass</text>
+  <text x="747" y="75" fill="#909090" font-size="10.5" text-anchor="middle">Compute Shader 批量着色</text>
+
+  <!-- 详细结构说明 -->
+  <rect x="30" y="120" width="800" height="220" rx="6" fill="rgba(255,255,255,0.01)" stroke="#333" stroke-width="0.5"/>
+
+  <text x="55" y="150" fill="#ccc" font-size="12" font-weight="700">FShadeBinning 核心结构 (NaniteShading.h)</text>
+
+  <text x="55" y="178" fill="#e0e0e0" font-size="11">ShadingBinData (FRDGBufferRef)</text>
+  <text x="55" y="196" fill="#909090" font-size="10.5">每个 ShadingBin 存储该桶中所有像素的 VisBuffer 索引列表（ByteAddressBuffer）</text>
+
+  <text x="55" y="222" fill="#e0e0e0" font-size="11">ShadingDispatchArgs (FRDGBufferRef)</text>
+  <text x="55" y="240" fill="#909090" font-size="10.5">GPU Indirect Dispatch 参数 —— 每个桶的 ThreadGroup 数量（由像素数动态决定）</text>
+
+  <text x="55" y="266" fill="#e0e0e0" font-size="11">ThreadGroupData (FRDGBufferRef)</text>
+  <text x="55" y="284" fill="#909090" font-size="10.5">ThreadGroup 级别元数据，用于 CS 内部像素 -> 四边形的空间局部性优化</text>
+
+  <text x="55" y="310" fill="#e0e0e0" font-size="11">FNaniteShadingBin (NaniteDrawList.h)</text>
+  <text x="55" y="328" fill="#909090" font-size="10.5">包含 FNaniteShadingPipeline（Triangle/Voxel/Curve 三种几何类型独立的着色管线 PSO）</text>
+</svg>
+</div>
+
+<div class="code-wrapper">
+<div class="code-header"><span class="lang">C++</span><span>NaniteShading.h:22-40 — FShadeBinning 结构</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="line-numbers"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span></div>
+<pre><span class="kw">struct</span> <span class="ty">FShadeBinning</span>
+{
+    <span class="ty">FRDGBufferRef</span> ShadingBinData = <span class="kw">nullptr</span>;      <span class="cm">// 像素分桶数据</span>
+    <span class="ty">FRDGBufferRef</span> ShadingBinStats = <span class="kw">nullptr</span>;     <span class="cm">// 桶统计信息</span>
+    <span class="ty">FRDGBufferRef</span> ShadingDispatchArgs = <span class="kw">nullptr</span>;  <span class="cm">// Indirect Dispatch 参数</span>
+    <span class="ty">FRDGBufferRef</span> ThreadGroupData = <span class="kw">nullptr</span>;      <span class="cm">// ThreadGroup 元数据</span>
+};
+
+<span class="cm">// 构建着色命令 — 生成 ShadingBin → PSO 映射</span>
+<span class="kw">void</span> <span class="fn">BuildShadingCommands</span>(<span class="ty">FRDGBuilder</span>&amp; GraphBuilder, <span class="ty">FScene</span>&amp; Scene,
+    <span class="ty">ENaniteMeshPass</span>::<span class="ty">Type</span> MeshPass,
+    <span class="ty">FNaniteShadingCommands</span>&amp; ShadingCommands,
+    <span class="ty">EBuildShadingCommandsMode</span> Mode);</pre>
+</div>
+</div>
+
+<div class="info-box">
+  <strong>Nanite ShadingBin 与传统材质的核心差异：</strong>
+  传统管线中每个 Draw Call 的 Pixel Shader 按三角形成本执行材质计算；
+  Nanite 将屏幕像素按材质 ID 聚合到桶后，<strong>每个桶 </strong> 的 Compute Shader 处理所有同类像素。
+  这带来了：
+  <ul style="margin-top:6px">
+    <li>更高的 GPU 利用率（无 Pixel Shader 的 Quad Overdraw 浪费）</li>
+    <li>同一材质的连续像素享有更好的 L1/L2 缓存局部性</li>
+    <li>支持分析型导数（Analytic Derivative）代替硬件有限差分</li>
+  </ul>
+</div>
+
+<h3>6.2 Substrate（材质分层）前瞻</h3>
+
+<p>
+  UE5.8 引入了 Substrate 材质分层系统，将传统的单一 Shading Model 概念扩展为<strong>可组合的材质层拓扑</strong>。
+  材质节点图中的 <code>UMaterialExpressionSubstrate*</code> 类系列通过
+  <code>SubstrateGenerateMaterialTopologyTree()</code> 虚函数在编译时构建分层材质树。
+</p>
+
+<div class="code-wrapper">
+<div class="code-header"><span class="lang">C++</span><span>MaterialExpressions.cpp — Substrate 拓扑树生成</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="line-numbers"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span></div>
+<pre><span class="cm">// Substrate 材质分层拓扑树生成</span>
+<span class="ty">FSubstrateOperator</span>* <span class="ty">UMaterialExpression</span>::<span class="fn">SubstrateGenerateMaterialTopologyTree</span>(
+    <span class="kw">class</span> <span class="ty">FMaterialCompiler</span>* Compiler,
+    <span class="kw">class</span> <span class="ty">UMaterialExpression</span>* Parent,
+    <span class="kw">int32</span> OutputIndex);
+
+<span class="cm">// 关键分层操作符:</span>
+<span class="cm">// SubstrateHorizontalBlend   — 水平混合（从表面到另一个表面的过渡）</span>
+<span class="cm">// SubstrateVerticalBlend     — 垂直混合（底层→覆层，如清漆）</span>
+<span class="cm">// SubstrateWeightBlend       — 权重混合（基于灰度蒙版的分层）</span>
+<span class="cm">// SubstrateAdd               — 加法叠加（发光层）</span></pre>
+</div>
+</div>
+
+<table class="cvar-table" style="margin-top:16px">
+<tr><th>Substrate 特性</th><th>状态</th><th>说明</th></tr>
+<tr><td>材质分层拓扑</td><td><span class="tag tag-new">5.8 实验性</span></td><td>任意嵌套的分层操作符，编译器展开为 HLSL 代码</td></tr>
+<tr><td>Substrate Slabs</td><td><span class="tag tag-new">5.8 实验性</span></td><td>物理基材质薄片 —— 每层拥有独立的 BSDF</td></tr>
+<tr><td>隐藏式转换</td><td><span class="tag tag-core">5.8 正式</span></td><td>传统 Shading Model 自动转换为 Substrate 表示（向后兼容）</td></tr>
+<tr><td>SubsurfaceProfile 集成</td><td><span class="tag tag-core">5.8 正式</span></td><td>Substrate 路径下 SS Profile 仍通过 FMaterialRenderProxy 参数系统绑定</td></tr>
+</table>
+
+<div class="info-box warn">
+  <strong>注意：</strong> Substrate 在 UE5.8 中默认<strong>不启用</strong>。需要通过 <code>r.Substrate 1</code>
+  控制台变量启用，并重启编辑器。启用后，<code>MP_FrontMaterial</code> 属性替代 <code>MP_ShadingModel</code>
+  作为主输出，编译器生成的 HLSL 代码量显著增加（每个 Substrate Op 映射为多层 BSDF 循环）。
+</div>
+</section>
+
+<!-- ================================================================ -->
+<!-- CVar 速查表 -->
+<!-- ================================================================ -->
+<section id="cvar">
+<h2>CVar 速查表</h2>
+
+<div class="card">
+<table class="cvar-table">
+<tr><th>控制台变量</th><th>默认值</th><th>说明</th><th>作用文件</th></tr>
+<tr><td>r.MaterialLogErrorOnFailure</td><td>false</td><td>材质编译失败时输出 Error 而非 Warning</td><td>Material.cpp:129</td></tr>
+<tr><td>r.MaterialsDuplicateVerbatim</td><td>false</td><td>复制材质时不预先生成新 StateId</td><td>Material.cpp:136</td></tr>
+<tr><td>r.Nanite.ComputeRasterization</td><td>1</td><td>Nanite 软件光栅化开关</td><td>NaniteCullRaster.cpp</td></tr>
+<tr><td>r.Nanite.AsyncRasterization</td><td>0</td><td>异步计算光栅化</td><td>NaniteCullRaster.cpp</td></tr>
+<tr><td>r.Substrate</td><td>0</td><td>启用 Substrate 材质分层系统</td><td>Substrate 子系统</td></tr>
+<tr><td>r.ShaderCompiler.JobCacheTimeout</td><td>—</td><td>Shader 编译作业缓存的超时时间</td><td>ShaderCompiler.cpp</td></tr>
+<tr><td>r.MaterialQualityLevel</td><td>—</td><td>运行时材质质量级别（可扩展性设置映射）</td><td>全局 Scalability</td></tr>
+</table>
+</div>
+</section>
+
+<!-- ================================================================ -->
+<!-- 底部导航 -->
+<!-- ================================================================ -->
+<nav class="bottom-nav">
+  <a href="../Shader体系/index.html" class="prev">
+    <span style="font-size:18px">&#8592;</span>
+    <div>
+      <div class="nav-label">上一章</div>
+      <div class="nav-title">Shader 体系</div>
+    </div>
+  </a>
+  <a href="../光源和阴影/index.html" class="next">
+    <div style="text-align:right">
+      <div class="nav-label">下一章</div>
+      <div class="nav-title">光源和阴影</div>
+    </div>
+    <span style="font-size:18px">&#8594;</span>
+  </a>
+</nav>
+
+</main>
+
+<!-- ================================================================ -->
+<!-- JavaScript -->
+<!-- ================================================================ -->
+<script>
+/* ---- 大纲搜索过滤 ---- */
+function filterNav(){
+  const q = document.getElementById('navSearch').value.toLowerCase();
+  document.querySelectorAll('#sidebarNav a').forEach(a => {
+    a.style.display = !q || a.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+
+/* ---- 大纲高亮当前章节 ---- */
+(function(){
+  const navLinks = document.querySelectorAll('#sidebarNav a');
+  const sections = [];
+  navLinks.forEach(a => {
+    const id = a.getAttribute('href').replace('#','');
+    const el = document.getElementById(id);
+    if(el) sections.push({el, a});
+  });
+
+  function updateActive(){
+    let current = null;
+    sections.forEach(({el, a}) => {
+      const rect = el.getBoundingClientRect();
+      if(rect.top <= 120) current = a;
+    });
+    navLinks.forEach(a => a.classList.remove('active'));
+    if(current) current.classList.add('active');
+  }
+
+  window.addEventListener('scroll', updateActive, {passive:true});
+  updateActive();
+})();
+
+/* ---- 代码复制按钮 ---- */
+function copyCode(btn){
+  const pre = btn.closest('.code-wrapper').querySelector('pre');
+  const text = pre.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '已复制';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = '复制';
+      btn.classList.remove('copied');
+    }, 1800);
+  }).catch(() => {
+    btn.textContent = '失败';
+    setTimeout(() => { btn.textContent = '复制'; }, 1200);
+  });
+}
+</script>
+
+</body>
+</html>

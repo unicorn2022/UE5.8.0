@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UE5.8.0 移动端渲染管线 — FMobileSceneRenderer 深度解读</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#0a0a0f;color:#e0e0e0;display:flex;min-height:100vh}
+a{color:#4FC3F7;text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* 左侧导航 */
+nav.sidebar{width:260px;min-width:260px;background:#0c0c14;border-right:1px solid #1e1e2a;position:fixed;top:0;left:0;height:100vh;overflow-y:auto;z-index:100;padding:20px 16px}
+nav.sidebar h2{font-size:15px;color:#4FC3F7;margin-bottom:12px;letter-spacing:0.5px}
+nav.sidebar h2 small{display:block;font-size:11px;color:#666;font-weight:normal;margin-top:2px}
+nav.sidebar ul{list-style:none}
+nav.sidebar ul li{margin-bottom:4px}
+nav.sidebar ul li a{display:block;padding:6px 10px;border-radius:4px;font-size:13px;color:#909090;transition:all .15s}
+nav.sidebar ul li a:hover,.sidebar ul li a.active{background:#131318;color:#4FC3F7;text-decoration:none}
+nav.sidebar ul li a.sub{padding-left:24px;font-size:12px}
+
+/* 搜索框 */
+.search-box{margin-bottom:16px}
+.search-box input{width:100%;padding:7px 10px;border:1px solid #1e1e2a;border-radius:4px;background:#09090d;color:#e0e0e0;font-size:12px;outline:none}
+.search-box input:focus{border-color:#4FC3F7}
+
+/* 右侧内容 */
+main.content{margin-left:260px;flex:1;padding:40px 48px;max-width:1100px}
+section{margin-bottom:48px}
+h1{font-size:28px;color:#fff;margin-bottom:6px;font-weight:700}
+h1 small{display:block;font-size:13px;color:#666;font-weight:normal;margin-top:4px}
+h2{font-size:20px;color:#4FC3F7;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #1e1e2a}
+h3{font-size:16px;color:#c8c8c8;margin:20px 0 10px}
+h4{font-size:14px;color:#aaa;margin:16px 0 8px}
+p{line-height:1.75;margin-bottom:12px;color:#b0b0b0}
+strong{color:#e0e0e0}
+
+/* 面包屑 */
+.breadcrumb{font-size:12px;color:#666;margin-bottom:24px}
+.breadcrumb a{color:#666}
+
+/* 卡片 */
+.card{background:#131318;border:1px solid #1e1e2a;border-radius:8px;padding:20px 24px;margin-bottom:20px}
+.card h3{margin-top:0}
+.card p:last-child{margin-bottom:0}
+
+/* 表格 */
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}
+th,td{border:1px solid #1e1e2a;padding:10px 14px;text-align:left}
+th{background:#0c0c14;color:#4FC3F7;font-weight:600}
+td{color:#b0b0b0}
+tr:hover td{background:rgba(79,195,247,0.03)}
+
+/* 代码块 */
+.code-wrapper{position:relative;margin:16px 0;border-radius:6px;overflow:hidden;border:1px solid #1e1e2a}
+.code-header{display:flex;justify-content:space-between;align-items:center;padding:6px 14px;background:#0c0c14;font-size:11px;color:#666;border-bottom:1px solid #1e1e2a}
+.code-header .file{color:#4FC3F7}
+pre{margin:0}
+pre code{display:block;padding:16px;background:#09090d;font-family:'Cascadia Code','Fira Code','Consolas',monospace;font-size:12.5px;line-height:1.55;overflow-x:auto;tab-size:4;color:#d4d4d4;counter-reset:line}
+pre code .line{counter-increment:line;display:block;padding-left:8px}
+pre code .line::before{content:counter(line);display:inline-block;width:36px;margin-right:14px;text-align:right;color:#444;font-size:11px;user-select:none}
+pre code .kw{color:#c586c0}pre code .fn{color:#dcdcaa}pre code .str{color:#ce9178}
+pre code .cm{color:#6a9955}pre code .num{color:#b5cea8}pre code .tp{color:#4ec9b0}
+pre code .pp{color:#9cdcfe}pre code .co{color:#6a9955;font-style:italic}
+
+/* 复制按钮 */
+.copy-btn{position:absolute;top:6px;right:12px;background:#1e1e2a;border:1px solid #333;color:#909090;padding:3px 10px;border-radius:3px;font-size:11px;cursor:pointer;transition:all .2s}
+.copy-btn:hover{background:#2a2a3a;color:#4FC3F7}
+
+/* CVar 速查表 */
+.cvar-table th:nth-child(1){width:40%}
+.cvar-table th:nth-child(2){width:60%}
+.cvar-val{font-family:'Consolas',monospace;color:#4FC3F7;font-size:12px}
+.cvar-desc{font-size:12px;line-height:1.6}
+
+/* 标签 */
+.tag{display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;margin-right:4px}
+.tag-blue{background:rgba(79,195,247,0.15);color:#4FC3F7}
+.tag-green{background:rgba(78,201,176,0.15);color:#4ec9b0}
+.tag-orange{background:rgba(220,220,170,0.12);color:#dcdcaa}
+.tag-red{background:rgba(206,145,120,0.15);color:#ce9178}
+
+/* 流程图 / SVG */
+.diagram{background:#131318;border:1px solid #1e1e2a;border-radius:8px;padding:28px;margin:20px 0;text-align:center;overflow-x:auto}
+.diagram svg{max-width:100%}
+
+/* 底部导航 */
+.bottom-nav{display:flex;justify-content:space-between;margin-top:48px;padding:20px 0;border-top:1px solid #1e1e2a}
+.bottom-nav a{display:flex;align-items:center;gap:6px}
+.bottom-nav .prev{color:#909090;font-size:14px}
+.bottom-nav .next{color:#4FC3F7;font-size:14px}
+
+/* 小提示 */
+.note{padding:12px 16px;border-left:3px solid #4FC3F7;background:rgba(79,195,247,0.06);border-radius:0 4px 4px 0;margin:16px 0;font-size:13px;color:#aaa}
+
+/* newsection 高亮 */
+mark{background:rgba(79,195,247,0.18);color:#4FC3F7;padding:0 3px;border-radius:2px}
+
+/* 响应式 */
+@media(max-width:900px){nav.sidebar{display:none}main.content{margin-left:0;padding:20px}}
+</style>
+</head>
+<body>
+
+<!-- ========= 左侧大纲导航 ========= -->
+<nav class="sidebar" id="sidebar">
+  <h2>UE5.8 移动端渲染<small>FMobileSceneRenderer</small></h2>
+  <div class="search-box">
+    <input type="text" id="search" placeholder="搜索章节..." oninput="filterNav()">
+  </div>
+  <ul id="nav-list">
+    <li><a href="#s1" class="active">1. 概述与定位</a></li>
+    <li><a href="#s2">2. 顶层架构设计</a></li>
+    <li><a href="#s2-1" class="sub">2.1 类职责对比</a></li>
+    <li><a href="#s2-2" class="sub">2.2 移动端专属 Pass</a></li>
+    <li><a href="#s2-3" class="sub">2.3 TBDR Subpass 策略</a></li>
+    <li><a href="#s2-4" class="sub">2.4 Forward vs Deferred</a></li>
+    <li><a href="#s3">3. 执行流程</a></li>
+    <li><a href="#s4">4. 设计决策</a></li>
+    <li><a href="#s4-1" class="sub">4.1 MSAA vs TAA</a></li>
+    <li><a href="#s4-2" class="sub">4.2 Shader精度优化</a></li>
+    <li><a href="#s4-3" class="sub">4.3 材质质量分层</a></li>
+    <li><a href="#s4-4" class="sub">4.4 避免RT切换</a></li>
+    <li><a href="#s5">5. 底层实现关联</a></li>
+    <li><a href="#s6">6. UE5.8 演进变化</a></li>
+    <li><a href="#cvars">CVar 速查表</a></li>
+  </ul>
+</nav>
+
+<!-- ========= 主内容区 ========= -->
+<main class="content">
+
+<!-- 面包屑 -->
+<div class="breadcrumb">
+  <a href="../">首页</a> &gt; 移动端渲染管线
+  &nbsp;&nbsp;|&nbsp;&nbsp;
+  <span>源码路径: Engine/Source/Runtime/Renderer/Private/MobileShadingRenderer.cpp</span>
+</div>
+
+<!-- ===================================================================== SECTION 1 ===================================================================== -->
+<section id="s1">
+<h1>UE5.8.0 移动端渲染管线<small>FMobileSceneRenderer / TBDR 适配 / Vulkan Mobile 优化</small></h1>
+
+<div class="card">
+<h3>UE5 如何在手机上跑起来</h3>
+<p>
+移动端渲染的核心挑战在于<strong>极致的功耗、带宽和发热约束</strong>。UE5.8 的 <code>FMobileSceneRenderer</code> 完整实现了 ES3.1 特性级别的渲染管线，支持 <strong>Mobile Forward</strong>（前向渲染）和 <strong>Mobile Deferred</strong>（延迟渲染）两种模式，并深度针对 <strong>TBDR（Tile-Based Deferred Rendering）</strong> GPU 架构（如 Mali、Adreno、Apple GPU）做了 Subpass 级优化。
+</p>
+<p>
+与桌面端 <code>FDeferredShadingSceneRenderer</code> 相比，移动端渲染器砍掉了 Nanite 虚拟几何、Lumen GI（仅 Lite）、体积云等大量高开销特性，但保留了 VSM 阴影、Substrate 材质框架、TSR 超分等核心能力。5.8 版本带来的 Mobile Lumen Lite 支持是移动端 GI 能力的里程碑事件。
+</p>
+</div>
+
+<div class="diagram">
+<svg width="900" height="340" viewBox="0 0 900 340">
+  <defs>
+    <linearGradient id="deskGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a2a3a;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#0d1520;stop-opacity:1"/>
+    </linearGradient>
+    <linearGradient id="mobGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a2e1a;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#0d180d;stop-opacity:1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 桌面端 -->
+  <rect x="20" y="10" width="420" height="280" rx="8" fill="url(#deskGrad)" stroke="#1e3a5f" stroke-width="1.5"/>
+  <text x="230" y="38" text-anchor="middle" fill="#5dade2" font-size="14" font-weight="bold">桌面端 Deferred (SM6)</text>
+  <line x1="40" y1="48" x2="420" y2="48" stroke="#1e3a5f"/>
+
+  <rect x="40" y="58" width="110" height="24" rx="3" fill="#0a1620" stroke="#1e3a5f"/>
+  <text x="95" y="74" text-anchor="middle" fill="#888" font-size="10">Nanite VirtualGeo</text>
+  <rect x="160" y="58" width="85" height="24" rx="3" fill="#0a1620" stroke="#1e3a5f"/>
+  <text x="202" y="74" text-anchor="middle" fill="#888" font-size="10">Lumen GI</text>
+  <rect x="255" y="58" width="70" height="24" rx="3" fill="#0a1620" stroke="#1e3a5f"/>
+  <text x="290" y="74" text-anchor="middle" fill="#888" font-size="10">HWRT</text>
+  <rect x="335" y="58" width="90" height="24" rx="3" fill="#0a1620" stroke="#1e3a5f"/>
+  <text x="380" y="74" text-anchor="middle" fill="#888" font-size="10">VSM</text>
+
+  <rect x="40" y="92" width="185" height="24" rx="3" fill="#0a1620" stroke="#1e3a5f"/>
+  <text x="132" y="108" text-anchor="middle" fill="#888" font-size="10">GBuffer: A/B/C/D/E + CustomData</text>
+  <rect x="235" y="92" width="205" height="24" rx="3" fill="#0a1620" stroke="#1e3a5f"/>
+  <text x="337" y="108" text-anchor="middle" fill="#888" font-size="10">Clustered Deferred / MegaLights</text>
+
+  <rect x="40" y="126" width="155" height="24" rx="3" fill="#0a1620" stroke="#1e3a5f"/>
+  <text x="117" y="142" text-anchor="middle" fill="#888" font-size="10">Volume Cloud / Fog</text>
+  <rect x="205" y="126" width="130" height="24" rx="3" fill="#0a1620" stroke="#1e3a5f"/>
+  <text x="270" y="142" text-anchor="middle" fill="#888" font-size="10">Accumulation DOF</text>
+  <rect x="345" y="126" width="80" height="24" rx="3" fill="#0a1620" stroke="#1e3a5f"/>
+  <text x="385" y="142" text-anchor="middle" fill="#888" font-size="10">TSR</text>
+
+  <rect x="40" y="160" width="220" height="24" rx="3" fill="#0a1620" stroke="#1e3a5f"/>
+  <text x="150" y="176" text-anchor="middle" fill="#888" font-size="10">Substrate Full / HairStrands</text>
+
+  <text x="230" y="220" text-anchor="middle" fill="#5dade2" font-size="12">FDeferredShadingSceneRenderer</text>
+  <text x="230" y="240" text-anchor="middle" fill="#666" font-size="10">~15 个渲染 Pass | ~50MB+ 帧缓冲</text>
+  <text x="230" y="260" text-anchor="middle" fill="#666" font-size="10">桌面/主机 | 高功耗预算</text>
+
+  <!-- 移动端 -->
+  <rect x="460" y="10" width="420" height="280" rx="8" fill="url(#mobGrad)" stroke="#1e4a1e" stroke-width="1.5"/>
+  <text x="670" y="38" text-anchor="middle" fill="#58d68d" font-size="14" font-weight="bold">移动端 Forward/Deferred (ES3.1)</text>
+  <line x1="480" y1="48" x2="860" y2="48" stroke="#1e4a1e"/>
+
+  <rect x="480" y="58" width="135" height="24" rx="3" fill="#0a150a" stroke="#1e4a1e"/>
+  <text x="547" y="74" text-anchor="middle" fill="#888" font-size="10">MobileBasePass</text>
+  <rect x="625" y="58" width="110" height="24" rx="3" fill="#0a150a" stroke="#1e4a1e"/>
+  <text x="680" y="74" text-anchor="middle" fill="#888" font-size="10">MobileDeferred</text>
+  <rect x="745" y="58" width="115" height="24" rx="3" fill="#0a150a" stroke="#1e4a1e"/>
+  <text x="802" y="74" text-anchor="middle" fill="#888" font-size="10">MobileSSR</text>
+
+  <rect x="480" y="92" width="170" height="24" rx="3" fill="#0a150a" stroke="#1e4a1e"/>
+  <text x="565" y="108" text-anchor="middle" fill="#888" font-size="10">简化 GBuffer: A/B/C 小格式</text>
+  <rect x="660" y="92" width="200" height="24" rx="3" fill="#0a150a" stroke="#1e4a1e"/>
+  <text x="760" y="108" text-anchor="middle" fill="#888" font-size="10">TBDR Subpass / Memoryless RT</text>
+
+  <rect x="480" y="126" width="170" height="24" rx="3" fill="#0a150a" stroke="#1e4a1e"/>
+  <text x="565" y="142" text-anchor="middle" fill="#888" font-size="10">Mobile TSR / TonemapSubpass</text>
+  <rect x="660" y="126" width="150" height="24" rx="3" fill="#0a150a" stroke="#1e4a1e"/>
+  <text x="735" y="142" text-anchor="middle" fill="#888" font-size="10">PLH / FBF 低开销混合</text>
+  <rect x="820" y="126" width="40" height="24" rx="3" fill="#143014" stroke="#1e4a1e"/>
+  <text x="840" y="142" text-anchor="middle" fill="#58d68d" font-size="10">NEW</text>
+
+  <rect x="480" y="160" width="220" height="24" rx="3" fill="#0a150a" stroke="#1e4a1e"/>
+  <text x="590" y="176" text-anchor="middle" fill="#888" font-size="10">Vulkan: Pixel Local Storage / Subpass</text>
+  <rect x="710" y="160" width="150" height="24" rx="3" fill="#0a150a" stroke="#1e4a1e"/>
+  <text x="785" y="176" text-anchor="middle" fill="#888" font-size="10">LOD Bias / Half精度</text>
+
+  <text x="670" y="220" text-anchor="middle" fill="#58d68d" font-size="12">FMobileSceneRenderer</text>
+  <text x="670" y="240" text-anchor="middle" fill="#666" font-size="10">~8 个渲染 Pass | ~10-15MB 帧缓冲</text>
+  <text x="670" y="260" text-anchor="middle" fill="#666" font-size="10">手机/平板 | 严格功耗预算</text>
+
+  <!-- 箭头连接 -->
+  <line x1="440" y1="60" x2="458" y2="60" stroke="#4FC3F7" stroke-width="1.5" stroke-dasharray="4"/>
+  <line x1="440" y1="150" x2="458" y2="150" stroke="#4FC3F7" stroke-width="1.5" stroke-dasharray="4"/>
+  <line x1="440" y1="240" x2="458" y2="240" stroke="#4FC3F7" stroke-width="1.5" stroke-dasharray="4"/>
+
+  <text x="670" y="300" text-anchor="middle" fill="#4FC3F7" font-size="11">共享: GPUScene / RDG / Substrate / VSM / SceneCulling</text>
+</svg>
+<p style="margin-top:12px;color:#666;font-size:12px">图 1-1: 桌面端 vs 移动端渲染管线全景对比</p>
+</div>
+</section>
+
+<!-- ===================================================================== SECTION 2 ===================================================================== -->
+<section id="s2">
+<h2>2. 顶层架构设计</h2>
+
+<!-- 2.1 类职责对比 -->
+<h3 id="s2-1">2.1 FMobileSceneRenderer vs FDeferredShadingSceneRenderer</h3>
+<div class="card">
+<table>
+<thead>
+<tr><th>维度</th><th>FMobileSceneRenderer</th><th>FDeferredShadingSceneRenderer</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Shader平台</strong></td><td>ES3_1 (GLES / Vulkan Mobile / Metal Mobile)</td><td>SM5 / SM6 (D3D12 / Vulkan Desktop)</td></tr>
+<tr><td><strong>几何管线</strong></td><td><span class="tag tag-red">无 Nanite</span> 传统 DrawCall + InstanceCulling</td><td><span class="tag tag-green">Nanite</span> GPU Cluster 裁剪+光栅化</td></tr>
+<tr><td><strong>GI 系统</strong></td><td>Lightmap / ILC / <span class="tag tag-blue">Mobile Lumen Lite (5.8)</span></td><td>Lumen 完整版 (Screen Probe / Surface Cache / ReSTIR)</td></tr>
+<tr><td><strong>GBuffer格式</strong></td><td>简化: 3~4 RT (A/B/C + 可选D)</td><td>完整: 5~8 RT (A/B/C/D/E + CustomData + Velocity 等)</td></tr>
+<tr><td><strong>材质框架</strong></td><td>Substrate (简化模式) / 传统 Mobile BasePass</td><td>Substrate (完整模式)</td></tr>
+<tr><td><strong>主色调映射</strong></td><td><span class="tag tag-blue">Subpass Inline Tonemap</span> (Vulkan)</td><td>独立后处理 Pass</td></tr>
+<tr><td><strong>阴影系统</strong></td><td>CSM / Modulated Shadows / Mobile VSM (实验)</td><td>VSM 完整版 + CSM + RayTraced Shadows</td></tr>
+<tr><td><strong>RenderPass策略</strong></td><td>单 Pass / Subpass 链 (TBDR优化)</td><td>多 Pass RDG 图</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- 2.2 移动端专属 Pass -->
+<h3 id="s2-2">2.2 移动端专属 Pass 清单</h3>
+<div class="card">
+<p>移动端渲染器定义了与桌面端完全不同的 Pass 编排逻辑。以下是在 <code>FMobileSceneRenderer::Render()</code> 中实际调用的核心 Pass:</p>
+
+<table>
+<thead><tr><th>Pass 名称</th><th>对应方法/文件</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><span class="tag tag-blue">DepthPrePass</span></td><td><code>RenderFullDepthPrepass()</code><br/>MobileShadingRenderer.cpp:902</td><td>全量深度预通道 (DDM_AllOpaque), 支持 Velocity 同时输出</td></tr>
+<tr><td><span class="tag tag-blue">MobileBasePass</span></td><td><code>RenderMobileBasePass()</code><br/>MobileBasePassRendering.cpp:530</td><td>移动端主几何通道: 计算光照+写入 SceneColor (Forward) 或 GBuffer (Deferred)</td></tr>
+<tr><td><span class="tag tag-orange">MobileDeferredShading</span></td><td><code>MobileDeferredShadingPass()</code><br/>MobileDeferredShadingPass.cpp:1222</td><td>延迟光照计算: 方向光 + 局部光 + 反射/天空光</td></tr>
+<tr><td><span class="tag tag-green">MobileTranslucency</span></td><td><code>RenderTranslucency()</code><br/>MobileTranslucentRendering.cpp:7</td><td>半透明渲染, 支持 ColorTransmittance 模式</td></tr>
+<tr><td><span class="tag tag-blue">MobileSSR</span></td><td><code>SetupMobileSSRParameters()</code><br/>MobileSSR.cpp:66</td><td>移动端屏幕空间反射 (<code>EMobileSSRQuality::Low/Medium</code>)</td></tr>
+<tr><td><span class="tag tag-green">MobileAO</span></td><td><code>RenderAmbientOcclusion()</code></td><td>移动端 SSAO (可选Compute或PS版本)</td></tr>
+<tr><td><span class="tag tag-orange">MobileShadowProjections</span></td><td><code>RenderMobileShadowProjections()</code></td><td>移动端阴影投影 (ShadowMask Texture 方式)</td></tr>
+<tr><td><span class="tag tag-blue">MobilePostProcessing</span></td><td><code>AddMobilePostProcessingPasses()</code></td><td>移动端后处理链 (Bloom/Tonemap/TAA)</td></tr>
+<tr><td><span class="tag tag-green">TonemapSubpass</span></td><td><code>AddMobileCustomResolvePass()</code></td><td>Vulkan inline Tonemap (MSAA Resolve 阶段合入)</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- 2.3 TBDR Subpass策略 -->
+<h3 id="s2-3">2.3 Vulkan Mobile 的 TBDR 适配策略</h3>
+<div class="card">
+<p>
+TBDR (Tile-Based Deferred Rendering) 架构 GPU 通过在片上 Tile Memory 中完成多次渲染再写回内存, 大幅减少带宽消耗。UE5.8 的移动渲染器通过 <strong>Vulkan Subpass</strong> 机制显式利用这一特性:
+</p>
+
+<div class="diagram">
+<svg width="880" height="420" viewBox="0 0 880 420">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#4FC3F7"/>
+    </marker>
+  </defs>
+
+  <!-- Forward Single Pass Subpass链 -->
+  <rect x="20" y="10" width="830" height="195" rx="6" fill="#131318" stroke="#1e1e2a"/>
+  <text x="435" y="32" text-anchor="middle" fill="#4FC3F7" font-size="13" font-weight="bold">Mobile Forward — 单 Pass 内 Subpass 链 (Vulkan TBDR 优化)</text>
+
+  <!-- Subpass 0 -->
+  <rect x="30" y="46" width="180" height="80" rx="5" fill="#0a1620" stroke="#1e3a5f"/>
+  <text x="120" y="66" text-anchor="middle" fill="#5dade2" font-size="11" font-weight="bold">Subpass 0</text>
+  <text x="120" y="84" text-anchor="middle" fill="#888" font-size="10">MaskedDepth + BasePass</text>
+  <text x="120" y="100" text-anchor="middle" fill="#666" font-size="9">DepthWrite + ColorWrite</text>
+  <text x="120" y="116" text-anchor="middle" fill="#4FC3F7" font-size="9">ESubpassHint::None</text>
+
+  <!-- Subpass依赖 -->
+  <line x1="218" y1="86" x2="248" y2="86" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="232" y="78" text-anchor="middle" fill="#666" font-size="8">DEPENDENCY_BY_REGION</text>
+
+  <!-- Subpass 1 -->
+  <rect x="255" y="46" width="180" height="80" rx="5" fill="#0a1618" stroke="#1e3a5f"/>
+  <text x="345" y="66" text-anchor="middle" fill="#5dade2" font-size="11" font-weight="bold">Subpass 1</text>
+  <text x="345" y="84" text-anchor="middle" fill="#888" font-size="10">Decals + Shadows + Fog</text>
+  <text x="345" y="100" text-anchor="middle" fill="#666" font-size="9">DepthRead + ColorWrite</text>
+  <text x="345" y="116" text-anchor="middle" fill="#4FC3F7" font-size="9">ESubpassHint::DepthReadSubpass</text>
+
+  <line x1="443" y1="86" x2="473" y2="86" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="458" y="78" text-anchor="middle" fill="#666" font-size="8">BY_REGION</text>
+
+  <!-- Subpass 2: Translucency -->
+  <rect x="480" y="46" width="180" height="80" rx="5" fill="#0a1618" stroke="#1e3a5f"/>
+  <text x="570" y="66" text-anchor="middle" fill="#5dade2" font-size="11" font-weight="bold">Subpass 2</text>
+  <text x="570" y="84" text-anchor="middle" fill="#888" font-size="10">Translucency</text>
+  <text x="570" y="100" text-anchor="middle" fill="#666" font-size="9">DepthRead + Blend</text>
+
+  <!-- 可选 Subpass 3: Tonemap（inline） -->
+  <rect x="670" y="46" width="170" height="80" rx="5" fill="#0a1610" stroke="#1e4a1e"/>
+  <text x="755" y="66" text-anchor="middle" fill="#58d68d" font-size="11" font-weight="bold">Subpass 3</text>
+  <text x="755" y="84" text-anchor="middle" fill="#888" font-size="10">CustomResolve (Tonemap)</text>
+  <text x="755" y="100" text-anchor="middle" fill="#666" font-size="9">Input Read + MSAA Resolve</text>
+
+  <!-- Load/Store Action 说明 -->
+  <rect x="30" y="140" width="810" height="55" rx="5" fill="#09090d" stroke="#1e1e2a"/>
+  <text x="45" y="160" fill="#888" font-size="11">Load/Store Action 优化:</text>
+  <text x="45" y="178" fill="#666" font-size="10">Depth: <span style="color:#58d68d">LOAD_OP_CLEAR</span> → Subpass链内 <span style="color:#58d68d">LOAD_OP_LOAD</span> (Tile Memory保留 Depth) → <span style="color:#ce9178">STORE_OP_DONT_CARE</span> (无后处理时丢弃)</text>
+  <text x="45" y="194" fill="#666" font-size="10">Color: TBDR 只在最终 Subpass 写回 System Memory; Memoryless RT 完全在 Tile Memory 中, 不分配显存</text>
+
+  <!-- Deferred Subpass 链 -->
+  <rect x="20" y="218" width="830" height="190" rx="6" fill="#131318" stroke="#1e1e2a"/>
+  <text x="435" y="240" text-anchor="middle" fill="#dcdcaa" font-size="13" font-weight="bold">Mobile Deferred — GPU 端延迟着色 Subpass 链</text>
+
+  <rect x="30" y="254" width="160" height="80" rx="5" fill="#0a1620" stroke="#1e3a5f"/>
+  <text x="110" y="274" text-anchor="middle" fill="#5dade2" font-size="11" font-weight="bold">Subpass 0</text>
+  <text x="110" y="292" text-anchor="middle" fill="#888" font-size="10">BasePass → GBuffer</text>
+  <text x="110" y="308" text-anchor="middle" fill="#666" font-size="9">Write A/B/C (SceneColor)</text>
+
+  <line x1="197" y1="294" x2="227" y2="294" stroke="#dcdcaa" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="233" y="254" width="160" height="80" rx="5" fill="#0a1a14" stroke="#1e4a1e"/>
+  <text x="313" y="274" text-anchor="middle" fill="#58d68d" font-size="11" font-weight="bold">Subpass 1</text>
+  <text x="313" y="292" text-anchor="middle" fill="#888" font-size="10">GBuffer+Depth Input</text>
+  <text x="313" y="308" text-anchor="middle" fill="#666" font-size="9">Read A/B/C + Depth</text>
+
+  <line x1="400" y1="294" x2="430" y2="294" stroke="#dcdcaa" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="436" y="254" width="195" height="80" rx="5" fill="#0a1a14" stroke="#ce9178"/>
+  <text x="533" y="274" text-anchor="middle" fill="#ce9178" font-size="11" font-weight="bold">Subpass 2</text>
+  <text x="533" y="292" text-anchor="middle" fill="#888" font-size="10">Deferred Lighting</text>
+  <text x="533" y="308" text-anchor="middle" fill="#666" font-size="9">Read GBuffer+Depth → Write SceneColor</text>
+
+  <line x1="638" y1="294" x2="663" y2="294" stroke="#dcdcaa" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="670" y="254" width="170" height="80" rx="5" fill="#0a1618" stroke="#1e3a5f"/>
+  <text x="755" y="274" text-anchor="middle" fill="#5dade2" font-size="11" font-weight="bold">Subpass 3</text>
+  <text x="755" y="292" text-anchor="middle" fill="#888" font-size="10">Fog + Translucency</text>
+  <text x="755" y="308" text-anchor="middle" fill="#666" font-size="9">Blend to SceneColor</text>
+
+  <!-- 回退路径 -->
+  <rect x="30" y="345" width="810" height="50" rx="5" fill="#0a0a0f" stroke="#1e1e2a"/>
+  <text x="45" y="365" fill="#888" font-size="11">无 FBF (Framebuffer Fetch) 支持的设备回退:</text>
+  <text x="45" y="383" fill="#666" font-size="10"><span class="tag tag-orange">Multi-Pass 模式</span>: BasePass → 显式 Resolve → Decals独立Pass → Lighting独立Pass → Translucency独立Pass, 每次都需要 Load/Store 往返带宽</text>
+</svg>
+<p style="margin-top:12px;color:#666;font-size:12px">图 2-1: Vulkan Mobile TBDR Subpass 链示意图 — Forward (上) 与 Deferred (下) 的 Subpass 组织</p>
+</div>
+
+<div class="note">
+<strong>关键机制: Framebuffer Fetch &amp; Pixel Local Storage</strong><br/>
+iOS Metal 通过 <code>GSupportsShaderFramebufferFetch</code>、Android GLES 通过 <code>GSupportsPixelLocalStorage</code> (PLS) 实现单 Pass 内读取当前像素的 Color/Depth。<br/>
+<code>RequiresMultiPass()</code> (MobileShadingRenderer.cpp:3309) 精确判断是否必须走多 Pass 回退: Vulkan Subpass → 单Pass; iOS FBF → 单Pass; GLES PLS → 单Pass; 其余 → 多Pass。
+</div>
+</div>
+
+<!-- 2.4 Forward vs Deferred -->
+<h3 id="s2-4">2.4 Mobile Forward vs Mobile Deferred 的选择策略</h3>
+<div class="card">
+<p>构造函数 <code>FMobileSceneRenderer::FMobileSceneRenderer()</code> (MobileShadingRenderer.cpp:401) 中通过 <code>IsMobileDeferredShadingEnabled(ShaderPlatform)</code> 决定使用哪种模式:</p>
+
+<div class="diagram" style="padding:16px">
+<svg width="800" height="280" viewBox="0 0 800 280">
+  <!-- 决策节点 -->
+  <polygon points="400,10 520,30 400,50 280,30" fill="#131318" stroke="#4FC3F7" stroke-width="1.5"/>
+  <text x="400" y="34" text-anchor="middle" fill="#4FC3F7" font-size="11">IsMobileDeferredShadingEnabled?</text>
+
+  <!-- YES -->
+  <line x1="337" y1="48" x2="200" y2="80" stroke="#58d68d" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="270" y="68" text-anchor="middle" fill="#58d68d" font-size="10">YES</text>
+
+  <rect x="30" y="84" width="340" height="165" rx="6" fill="#0a1a14" stroke="#1e4a1e"/>
+  <text x="200" y="106" text-anchor="middle" fill="#58d68d" font-size="13" font-weight="bold">Mobile Deferred</text>
+  <text x="200" y="126" text-anchor="middle" fill="#888" font-size="10">适用场景: 多光源 | 高质量材质 | 反射需求</text>
+  <line x1="45" y1="136" x2="355" y2="136" stroke="#1e4a1e"/>
+  <text x="55" y="155" fill="#aaa" font-size="10">BasePass → 写入 GBuffer A/B/C (可选 D)</text>
+  <text x="55" y="172" fill="#aaa" font-size="10">Lighting Pass → Compute Shader / Subpass PS</text>
+  <text x="55" y="189" fill="#aaa" font-size="10">支持: 方向光 ×3 + 局部光 + 反射 + DFAO</text>
+  <text x="55" y="206" fill="#aaa" font-size="10">GBuffer格式: RT0=SceneColor, RT1=Normal+ShadingID, RT2=Spec+ORM</text>
+  <text x="55" y="223" fill="#aaa" font-size="10">优势: 多光源开销与几何复杂度解耦</text>
+
+  <!-- NO -->
+  <line x1="463" y1="48" x2="600" y2="80" stroke="#ce9178" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="530" y="68" text-anchor="middle" fill="#ce9178" font-size="10">NO</text>
+
+  <rect x="430" y="84" width="340" height="165" rx="6" fill="#0a1620" stroke="#1e3a5f"/>
+  <text x="600" y="106" text-anchor="middle" fill="#5dade2" font-size="13" font-weight="bold">Mobile Forward</text>
+  <text x="600" y="126" text-anchor="middle" fill="#888" font-size="10">适用场景: 单方向光 | 低开销 | 快速渲染</text>
+  <line x1="445" y1="136" x2="755" y2="136" stroke="#1e3a5f"/>
+  <text x="455" y="155" fill="#aaa" font-size="10">BasePass → 直接输出 SceneColor (单次着色)</text>
+  <text x="455" y="172" fill="#aaa" font-size="10">Lighting = 内联在 Pixel Shader 中计算</text>
+  <text x="455" y="189" fill="#aaa" font-size="10">支持: CSM + 方向光 + Lightmap + Modulated Shadows</text>
+  <text x="455" y="206" fill="#aaa" font-size="10">可选: ClusteredLocalLights (Forward Clustered)</text>
+  <text x="455" y="223" fill="#aaa" font-size="10">优势: 内存开销极低, 无 GBuffer 带宽</text>
+</svg>
+</div>
+
+<p>关键判断依据:</p>
+<ul style="margin:8px 0 8px 24px;line-height:1.8;color:#aaa;font-size:13px">
+  <li><code>r.Mobile.ShadingPath</code> — 0=Forward, 1=Deferred</li>
+  <li>设备必须支持 <code>GSupportsShaderFramebufferFetch</code> 或 <code>GSupportsPixelLocalStorage</code> 或 <strong>Vulkan Subpass</strong></li>
+  <li>非 TBDR 架构 GPU (桌面模拟) 强制走 Deferred 多 Pass 模式</li>
+  <li>Forward 模式在 <code>RenderForwardSinglePass</code> 中通过 Subpass 链整合 BasePass + Decals + Fog + Translucency</li>
+</ul>
+</div>
+</section>
+
+<!-- ===================================================================== SECTION 3 ===================================================================== -->
+<section id="s3">
+<h2>3. 执行流程 / 数据流</h2>
+<div class="card">
+<h3>Mobile Render() 简化管线流程</h3>
+
+<div class="diagram">
+<svg width="880" height="620" viewBox="0 0 880 620">
+  <defs>
+    <linearGradient id="stageGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a24;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#0a0a0f;stop-opacity:1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 时间轴竖线 -->
+  <line x1="80" y1="20" x2="80" y2="600" stroke="#1e1e2a" stroke-width="2" stroke-dasharray="6,4"/>
+
+  <!-- Stage 1 -->
+  <circle cx="80" cy="40" r="6" fill="#4FC3F7" stroke="#0a0a0f" stroke-width="2"/>
+  <rect x="110" y="22" width="220" height="34" rx="5" fill="url(#stageGrad)" stroke="#1e1e2a"/>
+  <text x="120" y="44" fill="#e0e0e0" font-size="12" font-weight="bold">1. InitViews() 可见性计算</text>
+
+  <rect x="350" y="22" width="510" height="34" rx="4" fill="#09090d" stroke="#1e1e2a" stroke-dasharray="2,2"/>
+  <text x="365" y="44" fill="#666" font-size="11">Frustum/Occlusion Culling → CustomDepth检查 → ShadowInit → 分配 SceneTextures</text>
+
+  <!-- Stage 2 -->
+  <circle cx="80" cy="105" r="6" fill="#5dade2" stroke="#0a0a0f" stroke-width="2"/>
+  <rect x="110" y="87" width="220" height="34" rx="5" fill="url(#stageGrad)" stroke="#1e1e2a"/>
+  <text x="120" y="109" fill="#e0e0e0" font-size="12" font-weight="bold">2. RenderShadowDepthMaps()</text>
+
+  <rect x="350" y="87" width="510" height="34" rx="4" fill="#09090d" stroke="#1e1e2a" stroke-dasharray="2,2"/>
+  <text x="365" y="109" fill="#666" font-size="11">CSM / InsetShadows → GPU Scene更新 → ShadowDepth RT</text>
+
+  <!-- Stage 3 -->
+  <circle cx="80" cy="172" r="6" fill="#5dade2" stroke="#0a0a0f" stroke-width="2"/>
+  <rect x="110" y="154" width="220" height="34" rx="5" fill="url(#stageGrad)" stroke="#1e1e2a"/>
+  <text x="120" y="176" fill="#e0e0e0" font-size="12" font-weight="bold">3. RenderFullDepthPrepass()</text>
+
+  <rect x="350" y="154" width="510" height="34" rx="4" fill="#09090d" stroke="#1e1e2a" stroke-dasharray="2,2"/>
+  <text x="365" y="176" fill="#666" font-size="11">可选 (DDM_AllOpaque) → 全量不透明深度预写 → HZB Build → AO可用</text>
+
+  <!-- Stage 4 -->
+  <circle cx="80" cy="239" r="6" fill="#58d68d" stroke="#0a0a0f" stroke-width="2"/>
+  <rect x="110" y="221" width="220" height="34" rx="5" fill="url(#stageGrad)" stroke="#1e1e2a"/>
+  <text x="120" y="243" fill="#e0e0e0" font-size="12" font-weight="bold">4. MobileBasePass</text>
+
+  <rect x="350" y="221" width="510" height="34" rx="4" fill="#09090d" stroke="#1e1e2a" stroke-dasharray="2,2"/>
+  <text x="365" y="243" fill="#666" font-size="11">Forward: BasePass → Direct SceneColor | Deferred: BasePass → GBuffer A/B/C</text>
+
+  <!-- Stage 5 分支 -- Forward -->
+  <circle cx="80" cy="306" r="6" fill="#dcdcaa" stroke="#0a0a0f" stroke-width="2"/>
+  <rect x="110" y="288" width="220" height="34" rx="5" fill="url(#stageGrad)" stroke="#1e1e2a"/>
+  <text x="120" y="310" fill="#e0e0e0" font-size="12" font-weight="bold">5a. MobileDeferredLighting</text>
+
+  <rect x="350" y="288" width="245" height="34" rx="4" fill="#0a1a14" stroke="#1e4a1e"/>
+  <text x="360" y="310" fill="#58d68d" font-size="10">Deferred: 方向光 ×3 → 局部光 → SkyLight+Reflection+SSR</text>
+  <text x="350" y="330" fill="#666" font-size="9">GBuffer → InputAttachment (Vulkan Subpass) / FBF (iOS) / PLS (GLES)</text>
+
+  <!-- Stage 5b -- Forward subpass -->
+  <rect x="610" y="288" width="250" height="34" rx="4" fill="#0a1620" stroke="#1e3a5f"/>
+  <text x="620" y="310" fill="#5dade2" font-size="10">Forward Subpass: Decals + Shadows + Fog</text>
+  <text x="610" y="330" fill="#666" font-size="9">NextSubpass() → DepthRead → ColorWrite</text>
+
+  <!-- Stage 6 -->
+  <circle cx="80" cy="380" r="6" fill="#ce9178" stroke="#0a0a0f" stroke-width="2"/>
+  <rect x="110" y="362" width="220" height="34" rx="5" fill="url(#stageGrad)" stroke="#1e1e2a"/>
+  <text x="120" y="384" fill="#e0e0e0" font-size="12" font-weight="bold">6. Translucency</text>
+
+  <rect x="350" y="362" width="510" height="34" rx="4" fill="#09090d" stroke="#1e1e2a" stroke-dasharray="2,2"/>
+  <text x="365" y="384" fill="#666" font-size="11">标准半透明 / SeparateTranslucency / SingleLayerWater / Distortion</text>
+
+  <!-- Stage 7 -->
+  <circle cx="80" cy="448" r="6" fill="#ce9178" stroke="#0a0a0f" stroke-width="2"/>
+  <rect x="110" y="430" width="220" height="34" rx="5" fill="url(#stageGrad)" stroke="#1e1e2a"/>
+  <text x="120" y="452" fill="#e0e0e0" font-size="12" font-weight="bold">7. PostProcess</text>
+
+  <rect x="350" y="430" width="510" height="34" rx="4" fill="#09090d" stroke="#1e1e2a" stroke-dasharray="2,2"/>
+  <text x="365" y="452" fill="#666" font-size="11">Bloom → LightShaft → DOF → Tonemap (inline Subpass或独立Pass) → TAA</text>
+
+  <!-- Stage 8 -->
+  <circle cx="80" cy="516" r="6" fill="#909090" stroke="#0a0a0f" stroke-width="2"/>
+  <rect x="110" y="498" width="220" height="34" rx="5" fill="url(#stageGrad)" stroke="#1e1e2a"/>
+  <text x="120" y="520" fill="#e0e0e0" font-size="12" font-weight="bold">8. CopyToTarget &amp; Finish</text>
+
+  <rect x="350" y="498" width="510" height="34" rx="4" fill="#09090d" stroke="#1e1e2a" stroke-dasharray="2,2"/>
+  <text x="365" y="520" fill="#666" font-size="11">CopySceneCaptureComponentToTarget → SceneTexture 提取 → RenderFinish</text>
+
+  <!-- VR 分支标注 -->
+  <rect x="110" y="550" width="750" height="34" rx="4" fill="#0a0a0e" stroke="#333" stroke-dasharray="3,3"/>
+  <text x="125" y="570" fill="#555" font-size="11">[VR 分支] StereoMotionVectors → InstancedStereo MultiView → OpenXR MotionVector 输出</text>
+
+  <!-- 箭头 -->
+  <line x1="79" y1="46" x2="79" y2="100" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="79" y1="112" x2="79" y2="167" stroke="#5dade2" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="79" y1="179" x2="79" y2="234" stroke="#5dade2" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="79" y1="246" x2="79" y2="301" stroke="#58d68d" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="79" y1="312" x2="79" y2="375" stroke="#dcdcaa" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="79" y1="387" x2="79" y2="443" stroke="#ce9178" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="79" y1="455" x2="79" y2="511" stroke="#ce9178" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="79" y1="523" x2="79" y2="550" stroke="#909090" stroke-width="1.5" marker-end="url(#arrow)"/>
+</svg>
+<p style="margin-top:12px;color:#666;font-size:12px">图 3-1: FMobileSceneRenderer::Render() 管线时序图</p>
+</div>
+</div>
+
+<div class="card">
+<h3>关键数据流</h3>
+<table>
+<thead><tr><th>阶段</th><th>输入资源</th><th>输出资源</th><th>TBDR 行为</th></tr></thead>
+<tbody>
+<tr>
+  <td>DepthPrePass</td>
+  <td>—</td>
+  <td><code>SceneDepth (R32F)</code></td>
+  <td>Tile Memory 保留 Depth</td>
+</tr>
+<tr>
+  <td>MobileBasePass</td>
+  <td>Depth, Lightmap, ReflectionCapture</td>
+  <td><code>SceneColor + [GBuffer A/B/C]</code></td>
+  <td>Forward: Depth Load + Color Write<br/>Deferred: RT0~3 Write</td>
+</tr>
+<tr>
+  <td>Decals (Subpass)</td>
+  <td>Depth (Input)</td>
+  <td>Modify SceneColor/GBuffer</td>
+  <td><code>NextSubpass()</code>, Depth Read-Only</td>
+</tr>
+<tr>
+  <td>Deferred Lighting</td>
+  <td>GBuffer A/B/C + Depth (Input Attachments)</td>
+  <td>SceneColor</td>
+  <td>Tile Memory 直接读 GBuffer, 零写回带宽</td>
+</tr>
+<tr>
+  <td>Translucency</td>
+  <td>SceneColor + Depth</td>
+  <td>SceneColor (Blend)</td>
+  <td>Color Attachment Load/Store</td>
+</tr>
+<tr>
+  <td>Tonemap (Inline)</td>
+  <td>SceneColor (MSAA)</td>
+  <td>BackBuffer (Resolve)</td>
+  <td>MSAA Resolve + Tonemap 合并在最终 Subpass</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<!-- ===================================================================== SECTION 4 ===================================================================== -->
+<section id="s4">
+<h2>4. 设计决策 &amp; 权衡</h2>
+
+<h3 id="s4-1">4.1 MSAA vs TAA 的移动端选择</h3>
+<div class="card">
+<p>移动端在抗锯齿方案上与桌面端有本质不同的考量:</p>
+<table>
+<thead><tr><th>维度</th><th>MSAA (硬件)</th><th>TAA / TSR (时序)</th></tr></thead>
+<tbody>
+<tr><td>内存开销</td><td>2x/4x MSAA: 颜色+深度缓冲区倍增<br/><span class="tag tag-green">TBDR Memoryless 可大幅缓解</span></td><td>仅需 1 个历史帧缓冲</td></tr>
+<tr><td>GPU 开销</td><td>Tile Memory 中完成, 额外带宽小</td><td>额外 Compute Pass + 历史纹理采样</td></tr>
+<tr><td>画质</td><td>对几何边缘有效, 对 Shader 锯齿无效</td><td>全面抗锯齿, 但可能引入 Ghosting</td></tr>
+<tr><td>UE5.8 默认</td><td><code>NumMSAASamples</code> = 设备默认 (通常 4x)</td><td><code>AAM_TemporalAA</code> / <code>AAM_TSR</code></td></tr>
+<tr><td>代码位置</td><td><code>FMobileSceneRenderer()</code> L435: <code>GetDefaultMSAACount(ES3_1)</code></td><td><code>bKeepDepthContent</code> 引用于 L703: 需要历史深度</td></tr>
+</tbody>
+</table>
+
+<p>关键代码:</p>
+<pre><code><span class="line">// MobileShadingRenderer.cpp:435 — 获取 MSAA 采样数</span>
+<span class="line"><span class="kw">NumMSAASamples</span> = <span class="fn">GetDefaultMSAACount</span>(<span class="tp">ERHIFeatureLevel::ES3_1</span>);</span>
+<span class="line"></span>
+<span class="line">// MobileShadingRenderer.cpp:745 — Memoryless MSAA 优化</span>
+<span class="line"><span class="tp">SceneTexturesConfig</span>.<span class="kw">bMemorylessMSAA</span> = !(<span class="kw">bRequiresMultiPass</span> || <span class="kw">bShouldCompositeEditorPrimitives</span> || <span class="kw">bRequireSeparateViewPass</span>);</span>
+<span class="line"></span>
+<span class="line">// MobileBasePassRendering.cpp:77 — TAA 启用时保留深度</span>
+<span class="line"><span class="co">// Views[0].AntiAliasingMethod == AAM_TemporalAA → bKeepDepthContent = true (L703)</span></span>
+</code></pre>
+</div>
+
+<h3 id="s4-2">4.2 Shader 精度 (half vs float) 的带宽优化策略</h3>
+<div class="card">
+<p>移动端 GPU 的 <strong>half (fp16)</strong> 运算吞吐通常是 fp32 的 2~4 倍，且寄存器压力和带宽减半。UE5.8 通过多种机制利用这一特性:</p>
+
+<table>
+<thead><tr><th>机制</th><th>源码</th><th>效果</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>SceneDepthAux 格式</strong></td>
+  <td><code>r.Mobile.SceneDepthAux</code><br/>MobileBasePassRendering.cpp:54</td>
+  <td>1=16F (默认), 2=32F — 移动端优先 16F</td>
+</tr>
+<tr>
+  <td><strong>PropagateAlpha</strong></td>
+  <td><code>r.Mobile.PropagateAlpha</code> L62</td>
+  <td>控制 Alpha 通道是否穿透半透明链</td>
+</tr>
+<tr>
+  <td><strong>GBuffer 紧凑格式</strong></td>
+  <td>GBufferA: RGBA8 (Normal+ShadingModelID)<br/>GBufferB: RGBA8 (Specular+Roughness+Metallic)<br/>GBufferC: RGBA8 (BaseColor+AO)</td>
+  <td>全部 8-bit 每通道, 对比桌面 16/32-bit</td>
+</tr>
+<tr>
+  <td><strong>HWsRGB</strong></td>
+  <td><code>r.Mobile.UseHWsRGBEncoding</code> L94</td>
+  <td>GPU 硬件自动处理 sRGB 转换, 避免 Shader 手动计算</td>
+</tr>
+<tr>
+  <td><strong>Half 精度材质变量</strong></td>
+  <td>Material Quality Level (见 4.3)</td>
+  <td>编译时 <code>real</code> → <code>half</code> 置换</td>
+</tr>
+</tbody>
+</table>
+
+<pre><code><span class="line">// MobileBasePassRendering.cpp:207-213 — 编译时精度控制</span>
+<span class="line"><span class="fn">MobileBasePassModifyCompilationEnvironment</span>(...) {</span>
+<span class="line">    <span class="tp">OutEnvironment</span>.<span class="fn">SetDefine</span>(<span class="str">"OUTPUT_GAMMA_SPACE"</span>, !<span class="kw">bMobileHDR</span> &amp;&amp; !<span class="kw">bMobileUseHWsRGBEncoding</span>);</span>
+<span class="line">    <span class="tp">OutEnvironment</span>.<span class="fn">SetDefine</span>(<span class="str">"OUTPUT_MOBILE_HDR"</span>, <span class="kw">bMobileHDR</span> ? <span class="num">1u</span> : <span class="num">0u</span>);</span>
+<span class="line">}</span>
+</code></pre>
+</div>
+
+<h3 id="s4-3">4.3 Mobile Material Quality Level 的分层</h3>
+<div class="card">
+<p><code>MobileBasePassRendering.cpp:238-253</code> 实现了材质质量级别覆盖系统, 通过 <code>ModifyCompilationEnvironmentForQualityLevel</code> 在 Shader 编译时注入不同定义:</p>
+
+<table>
+<thead><tr><th>Quality Override</th><th>Define</th><th>效果</th></tr></thead>
+<tbody>
+<tr><td>ForceFullyRough</td><td><code>MOBILE_QL_FORCE_FULLY_ROUGH</code></td><td>强制 Roughness=1, 跳过复杂光照</td></tr>
+<tr><td>ForceNonMetal</td><td><code>MOBILE_QL_FORCE_NONMETAL</code></td><td>强制 Metallic=0</td></tr>
+<tr><td>DisableLMDirectionality</td><td><code>QL_FORCEDISABLE_LM_DIRECTIONALITY</code></td><td>禁用 Lightmap 方向性</td></tr>
+<tr><td>DisablePreintegratedGF</td><td><code>MOBILE_QL_FORCE_DISABLE_PREINTEGRATEDGF</code></td><td>禁用预积分环境 BRDF 贴图</td></tr>
+<tr><td>MobileShadowQuality</td><td><code>MOBILE_SHADOW_QUALITY</code></td><td>阴影质量等级 (0~3)</td></tr>
+<tr><td>DisableMaterialNormal</td><td><code>MOBILE_QL_DISABLE_MATERIAL_NORMAL</code></td><td>禁用材质法线, 使用几何法线</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="s4-4">4.4 TBDR 架构下避免 Pixel Shader 中的 RenderTarget 切换</h3>
+<div class="card">
+<p>传统即时模式渲染器 (IMR) 可以在单 Pass 内频繁切换 RenderTarget, 但 TBDR 架构下 RT 切换会触发 <strong>Tile Memory 刷新到 System Memory</strong>, 极大消耗带宽。UE5.8 的解决方案:</p>
+
+<ol style="margin:8px 0 8px 24px;line-height:2;color:#aaa;font-size:13px">
+  <li><strong>Subpass 链式编排</strong>: 在一个 RenderPass 内通过 <code>NextSubpass()</code> 切换逻辑阶段, GPU 保持在同一个 Tile 中处理, 无需写回。
+
+  <div class="code-wrapper" style="margin:8px 0">
+    <div class="code-header"><span class="file">MobileShadingRenderer.cpp:2254-2265 — Forward Single Pass 内的 Subpass 切换</span></div>
+    <pre><code><span class="line"><span class="fn">RenderMobileBasePass</span>(RHICmdList, View, ...); <span class="co">// Subpass 0: 写入 SceneColor</span></span>
+<span class="line"><span class="fn">PostRenderBasePass</span>(RHICmdList, View);</span>
+<span class="line"><span class="fn">RHICmdList.NextSubpass</span>();                        <span class="co">// 切换 Subpass, 不刷新 Tile Memory</span></span>
+<span class="line"><span class="fn">RenderDecals</span>(RHICmdList, View, ...);              <span class="co">// Subpass 1: 读取 Depth, 写入 SceneColor</span></span>
+<span class="line"><span class="fn">RenderModulatedShadowProjections</span>(RHICmdList, ...);</span>
+<span class="line"><span class="fn">RenderFog</span>(RHICmdList, View);</span>
+<span class="line"><span class="fn">RenderTranslucency</span>(RHICmdList, View, ...);        <span class="co">// Subpass 1 继续: 半透明混合</span></span>
+</code></pre>
+  </div>
+  </li>
+
+  <li><strong>InputAttachment</strong>: Vulkan Deferred Subpass 中, Lighting Pass 通过 <code>subpassLoad</code> 读取 GBuffer, 而非绑定为 Texture。这利用 Tile Memory 的零延迟读取。
+
+  <div class="code-wrapper" style="margin:8px 0">
+    <div class="code-header"><span class="file">VulkanRenderpass.h:694-738 — Deferred Subpass 2 的 InputAttachment 配置</span></div>
+    <pre><code><span class="line"><span class="co">// Subpass 2: 从 Subpass 1 的 GBuffer 和 Depth 读取</span></span>
+<span class="line"><span class="tp">InputAttachments2</span>[<span class="num">0</span>].<span class="kw">attachment</span> = <span class="pp">DepthInputAttachment</span>;   <span class="co">// Depth as Input0</span></span>
+<span class="line"><span class="tp">InputAttachments2</span>[<span class="num">2</span>].<span class="kw">attachment</span> = <span class="tp">ColorAttachmentReferences</span>[<span class="num">1</span>].<span class="kw">attachment</span>; <span class="co">// GBufferA</span></span>
+<span class="line"><span class="tp">InputAttachments2</span>[<span class="num">3</span>].<span class="kw">attachment</span> = <span class="tp">ColorAttachmentReferences</span>[<span class="num">2</span>].<span class="kw">attachment</span>; <span class="co">// GBufferB</span></span>
+<span class="line"><span class="tp">InputAttachments2</span>[<span class="num">4</span>].<span class="kw">attachment</span> = <span class="tp">ColorAttachmentReferences</span>[<span class="num">3</span>].<span class="kw">attachment</span>; <span class="co">// GBufferC</span></span>
+</code></pre>
+  </div>
+  </li>
+
+  <li><strong>Memoryless RenderTarget</strong>: <code>bMemorylessMSAA</code> (L745) 控制 MSAA 颜色目标完全在 Tile Memory 中, 不分配系统内存。条件: 单 Pass 渲染 + 非编辑器。
+  </li>
+
+  <li><strong>Depth Store 优化</strong>: 无需后处理的 Depth 目标标记 <code>STORE_OP_DONT_CARE</code>, <code>bKeepDepthContent</code> (L696) 决定是否保留。</li>
+</ol>
+</div>
+</section>
+
+<!-- ===================================================================== SECTION 5 ===================================================================== -->
+<section id="s5">
+<h2>5. 底层实现关联</h2>
+
+<h3>5.1 MobileShadingRenderer.cpp 主循环</h3>
+<div class="card">
+<p><code>FMobileSceneRenderer::Render()</code> (L1181) 是整个移动端渲染的入口, ~800 行代码编排完整帧:</p>
+<pre><code><span class="line"><span class="co">// MobileShadingRenderer.cpp:1181-1955 — Render() 主入口结构</span></span>
+<span class="line"><span class="kw">void</span> <span class="tp">FMobileSceneRenderer</span>::<span class="fn">Render</span>(<span class="tp">FRDGBuilder</span>&amp; <span class="kw">GraphBuilder</span>, ...) {</span>
+<span class="line">    <span class="co">// 1. 帧前准备</span></span>
+<span class="line">    <span class="fn">OnRenderBegin</span>(GraphBuilder, SceneUpdateInputs);</span>
+<span class="line">    <span class="fn">InitViews</span>(GraphBuilder, SceneTexturesConfig, InstanceCullingManager, ...);</span>
+<span class="line"></span>
+<span class="line">    <span class="co">// 2. 阴影 &amp; 自定义深度</span></span>
+<span class="line">    <span class="fn">RenderShadowDepthMaps</span>(GraphBuilder, ...);</span>
+<span class="line">    <span class="fn">RenderCustomDepthPass</span>(GraphBuilder, ...);</span>
+<span class="line"></span>
+<span class="line">    <span class="co">// 3. 深度预通道 (可选)</span></span>
+<span class="line">    <span class="kw">if</span> (bIsFullDepthPrepassEnabled) <span class="fn">RenderFullDepthPrepass</span>(...);</span>
+<span class="line"></span>
+<span class="line">    <span class="co">// 4. AO &amp; DFAO &amp; Shadow Projections</span></span>
+<span class="line">    <span class="fn">RenderAmbientOcclusion</span>(...);</span>
+<span class="line">    <span class="fn">RenderDistanceFieldLighting</span>(...);</span>
+<span class="line">    <span class="fn">RenderMobileShadowProjections</span>(...);</span>
+<span class="line"></span>
+<span class="line">    <span class="co">// 5. 主渲染 — 关键分支</span></span>
+<span class="line">    <span class="kw">if</span> (bDeferredShading) {</span>
+<span class="line">        <span class="kw">if</span> (bRequiresMultiPass) <span class="fn">RenderDeferredMultiPass</span>(...);</span>
+<span class="line">        <span class="kw">else</span>                   <span class="fn">RenderDeferredSinglePass</span>(...);</span>
+<span class="line">    } <span class="kw">else</span> {</span>
+<span class="line">        <span class="fn">RenderForward</span>(...);</span>
+<span class="line">    }</span>
+<span class="line"></span>
+<span class="line">    <span class="co">// 6. 后处理 &amp; 输出</span></span>
+<span class="line">    <span class="fn">AddMobilePostProcessingPasses</span>(...);</span>
+<span class="line">    <span class="fn">CopySceneCaptureComponentToTarget</span>(...);</span>
+<span class="line">    <span class="fn">OnRenderFinish</span>(...);</span>
+<span class="line">}</span>
+</code></pre>
+</div>
+
+<h3>5.2 MobileBasePass 的简化 GBuffer 格式</h3>
+<div class="card">
+<p>移动端延迟渲染的 GBuffer 与桌面端有显著差异 (<code>GetColorTargets_Deferred</code>, L2545):</p>
+
+<table>
+<thead><tr><th>RenderTarget</th><th>移动端格式</th><th>桌面端格式</th><th>通道编码</th></tr></thead>
+<tbody>
+<tr><td><strong>RT0 (SceneColor)</strong></td><td><code>PF_FloatR11G11B10</code> 或 <code>PF_R8G8B8A8</code></td><td><code>PF_FloatRGBA</code></td><td>HDR 场景颜色</td></tr>
+<tr><td><strong>RT1 (GBufferA)</strong></td><td><code>PF_R8G8B8A8</code></td><td><code>PF_R8G8B8A8</code> + CustomData</td><td>Normal.xy (Octahedron) + ShadingModelID + PerObjectData</td></tr>
+<tr><td><strong>RT2 (GBufferB)</strong></td><td><code>PF_R8G8B8A8</code></td><td><code>PF_R8G8B8A8</code></td><td>Specular + Roughness + Metallic + AO</td></tr>
+<tr><td><strong>RT3 (GBufferC)</strong></td><td><code>PF_R8G8B8A8</code></td><td><code>PF_B8G8R8A8</code></td><td>BaseColor + IndirectIrradiance</td></tr>
+<tr><td><strong>RT4 (GBufferD)</strong></td><td>可选 <code>MobileUsesExtendedGBuffer</code></td><td>存在</td><td>CustomData / PrecomputedShadowFactor</td></tr>
+<tr><td><strong>RT5+</strong></td><td>不存在</td><td>GBufferE + Velocity + ...</td><td>—</td></tr>
+</tbody>
+</table>
+
+<p>移动端最多 4 个 Color Target + Depth, 远少于桌面端的 8+ 个, 显著减少 TBDR Tile Memory 压力。</p>
+</div>
+
+<h3>5.3 Vulkan Mobile Subpass 和 RenderPass 创建</h3>
+<div class="card">
+<p><code>VulkanRenderpass.h</code> 中的 <code>FVulkanRenderPassBuilder</code> 根据 <code>ESubpassHint</code> 决定 Subpass 编排:</p>
+
+<table>
+<thead><tr><th>ESubpassHint</th><th>Subpass 数量</th><th>典型用途</th></tr></thead>
+<tbody>
+<tr><td><code>None</code></td><td>1</td><td>简单 Pass / 深度预通道 / 独立 Pass</td></tr>
+<tr><td><code>DepthReadSubpass</code></td><td>2</td><td>Mobile Forward: BasePass → Shadows/Fog/Decals 子 Pass</td></tr>
+<tr><td><code>DeferredShadingSubpass</code></td><td>3</td><td>Mobile Deferred: BasePass → Decals(Subpass1) → Lighting(Subpass2) → Fog+Translucency(Subpass3)</td></tr>
+<tr><td><code>CustomResolveSubpass</code></td><td>3</td><td>BasePass → DepthRead → Inline Tonemap + MSAA Resolve</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>5.4 MobileDeferredShadingPass 的光照编排</h3>
+<div class="card">
+<p><code>MobileDeferredShadingPass()</code> 是延迟光照的主入口 (L1222-1285), 光照渲染顺序为:</p>
+<pre><code><span class="line"><span class="co">// MobileDeferredShadingPass.cpp:1230-1285</span></span>
+<span class="line"><span class="co">// 1. 方向光 (最多 3 个 LightingChannel)</span></span>
+<span class="line"><span class="kw">int</span> <span class="kw">NumDirLights</span> = <span class="fn">RenderDirectionalLights</span>(...);</span>
+<span class="line"><span class="kw">if</span> (NumDirLights == <span class="num">1</span> &amp;&amp; !<span class="kw">bPrimitivesUseLightingChannels</span>) {</span>
+<span class="line">    <span class="co">// 优化: 反射/天空光内联到方向光 Pass (减少一次全屏 Pass)</span></span>
+<span class="line">    <span class="kw">bInlineReflectionAndSky</span> = <span class="kw">true</span>;</span>
+<span class="line">} <span class="kw">else</span> {</span>
+<span class="line">    <span class="co">// 独立渲染反射环境 + 天空光</span></span>
+<span class="line">    <span class="fn">RenderReflectionEnvironmentSkyLighting</span>(...);</span>
+<span class="line">}</span>
+<span class="line"></span>
+<span class="line"><span class="co">// 2. 局部光源 (点光源 / 聚光灯 / 矩形光)</span></span>
+<span class="line"><span class="kw">for</span> (LightIdx ...) { <span class="fn">RenderLocalLight</span>(...); }</span>
+<span class="line"></span>
+<span class="line"><span class="co">// 3. 简单光源 (粒子光)</span></span>
+<span class="line"><span class="fn">RenderSimpleLights</span>(...);</span>
+</code></pre>
+</div>
+</section>
+
+<!-- ===================================================================== SECTION 6 ===================================================================== -->
+<section id="s6">
+<h2>6. UE5.8 演进变化</h2>
+
+<div class="card">
+<h3>6.1 Mobile Lumen Lite <span class="tag tag-green">5.8 新特性</span></h3>
+<p>
+UE5.8 为移动端引入了 <strong>Lumen Lite</strong>——这是 Lumen GI 在高性能移动设备上的精简版本。与桌面端完整 Lumen 相比, Lumen Lite 裁剪了 Surface Cache 多层更新和 ReSTIR Gather, 仅保留核心的 Radiance Cache + Screen Probe 简化计算。
+</p>
+<ul style="margin:8px 0 8px 24px;line-height:1.8;color:#aaa;font-size:13px">
+  <li>启用条件: <code>r.Lumen.DiffuseIndirect.Allow=1</code> + 设备支持 (高端 Adreno/Apple GPU)</li>
+  <li>CLAUDE.md 中列为 <code>✅ 新增 (5.8)</code> 特性</li>
+  <li>与 Mobile Deferred 渲染路径深度集成</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>6.2 Mobile VSM 进展</h3>
+<p>
+UE5.8 继续推进 Mobile VSM (Virtual Shadow Maps) 的适配工作。在 <code>MobileShadingRenderer.cpp</code> 中可以观察到 VSM 的初始化代码已完整保留 (L1310):
+</p>
+<pre><code><span class="line"><span class="co">// MobileShadingRenderer.cpp:1310</span></span>
+<span class="line"><span class="tp">VirtualShadowMapArray</span>.<span class="fn">Initialize</span>(GraphBuilder,</span>
+<span class="line">    <span class="tp">Scene</span>-&gt;<span class="fn">GetVirtualShadowMapCache</span>(),</span>
+<span class="line">    <span class="fn">UseVirtualShadowMaps</span>(<span class="kw">ShaderPlatform</span>, <span class="kw">FeatureLevel</span>),</span>
+<span class="line">    <span class="kw">ViewFamily</span>.<span class="kw">EngineShowFlags</span>);</span>
+</code></pre>
+<p>当前 Mobile VSM 处于实验阶段, 主要通过 CSM 过渡, 未来版本将完整替换。</p>
+</div>
+
+<div class="card">
+<h3>6.3 SceneColor 压缩优化</h3>
+<p>
+5.8 中强化了移动端 SceneColor 格式的自动选择逻辑。在不渲染到 SceneColor (即直接输出到 Swapchain) 时, 使用 <code>PF_R8G8B8A8</code> 或 <code>PF_FloatR11G11B10</code> 格式以节省带宽。手机 OLED 的 <code>bGammaSpace</code> 通道控制 LDR 输出路径。
+</p>
+</div>
+
+<div class="card">
+<h3>6.4 Mobile TSR (Temporal Super Resolution)</h3>
+<p>
+Mobile TSR 是 UE5.8 向移动端引入的时序超分辨率技术, 对标桌面端 TSR 但做了显著的性能裁剪:
+</p>
+<ul style="margin:8px 0 8px 24px;line-height:1.8;color:#aaa;font-size:13px">
+  <li>与 Mobile TAA 共享历史帧缓冲 (<code>TemporalAAHistory.RT[0]</code>)</li>
+  <li><code>MobileSSR.cpp:124</code> — 通过 <code>View.AntiAliasingMethod</code> 判断使用 TSR noise pattern</li>
+  <li><code>bKeepDepthContent = true</code> 当 AA 为 <code>AAM_TemporalAA</code> 或 <code>AAM_TSR</code></li>
+</ul>
+</div>
+
+<div class="card">
+<h3>6.5 5.8 关键改进汇总</h3>
+<table>
+<thead><tr><th>特性</th><th>状态</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><span class="tag tag-green">NEW</span> Mobile Lumen Lite</td><td>正式</td><td>简化版 Lumen GI</td></tr>
+<tr><td><span class="tag tag-orange">WIP</span> Mobile VSM</td><td>实验</td><td>虚拟阴影贴图移动端适配</td></tr>
+<tr><td><span class="tag tag-green">NEW</span> TonemapSubpass VkInline</td><td>正式</td><td>Vulkan tonemap 内联到 MSAA Resolve 阶段</td></tr>
+<tr><td><span class="tag tag-blue">UPD</span> Mobile SSR</td><td>增强</td><td><code>EMobileSSRQuality::Medium</code> 新增, 需要 Velocity 纹理</td></tr>
+<tr><td><span class="tag tag-orange">DEP</span> ClusteredDeferred (Mobile)</td><td>即将移除</td><td><code>r.Mobile.UseClusteredDeferredShading_ToBeRemoved</code> (5.7 标记, 5.8中仍存在)</td></tr>
+<tr><td><span class="tag tag-green">NEW</span> Substrate Mobile</td><td>正式</td><td>Substrate 框架移动端适配 (<code>BindSubstrateMobileForwardPasslUniformParameters</code>)</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<!-- ===================================================================== CVAR 速查表 ===================================================================== -->
+<section id="cvars">
+<h2>CVar 速查表</h2>
+<div class="card">
+<table class="cvar-table">
+<thead><tr><th>CVar</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td class="cvar-val">r.Mobile.ForceDepthResolve</td><td class="cvar-desc">0=渲染目标切换解决Depth (默认), 1=显式绘制解决</td></tr>
+<tr><td class="cvar-val">r.Mobile.AdrenoOcclusionMode</td><td class="cvar-desc">0=BasePass后做Occlusion查询 (默认), 1=Translucency后+flush (GL下的Adreno)</td></tr>
+<tr><td class="cvar-val">r.Mobile.CustomDepthForTranslucency</td><td class="cvar-desc">半透明材质使用自定深度/模板 (默认=1)</td></tr>
+<tr><td class="cvar-val">r.Mobile.DisableVertexFog</td><td class="cvar-desc">1=省略顶点雾 (默认), 改为独立雾Pass</td></tr>
+<tr><td class="cvar-val">r.Mobile.SceneDepthAux</td><td class="cvar-desc">1=16F格式 (默认), 2=32F格式</td></tr>
+<tr><td class="cvar-val">r.Mobile.PropagateAlpha</td><td class="cvar-desc">0=禁用, 1=启用Alpha通道传播</td></tr>
+<tr><td class="cvar-val">r.Mobile.TonemapSubpass</td><td class="cvar-desc">0=关闭 (默认), 1=启用内联Tonemap Subpass</td></tr>
+<tr><td class="cvar-val">r.Mobile.EnableCapsuleShadows</td><td class="cvar-desc">0=禁用 (默认), 1=启用胶囊体阴影</td></tr>
+<tr><td class="cvar-val">r.Mobile.UseHWsRGBEncoding</td><td class="cvar-desc">0=Shader内编码 (默认), 1=GPU硬件自动转换</td></tr>
+<tr><td class="cvar-val">r.Mobile.EnableMovableSpotlightsShadow</td><td class="cvar-desc">0=禁用 (默认), 1=启用可移动聚光阴影</td></tr>
+<tr><td class="cvar-val">r.Mobile.MaxVisibleMovableSpotLightShadows</td><td class="cvar-desc">可见可移动聚光阴影最大数量 (默认=8)</td></tr>
+<tr><td class="cvar-val">r.Mobile.ScreenSpaceReflections</td><td class="cvar-desc">0=禁用 (默认), 1=启用移动端SSR (需TAA)</td></tr>
+<tr><td class="cvar-val">r.Mobile.ScreenSpaceReflections.Intensity</td><td class="cvar-desc">SSR强度缩放 [-1=忽略, 0~1]</td></tr>
+<tr><td class="cvar-val">r.Mobile.DiffuseFromCapture</td><td class="cvar-desc">false=默认, true=ReflectionCapture替代SkyLight漫反射</td></tr>
+<tr><td class="cvar-val">r.Mobile.UseLightStencilCulling</td><td class="cvar-desc">0=禁用 (默认), 1=Stencil剔除局部光</td></tr>
+<tr><td class="cvar-val">r.Mobile.SupportInsetShadows</td><td class="cvar-desc">InsetShadow支持开关</td></tr>
+<tr><td class="cvar-val">r.Mobile.UseClusteredDeferredShading*</td><td class="cvar-desc"><span class="tag tag-orange">已弃用</span> 集群延迟着色将被移除</td></tr>
+<tr><td class="cvar-val">r.Mobile.AllowCapsuleLights</td><td class="cvar-desc">0=禁用, 1=允许胶囊光源 (默认)</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<!-- ========= 底部导航 ========= -->
+<div class="bottom-nav">
+  <a href="../实时光线追踪/index.html" class="prev">&lt; 上一章: 实时光线追踪</a>
+  <a href="#" class="next" aria-disabled="true">下一章: 待定 (返回首页)</a>
+</div>
+
+</main>
+
+<!-- ========= JS ========= -->
+<script>
+// 搜索过滤导航
+function filterNav() {
+  const q = document.getElementById('search').value.toLowerCase();
+  document.querySelectorAll('#nav-list li').forEach(li => {
+    const txt = li.textContent.toLowerCase();
+    li.style.display = q === '' || txt.includes(q) ? '' : 'none';
+  });
+}
+
+// 代码块复制按钮
+document.querySelectorAll('pre').forEach(pre => {
+  const wrapper = pre.parentElement;
+  const btn = document.createElement('button');
+  btn.className = 'copy-btn';
+  btn.textContent = '复制';
+  btn.onclick = () => {
+    const code = pre.textContent;
+    navigator.clipboard.writeText(code).then(() => {
+      btn.textContent = '已复制!';
+      setTimeout(() => btn.textContent = '复制', 1500);
+    });
+  };
+  wrapper.appendChild(btn);
+});
+
+// 滚动时高亮当前导航
+const navLinks = document.querySelectorAll('#nav-list a');
+const sections = Array.from(navLinks).map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+
+function updateActiveNav() {
+  let activeId = null;
+  sections.forEach(s => {
+    if (s.getBoundingClientRect().top <= 120) activeId = s.id;
+  });
+  navLinks.forEach(a => {
+    a.classList.toggle('active', a.getAttribute('href') === '#' + activeId);
+  });
+}
+
+window.addEventListener('scroll', updateActiveNav);
+updateActiveNav();
+</script>
+
+</body>
+</html>

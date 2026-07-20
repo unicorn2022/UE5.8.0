@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RHI 渲染硬件接口 - UE5.8.0 渲染架构</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --card-bg: #131318;
+  --code-bg: #09090d;
+  --primary: #4FC3F7;
+  --primary-dim: #2a7a9e;
+  --text: #e0e0e0;
+  --text-dim: #909090;
+  --border: #1e1e2a;
+  --accent-g: #66BB6A;
+  --accent-o: #FFA726;
+  --accent-r: #EF5350;
+  --accent-p: #AB47BC;
+  --nav-width: 260px;
+  --topbar-h: 48px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  line-height: 1.72;
+  font-size: 15px;
+}
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* 左侧导航 */
+#sidebar {
+  position: fixed; left: 0; top: 0; bottom: 0;
+  width: var(--nav-width); background: var(--card-bg);
+  border-right: 1px solid var(--border);
+  overflow-y: auto; z-index: 100;
+  padding: 16px 0;
+}
+#sidebar h3 {
+  padding: 0 20px 12px; font-size: 14px;
+  color: var(--primary); letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border); margin-bottom: 8px;
+}
+#sidebar nav a {
+  display: block; padding: 6px 20px; font-size: 13px;
+  color: var(--text-dim); transition: all 0.15s;
+  border-left: 2px solid transparent;
+}
+#sidebar nav a:hover, #sidebar nav a.active {
+  color: var(--primary); background: rgba(79,195,247,0.06);
+  border-left-color: var(--primary); text-decoration: none;
+}
+#sidebar nav a.sub { padding-left: 36px; font-size: 12.5px; }
+
+/* 顶部栏 */
+#topbar {
+  position: fixed; left: var(--nav-width); right: 0; top: 0;
+  height: var(--topbar-h); background: rgba(10,10,15,0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 24px; z-index: 99;
+}
+#topbar .breadcrumb { font-size: 12.5px; color: var(--text-dim); }
+#topbar .breadcrumb span { color: var(--primary); }
+#topbar .search-wrap { margin-left: auto; position: relative; }
+#topbar .search-wrap input {
+  background: var(--card-bg); border: 1px solid var(--border);
+  color: var(--text); padding: 6px 12px 6px 32px; border-radius: 4px;
+  font-size: 13px; width: 200px; outline: none;
+  transition: border-color 0.2s;
+}
+#topbar .search-wrap input:focus { border-color: var(--primary); }
+#topbar .search-wrap .search-icon {
+  position: absolute; left: 10px; top: 50%;
+  transform: translateY(-50%); color: var(--text-dim); font-size: 13px;
+}
+
+/* 主内容 */
+#content {
+  margin-left: var(--nav-width); margin-top: var(--topbar-h);
+  padding: 40px 48px; max-width: 1040px;
+}
+section { margin-bottom: 56px; }
+h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; color: #fff; }
+h2 { font-size: 24px; font-weight: 600; margin: 40px 0 16px;
+     padding-bottom: 8px; border-bottom: 1px solid var(--border); color: #fff; }
+h3 { font-size: 18px; font-weight: 600; margin: 28px 0 12px; color: var(--primary); }
+h4 { font-size: 15px; font-weight: 600; margin: 18px 0 8px; color: #ccc; }
+p { margin-bottom: 12px; color: var(--text-dim); }
+strong { color: var(--text); }
+
+/* 面包屑 */
+.src-path {
+  font-size: 12px; color: var(--text-dim); margin-bottom: 24px;
+  font-family: "JetBrains Mono","Cascadia Code","Consolas",monospace;
+}
+.src-path a { color: var(--primary-dim); }
+
+/* 架构图 SVG */
+.arch-svg {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 24px; margin: 16px 0;
+  text-align: center; overflow-x: auto;
+}
+
+/* 代码块 */
+.code-block {
+  position: relative; background: var(--code-bg);
+  border: 1px solid var(--border); border-radius: 6px;
+  margin: 14px 0; overflow: hidden;
+}
+.code-block .header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 14px; background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.code-block .header .lang { color: var(--primary); font-weight: 600; }
+.code-block .header .file { color: var(--text-dim); margin-left: 12px; }
+.code-block .copy-btn {
+  background: none; border: 1px solid var(--border); color: var(--text-dim);
+  padding: 2px 10px; border-radius: 3px; cursor: pointer; font-size: 11px;
+  transition: all 0.15s;
+}
+.code-block .copy-btn:hover { border-color: var(--primary); color: var(--primary); }
+.code-block .copy-btn.copied { border-color: var(--accent-g); color: var(--accent-g); }
+.code-block pre {
+  margin: 0; padding: 14px 14px 14px 0; counter-reset: line;
+  overflow-x: auto; font-size: 13px; line-height: 1.6;
+}
+.code-block pre .line {
+  display: block; counter-increment: line; padding-left: 54px;
+  position: relative; white-space: pre;
+}
+.code-block pre .line::before {
+  content: counter(line);
+  position: absolute; left: 0; width: 38px;
+  text-align: right; padding-right: 10px;
+  color: #555; font-size: 11px; user-select: none;
+}
+.code-block pre .line:hover { background: rgba(79,195,247,0.04); }
+
+/* 语法高亮 */
+.kw { color: #C792EA; }   /* 关键字 */
+.ty { color: #FFCB6B; }   /* 类型 */
+.fn { color: #82AAFF; }   /* 函数 */
+.str { color: #C3E88D; }  /* 字符串 */
+.cm { color: #676E95; font-style: italic; } /* 注释 */
+.nu { color: #F78C6C; }   /* 数字 */
+.ma { color: #89DDFF; }   /* 宏 */
+.pre { color: #C792EA; }  /* 预处理 */
+.op { color: #89DDFF; }   /* 操作符 */
+
+/* 卡片 */
+.card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin: 16px 0; }
+.card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+.card h4 { margin-top: 0; color: var(--primary); }
+.card p { font-size: 13.5px; }
+.card .tag {
+  display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px;
+  margin-right: 4px; font-weight: 600;
+}
+.tag-blue { background: rgba(79,195,247,0.15); color: var(--primary); }
+.tag-green { background: rgba(102,187,106,0.15); color: var(--accent-g); }
+.tag-orange { background: rgba(255,167,38,0.15); color: var(--accent-o); }
+
+/* 表格 */
+.table-wrap { overflow-x: auto; margin: 16px 0; }
+table {
+  width: 100%; border-collapse: collapse; font-size: 13.5px;
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px;
+}
+thead th {
+  background: rgba(79,195,247,0.08); color: var(--primary);
+  padding: 10px 14px; text-align: left; font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+tbody td {
+  padding: 9px 14px; border-bottom: 1px solid var(--border);
+  color: var(--text-dim); vertical-align: top;
+}
+tbody td:first-child { color: var(--text); font-family: "JetBrains Mono","Consolas",monospace; font-size: 12.5px; }
+tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+/* CVar 速查表 */
+.cvar-table tbody td:first-child { color: var(--accent-o); }
+.cvar-table tbody td:nth-child(2) { color: var(--accent-g); }
+
+/* 调用链 */
+.flow-list { padding-left: 20px; margin: 8px 0; list-style: none; }
+.flow-list li {
+  padding: 4px 0; color: var(--text-dim); font-size: 13.5px;
+  border-left: 2px solid var(--border); padding-left: 16px;
+}
+.flow-list li:hover { border-left-color: var(--primary); color: var(--text); }
+
+/* 对比卡片 */
+.compare-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+.compare-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 18px; }
+.compare-card.pro { border-left: 3px solid var(--accent-g); }
+.compare-card.con { border-left: 3px solid var(--accent-r); }
+.compare-card h4 { margin-top: 0; }
+.compare-card.pro h4 { color: var(--accent-g); }
+.compare-card.con h4 { color: var(--accent-r); }
+
+/* callout */
+.callout {
+  background: rgba(79,195,247,0.06); border-left: 3px solid var(--primary);
+  padding: 12px 16px; border-radius: 0 6px 6px 0; margin: 16px 0;
+  font-size: 13.5px; color: var(--text-dim);
+}
+.callout strong { color: var(--primary); }
+
+/* 底部导航 */
+#bottom-nav {
+  display: flex; justify-content: space-between;
+  margin: 48px 0 24px; padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+#bottom-nav a {
+  display: flex; flex-direction: column; font-size: 13px;
+}
+#bottom-nav a .label { font-size: 11px; color: var(--text-dim); }
+#bottom-nav a .title { color: var(--primary); font-weight: 600; }
+
+/* 高亮搜索匹配 */
+mark { background: rgba(255,167,38,0.35); color: inherit; border-radius: 2px; padding: 0 1px; }
+.hidden-section { display: none; }
+
+/* 响应式 */
+@media (max-width: 900px) {
+  #sidebar { display: none; }
+  #content { margin-left: 0; }
+  #topbar { left: 0; }
+}
+</style>
+</head>
+<body>
+
+<!-- 左侧导航 -->
+<div id="sidebar">
+  <h3>UE5.8 渲染架构</h3>
+  <nav>
+    <a href="#sec1">1. 概述与定位</a>
+    <a href="#sec2" class="sub">架构分层图</a>
+    <a href="#sec3">2. 顶层架构设计</a>
+    <a href="#sec3-1" class="sub">FDynamicRHI 接口</a>
+    <a href="#sec3-2" class="sub">FRHICommandList 命令缓冲</a>
+    <a href="#sec3-3" class="sub">纹理创建示例</a>
+    <a href="#sec3-4" class="sub">DrawCall 执行示例</a>
+    <a href="#sec4">3. 执行流程与数据流</a>
+    <a href="#sec4-1" class="sub">命令生命周期</a>
+    <a href="#sec4-2" class="sub">时序图</a>
+    <a href="#sec5">4. 设计决策与权衡</a>
+    <a href="#sec6">5. 底层实现关联</a>
+    <a href="#sec6-1" class="sub">双栏对照表</a>
+    <a href="#sec7">6. UE5.8 演进变化</a>
+    <a href="#sec8">CVar 速查表</a>
+  </nav>
+</div>
+
+<!-- 顶部栏 -->
+<div id="topbar">
+  <div class="breadcrumb">
+    UE5.8 渲染文档 / <span>RHI 渲染硬件接口</span>
+  </div>
+  <div class="search-wrap">
+    <span class="search-icon">&#x1F50D;</span>
+    <input type="text" id="sectionSearch" placeholder="搜索章节内容..." oninput="searchSections()">
+  </div>
+</div>
+
+<!-- 主内容 -->
+<div id="content">
+
+<h1>RHI 渲染硬件接口层</h1>
+<div class="src-path">
+  源码根路径：<a href="#">Engine/Source/Runtime/RHI/</a> &nbsp;|&nbsp;
+  核心文件：<a href="#">RHI.h</a> &middot;
+  <a href="#">DynamicRHI.h</a> &middot;
+  <a href="#">RHICommandList.h</a> &middot;
+  <a href="#">RHIResources.h</a> &middot;
+  <a href="#">RHIDefinitions.h</a>
+</div>
+
+<p>RHI（Render Hardware Interface）是 UE 渲染系统中<strong>承上启下</strong>的核心抽象层——向上为渲染器提供统一的 GPU 资源管理和绘制 API，向下将命令翻译到 DX12 / Vulkan / Metal 等平台原生接口。理解 RHI 才能理解 UE 如何用<strong>一套渲染代码跑遍所有平台</strong>。</p>
+
+<!-- ==================== 1. 概述与定位 ==================== -->
+<section id="sec1">
+<h2>1. 概述与定位</h2>
+
+<h3>为什么需要 RHI？</h3>
+<p>
+现代图形 API（D3D12、Vulkan、Metal）的设计理念差异巨大：D3D12 基于 Descriptor Heap + Command List 模型，Vulkan 使用 Descriptor Set + Command Buffer，Metal 则是 Argument Buffer + Command Encoder。如果没有抽象层，渲染代码将为每个平台写一套——维护成本以平台数指数级增长。
+</p>
+<p>
+UE 的策略是：<strong>将所有平台差异封装在 <code>FDynamicRHI</code> 虚接口背后</strong>。上层渲染器（延迟渲染管线、Nanite、Lumen 等）只面向统一的 RHI 命令列表编程，完全不感知底层是 DX12 还是 Vulkan。
+</p>
+
+<h3 id="sec2">RHI 分层架构</h3>
+<div class="arch-svg">
+<svg width="720" height="440" viewBox="0 0 720 440" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g-top" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#AB47BC;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#7C4DFF;stop-opacity:1"/>
+    </linearGradient>
+    <linearGradient id="g-mid" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#4FC3F7;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#0288D1;stop-opacity:1"/>
+    </linearGradient>
+    <linearGradient id="g-bot" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#66BB6A;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#43A047;stop-opacity:1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 上层渲染器 -->
+  <rect x="160" y="20" width="400" height="60" rx="6" fill="url(#g-top)" opacity="0.2"/>
+  <rect x="160" y="20" width="400" height="60" rx="6" fill="none" stroke="#AB47BC" stroke-width="1.5"/>
+  <text x="360" y="44" text-anchor="middle" fill="#CE93D8" font-size="14" font-weight="700">上层渲染器</text>
+  <text x="360" y="64" text-anchor="middle" fill="#AB47BC" font-size="11">DeferredShadingRenderer / Nanite / Lumen / MegaLights</text>
+
+  <!-- 向下箭头 -->
+  <line x1="360" y1="80" x2="360" y2="110" stroke="#666" stroke-width="1.5" marker-end="url(#arrow-head)"/>
+  <defs><marker id="arrow-head" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#666"/></marker></defs>
+
+  <!-- RHI 命令列表层 -->
+  <rect x="160" y="115" width="400" height="55" rx="6" fill="url(#g-mid)" opacity="0.15"/>
+  <rect x="160" y="115" width="400" height="55" rx="6" fill="none" stroke="#4FC3F7" stroke-width="1.5"/>
+  <text x="360" y="139" text-anchor="middle" fill="#81D4FA" font-size="13" font-weight="700">FRHICommandList / FRHICommandListImmediate</text>
+  <text x="360" y="157" text-anchor="middle" fill="#4FC3F7" font-size="10.5">命令记录 · Bypass 模式 · RHIThread 异步翻译 · Parallel Translate</text>
+
+  <!-- 向下箭头 -->
+  <line x1="360" y1="170" x2="360" y2="200" stroke="#666" stroke-width="1.5" marker-end="url(#arrow-head)"/>
+
+  <!-- RHI 公共层 -->
+  <rect x="100" y="205" width="520" height="55" rx="6" fill="url(#g-mid)" opacity="0.08"/>
+  <rect x="100" y="205" width="520" height="55" rx="6" fill="none" stroke="#4FC3F7" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="360" y="229" text-anchor="middle" fill="#81D4FA" font-size="13" font-weight="700">FDynamicRHI（虚接口） + FValidationRHI（开发期校验）</text>
+  <text x="360" y="247" text-anchor="middle" fill="#4FC3F7" font-size="10.5">资源管理 · 管线状态 · 绘制命令 · 查询 · 视口 · 光追</text>
+
+  <!-- 向下箭头（三条） -->
+  <line x1="220" y1="260" x2="220" y2="290" stroke="#666" stroke-width="1.5" marker-end="url(#arrow-head)"/>
+  <line x1="360" y1="260" x2="360" y2="290" stroke="#666" stroke-width="1.5" marker-end="url(#arrow-head)"/>
+  <line x1="500" y1="260" x2="500" y2="290" stroke="#666" stroke-width="1.5" marker-end="url(#arrow-head)"/>
+
+  <!-- 平台实现层（三列） -->
+  <rect x="100" y="295" width="140" height="60" rx="6" fill="url(#g-bot)" opacity="0.12"/>
+  <rect x="100" y="295" width="140" height="60" rx="6" fill="none" stroke="#66BB6A" stroke-width="1.5"/>
+  <text x="170" y="320" text-anchor="middle" fill="#A5D6A7" font-size="13" font-weight="700">D3D12RHI</text>
+  <text x="170" y="340" text-anchor="middle" fill="#66BB6A" font-size="10.5">ID3D12DynamicRHI</text>
+
+  <rect x="260" y="295" width="140" height="60" rx="6" fill="url(#g-bot)" opacity="0.12"/>
+  <rect x="260" y="295" width="140" height="60" rx="6" fill="none" stroke="#66BB6A" stroke-width="1.5"/>
+  <text x="330" y="320" text-anchor="middle" fill="#A5D6A7" font-size="13" font-weight="700">VulkanRHI</text>
+  <text x="330" y="340" text-anchor="middle" fill="#66BB6A" font-size="10.5">FVulkanDynamicRHI</text>
+
+  <rect x="420" y="295" width="140" height="60" rx="6" fill="url(#g-bot)" opacity="0.12"/>
+  <rect x="420" y="295" width="140" height="60" rx="6" fill="none" stroke="#66BB6A" stroke-width="1.5"/>
+  <text x="490" y="320" text-anchor="middle" fill="#A5D6A7" font-size="13" font-weight="700">MetalRHI</text>
+  <text x="490" y="340" text-anchor="middle" fill="#66BB6A" font-size="10.5">FMetalDynamicRHI</text>
+
+  <!-- 底部 GPU -->
+  <rect x="160" y="380" width="400" height="40" rx="6" fill="#1a1a1a"/>
+  <text x="360" y="405" text-anchor="middle" fill="#666" font-size="12">物理 GPU —— DirectX / Vulkan / Metal Driver</text>
+
+  <!-- 左侧标注 -->
+  <text x="40" y="48" fill="#909090" font-size="10">渲染器层</text>
+  <text x="40" y="141" fill="#909090" font-size="10">命令缓冲层</text>
+  <text x="40" y="231" fill="#909090" font-size="10">公共接口层</text>
+  <text x="40" y="324" fill="#909090" font-size="10">平台实现层</text>
+  <text x="40" y="400" fill="#909090" font-size="10">硬件层</text>
+</svg>
+</div>
+
+<div class="callout">
+  <strong>关键角色：</strong>
+  <code>GDynamicRHI</code>（全局变量，定义于 <code>DynamicRHI.h:1000</code>）是 RHI 层的<strong>唯一入口</strong>——一个指向当前平台 <code>FDynamicRHI</code> 子类实例的全局指针。所有 RHI 全局函数（如 <code>RHICreateTexture</code>）都通过它调用平台实现。
+</div>
+
+<h3>核心类关系</h3>
+<div class="table-wrap">
+<table>
+<thead><tr><th>类</th><th>职责</th><th>源文件</th></tr></thead>
+<tbody>
+<tr><td>FDynamicRHI</td><td>纯虚接口，定义所有平台必须实现的 GPU 操作</td><td>DynamicRHI.h:198</td></tr>
+<tr><td>FRHICommandListBase</td><td>命令列表基类，管理命令内存分配和队列</td><td>RHICommandList.h:453</td></tr>
+<tr><td>FRHIComputeCommandList</td><td>Compute 管线命令列表，继承自 Base</td><td>RHICommandList.h:1250</td></tr>
+<tr><td>FRHICommandList</td><td>Graphics + Compute 完整命令列表</td><td>RHICommandList.h:3590</td></tr>
+<tr><td>FRHICommandListImmediate</td><td>立即执行模式命令列表，渲染线程使用</td><td>RHICommandList.h:4388</td></tr>
+<tr><td>FRHICommandListExecutor</td><td>管理 Immediate 列表的提交与 RHIThread 调度</td><td>RHICommandList.h:5047</td></tr>
+<tr><td>FValidationRHI</td><td>开发期 RHI 校验层，包装真实 RHI 实现</td><td>RHIValidation.h:43</td></tr>
+<tr><td>ID3D12DynamicRHI</td><td>D3D12 平台在 FDynamicRHI 基础上的扩展接口</td><td>ID3D12DynamicRHI.h:21</td></tr>
+<tr><td>FD3D12CommandContext</td><td>D3D12 命令上下文，实现 IRHICommandContext</td><td>D3D12CommandContext.h:528</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<!-- ==================== 2. 顶层架构设计 ==================== -->
+<section id="sec3">
+<h2>2. 顶层架构设计</h2>
+
+<h3 id="sec3-1">FDynamicRHI 抽象接口</h3>
+<p>
+<code>FDynamicRHI</code>（<code>DynamicRHI.h:198</code>）是 RHI 层的<strong>设计核心</strong>。它是一个纯虚基类，声明了约<strong>120+ 个虚函数</strong>，按职责可划分为以下几类：
+</p>
+
+<div class="card-grid">
+  <div class="card">
+    <h4><span class="tag tag-blue">资源管理</span> 资源生命周期</h4>
+    <p>纹理创建/更新（<code>RHICreateTextureInitializer</code>、<code>RHIUpdateTexture2D/3D</code>）、缓冲区创建（<code>RHICreateBufferInitializer</code>）、Lock/Unlock 操作、Shader 编译、UniformBuffer 创建。每个方法都标注了 FlushType 约束。</p>
+  </div>
+  <div class="card">
+    <h4><span class="tag tag-green">管线状态</span> PSO 创建</h4>
+    <p><code>RHICreateGraphicsPipelineState</code> / <code>RHICreateComputePipelineState</code> 将 Rasterizer/Blend/DepthStencil 状态与 Shader 组合编译为平台 PSO。Compute PSO 较简单（仅 Shader），Graphics PSO 编译最昂贵。</p>
+  </div>
+  <div class="card">
+    <h4><span class="tag tag-orange">绘制命令</span> 提交 Draw/Dispatch</h4>
+    <p>通过 <code>RHICreateBoundShaderState</code> 绑定 Shader，再由 <code>IRHICommandContext</code> 接口发出 DrawCall、Dispatch、Clear 等命令。注意：FDynamicRHI 本身不直接包含 DrawPrimitive——这属于 IRHICommandContext。</p>
+  </div>
+  <div class="card">
+    <h4><span class="tag tag-green">查询</span> 时间戳与遮挡</h4>
+    <p><code>RHICreateRenderQuery</code>、<code>RHIGetRenderQueryResult</code> —— 支持 GPU 时间戳（<code>RQT_AbsoluteTime</code>）和遮挡查询（<code>RQT_Occlusion</code>）。查询结果可能回读延迟 1-3 帧。</p>
+  </div>
+  <div class="card">
+    <h4><span class="tag tag-blue">视口</span> 窗口与 SwapChain</h4>
+    <p><code>RHICreateViewport</code>、<code>RHIResizeViewport</code>、<code>RHIEndDrawingViewport</code> —— 管理窗口系统和 BackBuffer 交换。依赖平台窗口句柄。</p>
+  </div>
+  <div class="card">
+    <h4><span class="tag tag-orange">光追</span> Ray Tracing</h4>
+    <p><code>RHICreateRayTracingScene</code>、<code>RHICreateRayTracingPipelineState</code>、<code>RHICreateShaderBindingTable</code> —— 自 UE5 引入的硬件光追抽象。未实现平台返回 nullptr（通过 <code>checkNoEntry()</code> 兜底）。</p>
+  </div>
+</div>
+
+<h4>FDynamicRHI 关键方法速览</h4>
+<div class="table-wrap">
+<table>
+<thead><tr><th>分类</th><th>关键方法</th><th>FlushType</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>生命周期</td><td>Init() / Shutdown()</td><td>—</td><td>平台初始化与关闭</td></tr>
+<tr><td>Sampler/状态</td><td>RHICreateSamplerState / RasterizerState / DepthStencilState / BlendState</td><td>Thread safe</td><td>不可变状态对象，创建后可跨线程共享</td></tr>
+<tr><td>Shader</td><td>RHICreateVertexShader / PixelShader / ComputeShader / ...</td><td>Wait RHI Thread</td><td>需等待 RHIThread 以确保 Shader 反射可用</td></tr>
+<tr><td>管线</td><td>RHICreateGraphicsPipelineState / ComputePipelineState</td><td>Thread safe</td><td>组合 Shader + 状态，编译为平台 PSO</td></tr>
+<tr><td>纹理</td><td>RHICreateTextureInitializer / RHIUpdateTexture2D / RHIAsyncCreateTexture2D</td><td>各异</td><td>创建、上传、异步纹理</td></tr>
+<tr><td>缓冲</td><td>RHICreateBufferInitializer / RHILockBuffer / RHIUnlockBuffer</td><td>Flush RHI Thread</td><td>Lock/Unlock 需刷新 RHIThread</td></tr>
+<tr><td>查询</td><td>RHICreateRenderQuery / RHIGetRenderQueryResult</td><td>Wait RHI Thread</td><td>结果回读需等待</td></tr>
+<tr><td>视口</td><td>RHICreateViewport / RHIEndDrawingViewport</td><td>Thread safe</td><td>仅主线程调用</td></tr>
+<tr><td>提交</td><td>RHIFinalizeContexts / RHISubmitCommandLists</td><td>RHI Thread</td><td>RHIThread 调用，提交平台命令列表至 GPU</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+  <strong>FlushType 标注：</strong>每个虚函数注释中的 FlushType 表明了该方法对 RHIThread 的同步要求。<code>Thread safe</code> 表示可以并发调用（如创建不可变状态对象），<code>Wait RHI Thread</code> 表示需要等待 RHIThread 完成，<code>Flush Immediate</code> 表示必须刷新整个 RHI 队列。
+</div>
+
+<h3 id="sec3-2">FRHICommandList 命令缓冲模式</h3>
+<p>
+RHI 命令不会立即发送给 GPU，而是记录在 <code>FRHICommandList</code> 中，通过<strong>命令缓冲（Command Buffer）</strong>模式批量化处理。UE5.8 支持三种执行模式：
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>模式</th><th>行为</th><th>适用场景</th></tr></thead>
+<tbody>
+<tr><td>Bypass（立即执行）</td><td>命令不记录到列表，直接调用平台 RHI 接口执行</td><td>编辑器非游戏视口、RHIThread 关闭时</td></tr>
+<tr><td>延迟执行</td><td>命令记录到命令列表，在 <code>ImmediateFlush</code> 时批量回放</td><td>标准游戏模式，单线程执行</td></tr>
+<tr><td>RHIThread 异步执行</td><td>渲染线程记录命令，RHIThread 并行翻译为平台命令并提交 GPU</td><td>主机/PC 高性能模式（默认）</td></tr>
+</tbody>
+</table>
+</div>
+
+<h4>命令记录机制</h4>
+<p>每个 RHI 命令在 <code>FRHICommandList</code> 中都是一个 <code>FRHICommandBase</code> 的派生对象，通过 <code>ALLOC_COMMAND</code> 宏在 MemStack 上分配。例如 <code>DrawPrimitive</code> 的典型实现（<code>RHICommandList.h:3745</code>）：</p>
+
+<div class="code-block">
+<div class="header"><span class="lang">C++</span><span class="file">RHICommandList.h</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<pre><span class="line"><span class="cm">// Bypass 模式：直接调用平台上下文</span></span>
+<span class="line"><span class="kw">inline</span> <span class="kw">void</span> <span class="fn">DrawPrimitive</span>(<span class="ty">uint32</span> BaseVertexIndex, <span class="ty">uint32</span> NumPrimitives, <span class="ty">uint32</span> NumInstances)</span>
+<span class="line">{</span>
+<span class="line">    <span class="kw">if</span> (<span class="fn">Bypass</span>())</span>
+<span class="line">    {</span>
+<span class="line">        <span class="fn">GetContext</span>().<span class="fn">RHIDrawPrimitive</span>(BaseVertexIndex, NumPrimitives, NumInstances);</span>
+<span class="line">        <span class="kw">return</span>;</span>
+<span class="line">    }</span>
+<span class="line">    <span class="fn">ALLOC_COMMAND</span>(<span class="ty">FRHICommandDrawPrimitive</span>)(BaseVertexIndex, NumPrimitives, NumInstances);</span>
+<span class="line">}</span></pre>
+</div>
+
+<p>核心设计思想：<strong>Top of Pipe（ToP）vs Bottom of Pipe（BoP）</strong>。ToP 表示命令仍在记录阶段（记录到链表），BoP 表示命令正在执行（Bypass 或 RHIThread 回放）。通过 <code>IsBottomOfPipe()</code> 判断当前处于哪个阶段。</p>
+
+<h3 id="sec3-3">使用示例 1：通过 RHI 创建纹理并上传数据</h3>
+<p>以下展示从渲染层代码调用 RHI 创建纹理的完整流程——从设置创建描述符到最终获得可用的纹理引用。</p>
+
+<div class="code-block">
+<div class="header"><span class="lang">C++</span><span class="file">典型上层调用 —— 通过 RHI 创建纹理</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<pre><span class="line"><span class="cp">#include</span> <span class="str">"RHI.h"</span></span>
+<span class="line"><span class="cp">#include</span> <span class="str">"RHICommandList.h"</span></span>
+<span class="line"><span class="cp">#include</span> <span class="str">"RHIResources.h"</span></span>
+<span class="line"></span>
+<span class="line"><span class="cm">// 1. 构造纹理创建描述符</span></span>
+<span class="line"><span class="ty">FRHITextureCreateDesc</span> TextureDesc = <span class="ty">FRHITextureCreateDesc</span>::<span class="fn">Create2D</span>(</span>
+<span class="line">    <span class="fn">TEXT</span>(<span class="str">"MyTexture"</span>),           <span class="cm">// Debug 名称</span></span>
+<span class="line">    <span class="nu">1024</span>, <span class="nu">1024</span>,                    <span class="cm">// 尺寸</span></span>
+<span class="line">    <span class="ty">EPixelFormat</span>::PF_R8G8B8A8    <span class="cm">// 像素格式</span></span>
+<span class="line">);</span>
+<span class="line">TextureDesc.<span class="fn">SetClearValue</span>(<span class="ty">FClearValueBinding</span>::None);</span>
+<span class="line">TextureDesc.<span class="fn">AddFlags</span>(<span class="ty">ETextureCreateFlags</span>::ShaderResource);</span>
+<span class="line"></span>
+<span class="line"><span class="cm">// 2. 获取 RHI 命令列表并请求纹理初始器</span></span>
+<span class="line"><span class="ty">FRHICommandListImmediate</span>& RHICmdList = <span class="ty">FRHICommandListImmediate</span>::<span class="fn">Get</span>();</span>
+<span class="line"><span class="ty">FRHITextureInitializer</span> Initializer = GDynamicRHI-><span class="fn">RHICreateTextureInitializer</span>(RHICmdList, TextureDesc);</span>
+<span class="line"></span>
+<span class="line"><span class="cm">// 3. 如果需要在创建时填充数据</span></span>
+<span class="line"><span class="kw">if</span> (<span class="kw">const</span> <span class="ty">FRHITextureInitializer::FTextureData</span>* WritableData = Initializer.<span class="fn">GetWritableData</span>())</span>
+<span class="line">{</span>
+<span class="line">    <span class="ty">uint8</span>* DestData = <span class="kw">static_cast</span>&lt;<span class="ty">uint8</span>*&gt;(WritableData->Data);</span>
+<span class="line">    <span class="cm">// 逐行填充纹理数据（DestData + Row * WritableData->Stride）...</span></span>
+<span class="line">    <span class="fn">FMemory</span>::<span class="fn">Memcpy</span>(DestData, MySourceData, DataSize);</span>
+<span class="line">}</span>
+<span class="line"></span>
+<span class="line"><span class="cm">// 4. 完成创建，获取 RHI 纹理引用</span></span>
+<span class="line"><span class="ty">FTextureRHIRef</span> Texture = Initializer.<span class="fn">Finalize</span>();</span>
+<span class="line"><span class="cm">// 此时 Texture 已准备就绪，可绑定为 SRV 或 RenderTarget</span></span></pre>
+</div>
+
+<div class="callout">
+  <strong>底层发生了什么？</strong> <code>RHICreateTextureInitializer</code> 调用链依次经过：<code>GDynamicRHI</code>（可能是 FValidationRHI 包装）-> <code>FD3D12DynamicRHI::RHICreateTextureInitializer</code>（<code>D3D12Texture.cpp:1069</code>）-> <code>CreateTextureInternal</code> -> <code>CreateD3D12Textures</code>，最终调用 <code>ID3D12Device::CreateCommittedResource</code> 或 <code>CreatePlacedResource</code> 分配 GPU 显存。
+</div>
+
+<h3 id="sec3-4">使用示例 2：通过 RHI 执行一次 DrawCall</h3>
+<p>完整展示从创建 PSO 到绑定资源再到发出绘制命令的全过程：</p>
+
+<div class="code-block">
+<div class="header"><span class="lang">C++</span><span class="file">通过 RHI 执行 DrawCall 的完整流程</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<pre><span class="line"><span class="cp">#include</span> <span class="str">"RHICommandList.h"</span></span>
+<span class="line"><span class="cp">#include</span> <span class="str">"PipelineStateCache.h"</span></span>
+<span class="line"><span class="cp">#include</span> <span class="str">"RHIStaticStates.h"</span></span>
+<span class="line"></span>
+<span class="line"><span class="cm">// 1. 获取命令列表</span></span>
+<span class="line"><span class="ty">FRHICommandListImmediate</span>& RHICmdList = <span class="ty">FRHICommandListImmediate</span>::<span class="fn">Get</span>();</span>
+<span class="line"></span>
+<span class="line"><span class="cm">// 2. 设置 PSO 初始器（Graphics PSO 最复杂）</span></span>
+<span class="line"><span class="ty">FGraphicsPipelineStateInitializer</span> PSOInit;</span>
+<span class="line">PSOInit.<span class="fn">SetBoundShaderState</span>(</span>
+<span class="line">    <span class="fn">RHICreateBoundShaderState</span>(</span>
+<span class="line">        VertexDecl, VertexShader, PixelShader, <span class="kw">nullptr</span>));</span>
+<span class="line">PSOInit.BlendState      = <span class="fn">TStaticBlendState</span>&lt;&gt;::<span class="fn">GetRHI</span>();</span>
+<span class="line">PSOInit.RasterizerState  = <span class="fn">TStaticRasterizerState</span>&lt;&gt;::<span class="fn">GetRHI</span>();</span>
+<span class="line">PSOInit.DepthStencilState = <span class="fn">TStaticDepthStencilState</span>&lt;&gt;::<span class="fn">GetRHI</span>();</span>
+<span class="line">PSOInit.PrimitiveType    = <span class="ty">EPrimitiveType</span>::PT_TriangleList;</span>
+<span class="line"></span>
+<span class="line"><span class="cm">// 3. 通过 PipelineStateCache 获取或创建 PSO（自动缓存复用）</span></span>
+<span class="line"><span class="ty">FGraphicsPipelineStateRHIRef</span> PSO =</span>
+<span class="line">    <span class="ty">PipelineStateCache</span>::<span class="fn">GetAndOrCreateGraphicsPipelineState</span>(RHICmdList, PSOInit);</span>
+<span class="line"></span>
+<span class="line"><span class="cm">// 4. 开始 RenderPass，设置 PSO</span></span>
+<span class="line"><span class="ty">FRHIRenderPassInfo</span> RPInfo(RenderTarget, <span class="ty">ERenderTargetActions</span>::Load_Store);</span>
+<span class="line">RHICmdList.<span class="fn">BeginRenderPass</span>(RPInfo, <span class="fn">TEXT</span>(<span class="str">"MyDrawPass"</span>));</span>
+<span class="line">RHICmdList.<span class="fn">ApplyCachedRenderTargets</span>(PSOInit);</span>
+<span class="line">RHICmdList.<span class="fn">SetGraphicsPipelineState</span>(PSO);</span>
+<span class="line"></span>
+<span class="line"><span class="cm">// 5. 绑定资源（顶点缓冲、UniformBuffer、纹理）</span></span>
+<span class="line">RHICmdList.<span class="fn">SetStreamSource</span>(<span class="nu">0</span>, VertexBuffer, <span class="nu">0</span>);</span>
+<span class="line">RHICmdList.<span class="fn">SetShaderParameters</span>(PixelShader, ShaderParams, ...);</span>
+<span class="line"></span>
+<span class="line"><span class="cm">// 6. 发出 DrawCall（记录到命令列表或 Bypass 直接执行）</span></span>
+<span class="line">RHICmdList.<span class="fn">DrawPrimitive</span>(<span class="nu">0</span>, NumPrimitives, <span class="nu">1</span>);</span>
+<span class="line"></span>
+<span class="line">RHICmdList.<span class="fn">EndRenderPass</span>();</span></pre>
+</div>
+
+<p>这个 DrawCall 最终在 D3D12 平台到达 <code>FD3D12CommandContext::RHIDrawPrimitive</code>（<code>D3D12Commands.cpp:1213</code>），调用 <code>SetupDraw</code> 进行状态刷新，然后 <code>GraphicsCommandList()->DrawInstanced(VertexCount, NumInstances, BaseVertexIndex, 0)</code> 直接写入 D3D12 命令列表。</p>
+</section>
+
+<!-- ==================== 3. 执行流程与数据流 ==================== -->
+<section id="sec4">
+<h2>3. 执行流程与数据流</h2>
+
+<h3 id="sec4-1">RHI 命令的完整生命周期</h3>
+
+<ol class="flow-list">
+  <li><strong>构建阶段（Render Thread）——</strong>上层渲染代码调用 <code>RHICmdList.DrawPrimitive()</code> 等。如果 Bypass 关闭，命令被序列化为 <code>FRHICommandBase</code> 节点，通过 <code>ALLOC_COMMAND</code> 宏在 MemStack 上分配，追加到命令链表尾部。</li>
+  <li><strong>入队阶段（Render Thread）——</strong><code>FRHICommandListImmediate::ImmediateFlush()</code> 被调用，命令列表通过 <code>FRHICommandListExecutor::Submit()</code> 提交到 RHI 执行管线。</li>
+  <li><strong>RHI Thread 执行阶段（RHI Thread）——</strong>RHI 线程（如果启用）逐个执行 <code>FRHICommandBase::ExecuteAndDestruct()</code>，将每个命令翻译为平台 RHI 上下文调用。如果启用 Parallel Translate，多个命令列表可并行为不同的 Task 线程翻译。</li>
+  <li><strong>GPU 提交阶段（RHI Thread）——</strong><code>FDynamicRHI::RHIFinalizeContexts()</code> 关闭平台命令列表，<code>RHISubmitCommandLists()</code> 通过 <code>ID3D12CommandQueue::ExecuteCommandLists</code>（或 Vulkan 的 <code>vkQueueSubmit</code>）提交到 GPU 执行。</li>
+</ol>
+
+<h3 id="sec4-2">RHI 命令执行时序图</h3>
+<div class="arch-svg">
+<svg width="740" height="520" viewBox="0 0 740 520" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#888"/>
+    </marker>
+    <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#4FC3F7"/>
+    </marker>
+  </defs>
+
+  <!-- 泳道背景 -->
+  <rect x="10" y="40" width="720" height="460" rx="0" fill="#0d0d14"/>
+  <rect x="130" y="40" width="590" height="1" fill="#222"/>
+  <rect x="130" y="135" width="590" height="1" fill="#222"/>
+  <rect x="130" y="230" width="590" height="1" fill="#222"/>
+  <rect x="130" y="340" width="590" height="1" fill="#222"/>
+
+  <!-- 泳道标签 -->
+  <text x="65" y="80" text-anchor="middle" fill="#AB47BC" font-size="12" font-weight="700">Render</text>
+  <text x="65" y="96" text-anchor="middle" fill="#AB47BC" font-size="12" font-weight="700">Thread</text>
+  <text x="65" y="175" text-anchor="middle" fill="#FFA726" font-size="12" font-weight="700">Translate</text>
+  <text x="65" y="191" text-anchor="middle" fill="#FFA726" font-size="12" font-weight="700">Tasks</text>
+  <text x="65" y="280" text-anchor="middle" fill="#4FC3F7" font-size="12" font-weight="700">RHI</text>
+  <text x="65" y="296" text-anchor="middle" fill="#4FC3F7" font-size="12" font-weight="700">Thread</text>
+  <text x="65" y="390" text-anchor="middle" fill="#66BB6A" font-size="12" font-weight="700">GPU</text>
+
+  <!-- Render Thread: 记录命令 -->
+  <rect x="150" y="55" width="160" height="18" rx="3" fill="#AB47BC" opacity="0.3"/>
+  <text x="230" y="69" text-anchor="middle" fill="#CE93D8" font-size="10">记录 RHICmdList 命令</text>
+  <line x1="310" y1="73" x2="350" y2="73" stroke="#AB47BC" stroke-width="1.5" marker-end="url(#arrow2)"/>
+
+  <rect x="355" y="55" width="160" height="18" rx="3" fill="#AB47BC" opacity="0.3"/>
+  <text x="435" y="69" text-anchor="middle" fill="#CE93D8" font-size="10">ImmediateFlush + Submit</text>
+  <line x1="515" y1="73" x2="555" y2="73" stroke="#AB47BC" stroke-width="1.5" marker-end="url(#arrow2)"/>
+
+  <rect x="560" y="55" width="130" height="18" rx="3" fill="#AB47BC" opacity="0.3"/>
+  <text x="625" y="69" text-anchor="middle" fill="#CE93D8" font-size="10">等待下一帧</text>
+
+  <!-- 虚线到Translate Tasks -->
+  <line x1="435" y1="73" x2="435" y2="115" stroke="#888" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="435" y1="115" x2="350" y2="115" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow2)"/>
+
+  <!-- Translate Tasks: 并行翻译 -->
+  <rect x="150" y="155" width="180" height="18" rx="3" fill="#FFA726" opacity="0.3"/>
+  <text x="240" y="169" text-anchor="middle" fill="#FFCC80" font-size="10">Task 1: 翻译命令列表 A</text>
+
+  <rect x="350" y="155" width="180" height="18" rx="3" fill="#FFA726" opacity="0.3"/>
+  <text x="440" y="169" text-anchor="middle" fill="#FFCC80" font-size="10">Task 2: 翻译命令列表 B</text>
+
+  <!-- FinishRecording -->
+  <rect x="550" y="155" width="130" height="18" rx="3" fill="#FFA726" opacity="0.2"/>
+  <text x="615" y="169" text-anchor="middle" fill="#FFCC80" font-size="10">FinishRecording()</text>
+
+  <!-- 会聚到 RHI Thread -->
+  <line x1="240" y1="173" x2="240" y2="210" stroke="#888" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="440" y1="173" x2="440" y2="210" stroke="#888" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="615" y1="173" x2="615" y2="210" stroke="#888" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="240" y1="210" x2="615" y2="210" stroke="#888" stroke-width="1" mark=""/>
+  <line x1="430" y1="210" x2="430" y2="250" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow2)"/>
+
+  <!-- RHI Thread: 提交 -->
+  <rect x="150" y="255" width="180" height="18" rx="3" fill="#4FC3F7" opacity="0.25"/>
+  <text x="240" y="269" text-anchor="middle" fill="#81D4FA" font-size="10">FinalizeContexts (关闭命令列表)</text>
+
+  <line x1="330" y1="269" x2="370" y2="269" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrow-accent)"/>
+
+  <rect x="375" y="255" width="200" height="18" rx="3" fill="#4FC3F7" opacity="0.25"/>
+  <text x="475" y="269" text-anchor="middle" fill="#81D4FA" font-size="10">SubmitCommandLists (提交到 GPU 队列)</text>
+
+  <!-- 修复：箭头向下 -->
+  <line x1="475" y1="273" x2="475" y2="310" stroke="#888" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="475" y1="310" x2="350" y2="310" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow2)"/>
+
+  <!-- RHI Thread 底部：等待/信号 -->
+  <rect x="560" y="255" width="120" height="18" rx="3" fill="#4FC3F7" opacity="0.12"/>
+  <text x="620" y="269" text-anchor="middle" fill="#999" font-size="10">信号完成 Fence</text>
+
+  <!-- GPU -->
+  <rect x="150" y="355" width="120" height="18" rx="3" fill="#66BB6A" opacity="0.25"/>
+  <text x="210" y="369" text-anchor="middle" fill="#A5D6A7" font-size="10">GPU 执行命令列表</text>
+
+  <rect x="290" y="355" width="120" height="18" rx="3" fill="#66BB6A" opacity="0.25"/>
+  <text x="350" y="369" text-anchor="middle" fill="#A5D6A7" font-size="10">Present 输出帧</text>
+
+  <line x1="210" y1="373" x2="210" y2="410" stroke="#888" stroke-width="0.5"/>
+  <!-- GPU 完成后反馈到 RHI Thread -->
+  <line x1="210" y1="410" x2="210" y2="430" stroke="#888" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="210" y1="430" x2="350" y2="430" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow2)"/>
+  <rect x="150" y="410" width="200" height="18" rx="3" fill="#66BB6A" opacity="0.12"/>
+  <text x="250" y="424" text-anchor="middle" fill="#666" font-size="9">GPU Fence 信号（异步完成通知）</text>
+
+  <!-- 时间轴 -->
+  <text x="710" y="14" fill="#666" font-size="11">时间</text>
+  <line x1="130" y1="18" x2="700" y2="18" stroke="#444" stroke-width="1" marker-end="url(#arrow2)"/>
+</svg>
+</div>
+
+<div class="callout">
+  <strong>D3D12 提交路径（D3D12Submission.cpp:260）：</strong>
+  <code>FD3D12DynamicRHI::RHISubmitCommandLists</code> 收集所有已完成的 <code>FD3D12FinalizedCommands</code>，将它们批量 <code>ExecuteCommandLists</code> 到 D3D12 命令队列。随后通过 Fence 机制异步等待 GPU 完成——RHIThread 不会阻塞等待 GPU。
+</div>
+</section>
+
+<!-- ==================== 4. 设计决策与权衡 ==================== -->
+<section id="sec5">
+<h2>4. 设计决策与权衡</h2>
+
+<div class="compare-row">
+  <div class="compare-card pro">
+    <h4>细粒度 RHI 抽象——统一 API 的优势</h4>
+    <p>UE 的 20+ 个渲染 Pass（深度预通道、BasePass、光照、半透明、后处理等）只需维护<strong>一份代码</strong>。新平台接入只需实现 <code>FDynamicRHI</code> 的纯虚函数，渲染管线零改动。</p>
+    <p style="margin-top:8px"><span class="tag tag-green">已接入</span> DX12、Vulkan、Metal、Agx（Apple Silicon 原生）</p>
+  </div>
+  <div class="compare-card con">
+    <h4>虚拟函数调用开销</h4>
+    <p>每次调用 RHI 接口都经过虚函数表——在紧密循环中（如批量 DrawCall）会累积可测量的开销。UE 通过<strong>命令缓冲记录</strong>将虚调用转换为 MemStack 上的数据结构写入，然后批量回放，极大减少虚函数调用频率。</p>
+  </div>
+</div>
+
+<div class="compare-row">
+  <div class="compare-card pro">
+    <h4>RHIThread 分离——CPU/GPU 解耦</h4>
+    <p>渲染线程只负责<strong>记录命令</strong>（极快），RHIThread 负责<strong>翻译命令为平台 API 调用</strong>。两者并行执行：当 RHIThread 还在翻译上一帧的命令时，RenderThread 已经开始记录下一帧（流水线并行）。主机平台的核心优化。</p>
+    <p style="margin-top:8px"><span class="tag tag-blue">控制台变量</span> <code>r.RHIThread.Enable 1</code></p>
+  </div>
+  <div class="compare-card con">
+    <h4>额外延迟 + 同步复杂度</h4>
+    <p>命令进入队列到 GPU 执行之间增加了一层缓冲延迟（通常 0.5-1 帧）。Lock/Unlock 操作需要 Flush RHIThread（<code>FScopedRHIThreadStaller</code>），打断了并行性。资源生命周期管理变得复杂——必须确保 GPU 使用完毕才能释放。</p>
+  </div>
+</div>
+
+<h3>Validation 层的成本</h3>
+<div class="table-wrap">
+<table>
+<thead><tr><th>行为</th><th>开发期（WITH_RHI_VALIDATION=1）</th><th>发布期（Shipping）</th></tr></thead>
+<tbody>
+<tr><td>FValidationRHI 包装</td><td>激活，所有 RHI 调用经 <code>FValidationRHI</code> 转发</td><td>完全移除，直接调用平台 RHI</td></tr>
+<tr><td>资源访问校验</td><td>追踪每个资源的 <code>ERHIAccess</code> 状态，检测错误的读写模式</td><td>不检查（假设代码正确）</td></tr>
+<tr><td>UniformBuffer 校验</td><td>验证 Shader 期望的 Layout Hash 与绑定的 Buffer 一致</td><td>不检查</td></tr>
+<tr><td>DrawCall 参数校验</td><td>检查 PSO 与 RenderPass 兼容性（Depth 模式等）</td><td>不检查</td></tr>
+<tr><td>资源泄漏检测</td><td>追踪引用计数，报告未释放资源</td><td>不追踪</td></tr>
+<tr><td>典型开销</td><td>~5-15% RHI 层 CPU 时间增加</td><td>零开销</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>为什么不用统一 Shader 语言？</h3>
+<p>UE 的策略是：<strong>上层使用 HLSL 编写所有 Shader</strong>，但在编译时通过 <strong>SPIRV-Cross</strong> 将 HLSL 生成的 DXIL/SPIR-V 转译为各平台原生格式。RHI 层不做 Shader 语言抽象——Shader 编译管线（ShaderCompileWorker）在 RHI 之上独立运行。</p>
+<div class="card-grid">
+  <div class="card">
+    <h4><span class="tag tag-blue">HLSL</span> 统一编写</h4>
+    <p>所有 Shader 用 HLSL 编写（UE Shader 模型基于 HLSL 语法扩展）。D3D 编译器直接编译为 DXIL；对于 Vulkan/Metal，使用 <code>hlslcc</code> 或 DXC 生成 SPIR-V。</p>
+  </div>
+  <div class="card">
+    <h4><span class="tag tag-orange">SPIRV-Cross</span> 转译</h4>
+    <p>Vulkan 上 SPIR-V 直接使用；Metal 上 SPIRV-Cross 将 SPIR-V 转译为 MSL（Metal Shading Language）。这由编译管线处理，RHI 层接收到的已经是平台原生字节码。</p>
+  </div>
+  <div class="card">
+    <h4><span class="tag tag-green">FRHICreateShaderDesc</span> 统一入口</h4>
+    <p>RHI 层只需要 <code>RHICreatePixelShader(FRHICreateShaderDesc(Code))</code> ——一个字节数组。D3D12 调用 <code>CreatePixelShader</code>，Vulkan 调用 <code>vkCreateShaderModule</code>，Metal 调用 <code>newFunctionWithName</code>。</p>
+  </div>
+</div>
+</section>
+
+<!-- ==================== 5. 底层实现关联 ==================== -->
+<section id="sec6">
+<h2>5. 底层实现关联</h2>
+
+<h3 id="sec6-1">FDynamicRHI 虚函数对照 D3D12 实现</h3>
+<p>以下对照表展示 RHI 公共接口在 D3D12 平台的具体实现位置和关键细节：</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>FDynamicRHI 虚函数</th><th>D3D12 实现</th><th>源文件:行号</th><th>关键实现细节</th></tr></thead>
+<tbody>
+<tr><td>Init()</td><td>FD3D12DynamicRHI 构造</td><td>D3D12RHI.cpp:68</td><td>单例模式；创建 Adapter/Device；分配 ZeroBuffer；设置 PSO Precaching</td></tr>
+<tr><td>Shutdown()</td><td>析构 + 资源释放</td><td>D3D12RHI.cpp</td><td>等待 GPU 空闲；释放所有设备/队列/资源</td></tr>
+<tr><td>RHICreateVertexShader()</td><td>CreateShaderFromBytecode</td><td>D3D12Shaders.cpp</td><td>D3DCompile 或加载预编译 DXIL -> CreateVertexShader</td></tr>
+<tr><td>RHICreatePixelShader()</td><td>CreateShaderFromBytecode</td><td>D3D12Shaders.cpp</td><td>同上，创建 Pixel Shader</td></tr>
+<tr><td>RHICreateGraphicsPipelineState()</td><td>GetLowLevelGraphicsPipelineStateDesc</td><td>D3D12Pipelinestate.cpp:38</td><td>翻译 RT 格式；组合 Rasterizer/Blend/DepthStencil Desc；调用 CreateGraphicsPipelineState</td></tr>
+<tr><td>RHICreateTextureInitializer()</td><td>RHICreateTextureInitializer</td><td>D3D12Texture.cpp:1069</td><td>CreateTextureInternal；支持 Default/BulkData/Initializer 三种初始化动作</td></tr>
+<tr><td>RHIUpdateTexture2D()</td><td>UpdateTexture2D 系列</td><td>D3D12Texture.cpp</td><td>CPU 侧数据上传；可能涉及 Staging Buffer / 异步 Copy Queue</td></tr>
+<tr><td>RHILockBuffer()</td><td>LockBuffer_BottomOfPipe</td><td>D3D12Buffer.cpp</td><td>Map 资源；不同 Heap 类型（Upload/Default/Readback）行为不同</td></tr>
+<tr><td>RHIUnlockBuffer()</td><td>UnlockBuffer_BottomOfPipe</td><td>D3D12Buffer.cpp</td><td>Unmap；Upload Heap 需保证数据对 GPU 可见</td></tr>
+<tr><td>RHICreateUniformBuffer()</td><td>CreateUniformBuffer</td><td>D3D12UniformBuffer.cpp</td><td>分配 Constant Buffer；通过 Root Signature 绑定</td></tr>
+<tr><td>RHIGetCommandContext()</td><td>FD3D12CommandContext 分配</td><td>D3D12CommandContext.cpp</td><td>从 ContextPool 获取或新建；绑定 D3D12 CommandAllocator + CommandList</td></tr>
+<tr><td>RHIFinalizeContexts()</td><td>RHIFinalizeContexts</td><td>D3D12Submission.cpp</td><td>Close CommandList；生成 FD3D12FinalizedCommands</td></tr>
+<tr><td>RHISubmitCommandLists()</td><td>RHISubmitCommandLists</td><td>D3D12Submission.cpp:260</td><td>收集 Payloads -> SubmitCommands -> ExecuteCommandLists 到 GPU 队列</td></tr>
+<tr><td>RHIBlockUntilGPUIdle()</td><td>GPU Fence Wait</td><td>D3D12RHI.cpp</td><td>插入 Fence -> Signal -> WaitForCompletion（CPU 阻塞）</td></tr>
+<tr><td>RHIGetNativeDevice()</td><td>返回 ID3D12Device*</td><td>D3D12RHI.cpp</td><td>暴露原生 D3D12 设备指针（仅供第三方插件）</td></tr>
+<tr><td>RHICreateRayTracingScene()</td><td>CreateRayTracingScene</td><td>D3D12RayTracing.cpp</td><td>BuildRaytracingAccelerationStructure；调用 DXR API</td></tr>
+</tbody>
+</table>
+</div>
+
+<h4>D3D12 实现层关键类的继承链</h4>
+<div class="code-block">
+<div class="header"><span class="lang">C++</span><span class="file">D3D12 RHI 类的继承层级</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<pre><span class="line"><span class="cm">// 继承链：从公共接口到平台实现</span></span>
+<span class="line"><span class="kw">class</span> <span class="ty">FDynamicRHI</span>;                          <span class="cm">// DynamicRHI.h:198 —— 纯虚接口</span></span>
+<span class="line"><span class="kw">class</span> <span class="ty">ID3D12DynamicRHI</span> : <span class="kw">public</span> <span class="ty">FDynamicRHI</span>;  <span class="cm">// ID3D12DynamicRHI.h:21 —— D3D12 扩展接口</span></span>
+<span class="line"><span class="kw">class</span> <span class="ty">FD3D12DynamicRHI</span> : <span class="kw">public</span> <span class="ty">ID3D12PlatformDynamicRHI</span>; <span class="cm">// D3D12RHIPrivate.h:158</span></span>
+<span class="line"></span>
+<span class="line"><span class="cm">// 命令上下文继承链</span></span>
+<span class="line"><span class="kw">class</span> <span class="ty">IRHIComputeContext</span>;                     <span class="cm">// RHI 公共 Compute 上下文接口</span></span>
+<span class="line"><span class="kw">class</span> <span class="ty">IRHICommandContext</span> : <span class="kw">public</span> <span class="ty">IRHIComputeContext</span>; <span class="cm">// + Graphics 操作</span></span>
+<span class="line"><span class="kw">class</span> <span class="ty">FD3D12CommandContext</span> : <span class="kw">public</span> <span class="ty">FD3D12ContextCommon</span>,</span>
+<span class="line">                             <span class="kw">public</span> <span class="ty">FD3D12CommandContextBase</span>,</span>
+<span class="line">                             <span class="kw">public</span> <span class="ty">FD3D12DeviceChild</span>; <span class="cm">// D3D12CommandContext.h:528</span></span></pre>
+</div>
+</section>
+
+<!-- ==================== 6. UE5.8 演进变化 ==================== -->
+<section id="sec7">
+<h2>6. UE5.8 演进变化</h2>
+
+<div class="card-grid">
+  <div class="card">
+    <h4><span class="tag tag-blue">D3D12 Enhanced Barriers</span></h4>
+    <p>UE5.8 的 D3D12RHI 新增了 <code>D3D12EnhancedBarriers.cpp</code>（1866 行），实现了对 D3D12 Enhanced Barrier API 的完整支持。通过 <code>FD3D12EnhancedBarriersBatcher</code> 批量管理 Global/Texture/Buffer 级别的 Barrier，替代旧的 Legacy Barrier 模型。</p>
+    <p>检测机制：查询 <code>D3D12_FEATURE_DATA_D3D12_OPTIONS12::EnhancedBarriersSupported</code>（<code>D3D12Adapter.cpp:1242</code>），运行时自动选择实现。</p>
+  </div>
+  <div class="card">
+    <h4><span class="tag tag-green">Vulkan Ray Tracing 扩展集成</span></h4>
+    <p>FDynamicRHI 的光追接口（<code>RHICreateRayTracingPipelineState</code>、<code>RHICreateShaderBindingTable</code>）在 UE5.8 中进一步扩展，支持 Vulkan 的 <code>VK_KHR_ray_tracing_pipeline</code> 和 <code>VK_KHR_acceleration_structure</code> 扩展。</p>
+    <p>设计保障：未实现光追的平台（如 Metal 非 Apple Silicon）默认返回 nullptr，调用者通过检查返回值判断能力。</p>
+  </div>
+  <div class="card">
+    <h4><span class="tag tag-orange">Metal 3 适配 (Agx)</span></h4>
+    <p>新增 <code>ERHIInterfaceType::Agx</code>（<code>RHIDefinitions.h:151</code>），专门为 Apple Silicon GPU 提供原生 Apple GPU 家族支持。与标准 Metal 路径并行存在，利用 Metal 3 的新特性（如 Mesh Shaders、Ray Tracing）。</p>
+  </div>
+  <div class="card">
+    <h4><span class="tag tag-green">Bindless 资源支持</span></h4>
+    <p>新增 <code>FRHIResourceCollection</code> 和 <code>FRHIDescriptorRange</code> 接口（<code>DynamicRHI.h:509-525</code>），支持 Bindless 资源绑定模式。D3D12 通过 Descriptor Heap 实现，Vulkan 通过 Descriptor Indexing 实现。</p>
+    <p>传统绑定每个 Shader 只能绑定有限数量的纹理/Buffer；Bindless 允许 Shader 访问整个资源数组——对 Nanite 材质系统和 MegaLights 至关重要。</p>
+  </div>
+  <div class="card">
+    <h4><span class="tag tag-blue">5.8 API 清理</span></h4>
+    <p>多个旧 API 被标记为 <code>UE_DEPRECATED(5.8)</code>：<code>RHIPreferredPixelFormatHint</code>（视口需显式指定像素格式）、<code>RHICheckViewportHDRStatus</code>、<code>RHIZBuffer</code> 枚举移除（深度反转已成既定事实）、<code>RHIGetDefaultContext</code> 不再允许上层直接获取平台上下文。</p>
+  </div>
+  <div class="card">
+    <h4><span class="tag tag-orange">Work Graphs 支持</span></h4>
+    <p>新增 <code>RHICreateWorkGraphShader</code>、<code>RHICreateWorkGraphPipelineState</code>、<code>SF_WorkGraphRoot</code> 等（<code>RHIDefinitions.h:200-201</code>），为 D3D12 Work Graphs API 提供 RHI 层抽象，支持 GPU 驱动的任务图调度。</p>
+  </div>
+</div>
+</section>
+
+<!-- ==================== CVar 速查表 ==================== -->
+<section id="sec8">
+<h2>CVar 速查表</h2>
+<div class="table-wrap cvar-table">
+<table>
+<thead><tr><th>Console Variable</th><th>默认值</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>r.RHIThread.Enable</td><td>1</td><td>启用 RHIThread 异步翻译（主机/PC 默认开启）</td></tr>
+<tr><td>D3D12.BindResourceLabels</td><td>1</td><td>为 D3D12 资源绑定调试名称</td></tr>
+<tr><td>D3D12.ZeroBufferSizeInMB</td><td>4</td><td>异步纹理流式加载所需零值缓冲区大小（MB）</td></tr>
+<tr><td>D3D12.PSO.StallWarningThresholdInMs</td><td>100</td><td>PSO 创建停滞警告阈值（毫秒）</td></tr>
+<tr><td>D3D12.PSOPrecache.DriverCacheAware</td><td>1</td><td>PSO 预缓存时考虑驱动缓存行为</td></tr>
+<tr><td>D3D12.PSOPrecache.KeepLowLevel</td><td>0</td><td>内存中保留预缓存的 PSO 低层级数据</td></tr>
+<tr><td>D3D12.PSO.KeepUsedPSOsInLowLevelCache</td><td>0</td><td>保留已使用 PSO 的低层级缓存（内存换性能）</td></tr>
+<tr><td>D3D12.Depth24Bit</td><td>0</td><td>0=32位浮点深度, 1=24位定点深度</td></tr>
+<tr><td>D3D12.RequestExitOnGPUTimeout</td><td>0</td><td>GPU 超时时触发退出（用于外部崩溃处理器）</td></tr>
+<tr><td>r.RHIValidation.Enable</td><td>0 (Shipping 时强制关闭)</td><td>启用 RHI Validation 层（开发期调试）</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<!-- 底部导航 -->
+<div id="bottom-nav">
+  <a href="../延迟渲染管线/index.html">
+    <span class="label">上一章</span>
+    <span class="title">← 延迟渲染管线</span>
+  </a>
+  <a href="../RDG/index.html">
+    <span class="label">下一章</span>
+    <span class="title">RDG 渲染依赖图 →</span>
+  </a>
+</div>
+
+</div><!-- /#content -->
+
+<script>
+// 复制按钮
+function copyCode(btn) {
+  const block = btn.closest('.code-block');
+  const lines = block.querySelectorAll('pre .line');
+  let text = '';
+  lines.forEach(l => { text += l.textContent + '\n'; });
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '已复制';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '复制'; btn.classList.remove('copied'); }, 1500);
+  });
+}
+
+// 侧栏高亮当前章节
+function updateActiveNav() {
+  let current = '';
+  document.querySelectorAll('section[id], h3[id]').forEach(el => {
+    const top = el.getBoundingClientRect().top;
+    if (top < 200) current = el.id;
+  });
+  document.querySelectorAll('#sidebar nav a').forEach(a => {
+    a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+  });
+}
+window.addEventListener('scroll', updateActiveNav, {passive: true});
+
+// 章节内搜索
+function searchSections() {
+  const q = document.getElementById('sectionSearch').value.trim().toLowerCase();
+  document.querySelectorAll('mark').forEach(m => {
+    m.replaceWith(m.textContent);
+  });
+  const sections = document.querySelectorAll('section');
+  if (!q) {
+    sections.forEach(s => s.classList.remove('hidden-section'));
+    return;
+  }
+  sections.forEach(s => {
+    const text = s.textContent.toLowerCase();
+    if (text.includes(q)) {
+      s.classList.remove('hidden-section');
+      // 高亮匹配项
+      highlightInElement(s, q);
+    } else {
+      s.classList.add('hidden-section');
+    }
+  });
+}
+
+function highlightInElement(el, q) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(node => {
+    const idx = node.textContent.toLowerCase().indexOf(q);
+    if (idx >= 0) {
+      const span = document.createElement('span');
+      const before = node.textContent.substring(0, idx);
+      const match = node.textContent.substring(idx, idx + q.length);
+      const after = node.textContent.substring(idx + q.length);
+      span.appendChild(document.createTextNode(before));
+      const mark = document.createElement('mark');
+      mark.textContent = match;
+      span.appendChild(mark);
+      span.appendChild(document.createTextNode(after));
+      node.replaceWith(span);
+    }
+  });
+}
+
+// 初始激活导航
+updateActiveNav();
+</script>
+
+</body>
+</html>

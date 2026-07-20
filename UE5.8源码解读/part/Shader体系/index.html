@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UE5.8.0 Shader 编译体系 — 从 .usf 到 GPU 可执行代码</title>
+<style>
+/* ===== 全局重置 ===== */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;background:#0a0a0f;color:#e0e0e0;line-height:1.75;display:flex;min-height:100vh;}
+
+/* ===== 左侧导航 ===== */
+.sidebar{width:280px;min-width:280px;background:#0d0d14;border-right:1px solid #1a1a24;position:fixed;top:0;left:0;height:100vh;overflow-y:auto;z-index:100;padding:20px 0;}
+.sidebar h3{color:#4FC3F7;font-size:1rem;padding:0 20px 12px;border-bottom:1px solid #1a1a24;margin-bottom:8px;}
+.sidebar nav a{display:block;color:#909090;padding:6px 20px;text-decoration:none;font-size:0.85rem;transition:all 0.15s;border-left:2px solid transparent;}
+.sidebar nav a:hover,.sidebar nav a.active{color:#e0e0e0;background:#131318;border-left-color:#4FC3F7;}
+.sidebar nav a.l2{padding-left:36px;font-size:0.8rem;}
+.sidebar .search-wrap{padding:0 16px;margin-bottom:12px;}
+.sidebar .search-wrap input{width:100%;padding:8px 12px;background:#09090d;border:1px solid #2a2a34;border-radius:4px;color:#e0e0e0;font-size:0.85rem;outline:none;transition:border-color 0.2s;}
+.sidebar .search-wrap input:focus{border-color:#4FC3F7;}
+.sidebar .search-wrap input::placeholder{color:#555;}
+
+/* ===== 主内容区 ===== */
+.main{margin-left:280px;flex:1;max-width:1100px;padding:40px 60px 80px;}
+
+/* ===== 排版 ===== */
+h1{font-size:1.9rem;color:#fff;margin-bottom:6px;font-weight:700;}
+h1+.subtitle{color:#909090;font-size:0.95rem;margin-bottom:28px;}
+h2{font-size:1.35rem;color:#4FC3F7;margin:36px 0 16px;padding-bottom:6px;border-bottom:1px solid #1a1a2a;}
+h3{font-size:1.1rem;color:#ddd;margin:26px 0 12px;}
+p{margin-bottom:14px;}
+ul,ol{margin:0 0 14px 24px;}
+li{margin-bottom:4px;}
+a{color:#4FC3F7;text-decoration:none;}
+a:hover{text-decoration:underline;}
+strong{color:#f0f0f0;}
+
+/* 面包屑 */
+.breadcrumb{font-size:0.82rem;color:#707070;margin-bottom:8px;}
+.breadcrumb a{color:#707070;}
+.breadcrumb span{color:#4FC3F7;}
+
+/* ===== 卡片 ===== */
+.card{background:#131318;border:1px solid #1c1c24;border-radius:8px;padding:20px 24px;margin-bottom:20px;}
+.card h3{margin-top:0;}
+
+/* ===== 代码块 ===== */
+.code-block{background:#09090d;border:1px solid #1c1c24;border-radius:6px;overflow:hidden;margin-bottom:18px;position:relative;}
+.code-block .code-header{display:flex;justify-content:space-between;align-items:center;background:#0e0e15;padding:8px 14px;font-size:0.78rem;color:#888;border-bottom:1px solid #1a1a24;}
+.code-block .code-header .lang{color:#4FC3F7;}
+.code-block .code-header .copy-btn{background:none;border:1px solid #2a2a34;color:#707070;padding:2px 10px;border-radius:3px;cursor:pointer;font-size:0.75rem;transition:all 0.15s;}
+.code-block .code-header .copy-btn:hover{color:#e0e0e0;border-color:#4FC3F7;}
+.code-block .code-header .path{color:#707070;}
+.code-block pre{margin:0;padding:14px 16px;overflow-x:auto;counter-reset:line;}
+.code-block pre code{font-family:"Cascadia Code","Fira Code","JetBrains Mono","Consolas",monospace;font-size:0.82rem;line-height:1.55;color:#c8c8c8;display:grid;grid-template-columns:auto 1fr;gap:0 12px;}
+.code-block pre code .ln{color:#505050;text-align:right;user-select:none;min-width:24px;}
+.code-block pre code .kw{color:#c586c0;}
+.code-block pre code .ty{color:#4FC3F7;}
+.code-block pre code .fn{color:#dcdcaa;}
+.code-block pre code .str{color:#ce9178;}
+.code-block pre code .cm{color:#6a9955;}
+.code-block pre code .num{color:#b5cea8;}
+.code-block pre code .pp{color:#569cd6;}
+.code-block pre code .macro{color:#d7ba7d;}
+
+/* ===== SVG 图区 ===== */
+.diagram{text-align:center;margin:20px 0 28px;}
+.diagram svg{max-width:100%;border-radius:8px;}
+
+/* ===== 表格 ===== */
+table{width:100%;border-collapse:collapse;margin-bottom:18px;font-size:0.88rem;}
+thead th{background:#16161f;color:#4FC3F7;text-align:left;padding:10px 14px;border-bottom:2px solid #222;font-weight:600;}
+tbody td{padding:9px 14px;border-bottom:1px solid #1a1a24;}
+tbody tr:nth-child(even){background:#0f0f16;}
+tbody tr:hover{background:#14141c;}
+td code{background:#1a1a26;padding:1px 6px;border-radius:3px;font-size:0.82rem;color:#ce9178;}
+
+/* ===== CVar 表 ===== */
+.cvar-table td:first-child{font-family:monospace;color:#dcdcaa;font-size:0.82rem;white-space:nowrap;}
+.cvar-table td:nth-child(2){width:80px;text-align:center;color:#b5cea8;}
+.cvar-table td:nth-child(3){color:#909090;font-style:italic;}
+
+/* ===== 提示框 ===== */
+.note{background:#13131d;border-left:3px solid #4FC3F7;padding:12px 16px;border-radius:0 6px 6px 0;margin-bottom:18px;font-size:0.88rem;}
+.note strong{color:#4FC3F7;}
+.warn{border-left-color:#e2a648;}
+.warn strong{color:#e2a648;}
+
+/* ===== 底部导航 ===== */
+.footer-nav{display:flex;justify-content:space-between;margin-top:40px;padding-top:20px;border-top:1px solid #1a1a24;}
+.footer-nav a{display:flex;flex-direction:column;color:#4FC3F7;}
+.footer-nav a span.label{font-size:0.75rem;color:#707070;}
+.footer-nav a span.title{font-size:0.95rem;}
+.footer-nav a.prev{align-items:flex-start;}
+.footer-nav a.next{align-items:flex-end;text-align:right;}
+
+/* ===== 响应式 ===== */
+@media(max-width:900px){.sidebar{display:none;}.main{margin-left:0;padding:20px 24px;}}
+
+/* ===== 高亮搜索结果 ===== */
+.search-highlight{background:rgba(79,195,247,0.25);border-radius:2px;}
+</style>
+</head>
+<body>
+
+<!-- ===== 左侧导航 ===== -->
+<aside class="sidebar">
+  <h3>Shader 编译体系</h3>
+  <div class="search-wrap">
+    <input type="text" id="searchInput" placeholder="搜索章节内容..." oninput="searchContent()">
+  </div>
+  <nav>
+    <a href="#s1">1. 概述与定位</a>
+    <a href="#s2" class="l2">1.1 编译全链路</a>
+    <a href="#s3" class="l2">1.2 核心概念</a>
+    <a href="#s4">2. 顶层架构设计</a>
+    <a href="#s5" class="l2">2.1 Shader 类型层级</a>
+    <a href="#s6" class="l2">2.2 SHADER_PARAMETER_STRUCT 宏体系</a>
+    <a href="#s7" class="l2">2.3 排列系统</a>
+    <a href="#s8" class="l2">2.4 示例一: 自定义 GlobalShader</a>
+    <a href="#s9" class="l2">2.5 示例二: 参数类型全景</a>
+    <a href="#s10">3. 执行流程与数据流</a>
+    <a href="#s11" class="l2">3.1 编译流水线</a>
+    <a href="#s12" class="l2">3.2 Shader 查找与绑定</a>
+    <a href="#s13">4. 设计决策与权衡</a>
+    <a href="#s14" class="l2">4.1 编译期反射</a>
+    <a href="#s15" class="l2">4.2 排列爆炸</a>
+    <a href="#s16" class="l2">4.3 DXC vs FXC</a>
+    <a href="#s17">5. 底层实现关联</a>
+    <a href="#s18" class="l2">5.1 宏展开机制</a>
+    <a href="#s19" class="l2">5.2 FShaderMap 查找</a>
+    <a href="#s20" class="l2">5.3 Job 调度</a>
+    <a href="#s21">6. UE5.8 演进变化</a>
+    <a href="#s22">CVar 速查表</a>
+  </nav>
+</aside>
+
+<!-- ===== 主内容 ===== -->
+<main class="main">
+
+<div class="breadcrumb">
+  <a href="../index.html">UE5.8.0 渲染文档</a> &nbsp;/&nbsp;
+  <span>Shader 编译体系</span>
+</div>
+
+<h1 id="s1">Shader 编译体系</h1>
+<p class="subtitle">从 .usf 文件到 GPU 可执行代码的全流程 &mdash; UE 的跨平台 Shader 编译体系</p>
+
+<!-- ==== 1. 概述与定位 ==== -->
+<h2>1. 概述与定位</h2>
+
+<p>Unreal Engine 的 Shader 编译体系是整个渲染管线的<strong>入口基础设施</strong>。它负责将开发者编写的 <code>.usf</code>（Unreal Shader File）编译为目标平台 GPU 可执行的字节码，并为运行时提供高效的类型安全的参数绑定机制。</p>
+
+<p>与典型的游戏引擎不同，UE 的 Shader 系统不仅仅是"编译 HLSL"，它提供了一整套编译期反射、变体（排列）管理、DDC 缓存和跨平台支持的框架。</p>
+
+<h3 id="s2">1.1 编译全链路概览</h3>
+
+<div class="diagram">
+<svg viewBox="0 0 1000 460" xmlns="http://www.w3.org/2000/svg" style="max-width:1000px; background:#0a0a0f;">
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 z" fill="#4FC3F7"/></marker>
+    <marker id="arr2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 z" fill="#e2a648"/></marker>
+    <linearGradient id="gradBox" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#131318"/><stop offset="100%" stop-color="#1a1a26"/></linearGradient>
+    <linearGradient id="gradProc" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#151520"/><stop offset="100%" stop-color="#0d0d16"/></linearGradient>
+  </defs>
+
+  <!-- 阶段标签 -->
+  <text x="500" y="28" text-anchor="middle" font-size="13" fill="#909090" font-weight="bold">阶段 1: 源文件与注册</text>
+  <text x="840" y="28" text-anchor="middle" font-size="13" fill="#909090" font-weight="bold">阶段 2: 编译</text>
+  <text x="500" y="250" text-anchor="middle" font-size="13" fill="#909090" font-weight="bold">阶段 3: 缓存与存储</text>
+  <text x="840" y="250" text-anchor="middle" font-size="13" fill="#909090" font-weight="bold">阶段 4: 运行时绑定</text>
+
+  <!-- 阶段 1: .usf 文件 -->
+  <rect x="30" y="40" width="180" height="42" rx="6" fill="url(#gradBox)" stroke="#222" stroke-width="1"/>
+  <text x="120" y="58" text-anchor="middle" font-size="13" fill="#e0e0e0" font-weight="bold">.usf 源文件</text>
+  <text x="120" y="73" text-anchor="middle" font-size="11" fill="#707070">HLSL + UE 宏</text>
+
+  <!-- 阶段 1: C++ Shader 类注册 -->
+  <rect x="260" y="40" width="210" height="42" rx="6" fill="url(#gradBox)" stroke="#222" stroke-width="1"/>
+  <text x="365" y="58" text-anchor="middle" font-size="13" fill="#e0e0e0" font-weight="bold">C++ Shader 类声明</text>
+  <text x="365" y="73" text-anchor="middle" font-size="11" fill="#707070">DECLARE_SHADER_TYPE + IMPLEMENT</text>
+
+  <!-- 阶段 1: 排列枚举 -->
+  <rect x="520" y="40" width="200" height="42" rx="6" fill="url(#gradBox)" stroke="#222" stroke-width="1"/>
+  <text x="620" y="58" text-anchor="middle" font-size="13" fill="#e0e0e0" font-weight="bold">排列维度定义</text>
+  <text x="620" y="73" text-anchor="middle" font-size="11" fill="#707070">TShaderPermutationDomain</text>
+
+  <!-- 阶段 1 箭头 -->
+  <line x1="210" y1="61" x2="255" y2="61" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="470" y1="61" x2="515" y2="61" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- 向下箭头到编译 -->
+  <line x1="520" y1="82" x2="520" y2="105" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- 阶段 2: FShaderCompileJob -->
+  <rect x="620" y="110" width="190" height="42" rx="6" fill="url(#gradProc)" stroke="#222" stroke-width="1"/>
+  <text x="715" y="128" text-anchor="middle" font-size="13" fill="#e0e0e0" font-weight="bold">FShaderCompileJob</text>
+  <text x="715" y="143" text-anchor="middle" font-size="11" fill="#707070">封装 .usf + 环境 + 排列</text>
+
+  <!-- 阶段 2: 预处理器 -->
+  <rect x="620" y="170" width="190" height="42" rx="6" fill="url(#gradProc)" stroke="#222" stroke-width="1"/>
+  <text x="715" y="188" text-anchor="middle" font-size="13" fill="#e0e0e0" font-weight="bold">Shader 预处理器</text>
+  <text x="715" y="203" text-anchor="middle" font-size="11" fill="#707070">#include 展开 + #define</text>
+
+  <!-- 向下箭头 -->
+  <line x1="715" y1="152" x2="715" y2="165" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="715" y1="212" x2="715" y2="235" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- 阶段 2: 平台编译器 (DXC/FXC) -->
+  <rect x="620" y="240" width="190" height="42" rx="6" fill="url(#gradProc)" stroke="#222" stroke-width="1"/>
+  <text x="715" y="258" text-anchor="middle" font-size="13" fill="#e0e0e0" font-weight="bold">平台编译器</text>
+  <text x="715" y="273" text-anchor="middle" font-size="11" fill="#707070">DXC / glslang / Metal</text>
+
+  <!-- 阶段 2: SCW -->
+  <rect x="860" y="110" width="120" height="172" rx="6" fill="url(#gradProc)" stroke="#333" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="920" y="200" text-anchor="middle" font-size="11" fill="#707070">SCW 进程</text>
+
+  <!-- 阶段 2 箭头 -->
+  <line x1="810" y1="137" x2="855" y2="137" stroke="#4FC3F7" stroke-width="1" marker-end="url(#arr)"/>
+  <line x1="810" y1="261" x2="855" y2="261" stroke="#4FC3F7" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- 阶段 3: FShaderMapResourceCode -->
+  <rect x="30" y="290" width="200" height="42" rx="6" fill="url(#gradBox)" stroke="#222" stroke-width="1"/>
+  <text x="130" y="308" text-anchor="middle" font-size="13" fill="#e0e0e0" font-weight="bold">FShaderMapResourceCode</text>
+  <text x="130" y="323" text-anchor="middle" font-size="11" fill="#707070">字节码 + 可选数据</text>
+
+  <!-- 阶段 3: DDC -->
+  <rect x="280" y="290" width="160" height="42" rx="6" fill="url(#gradBox)" stroke="#222" stroke-width="1"/>
+  <text x="360" y="308" text-anchor="middle" font-size="13" fill="#e0e0e0" font-weight="bold">DDC 缓存</text>
+  <text x="360" y="323" text-anchor="middle" font-size="11" fill="#707070">Oodle 压缩</text>
+
+  <!-- 阶段 3: Oodle -->
+  <rect x="490" y="290" width="160" height="42" rx="6" fill="url(#gradBox)" stroke="#222" stroke-width="1"/>
+  <text x="570" y="308" text-anchor="middle" font-size="13" fill="#e0e0e0" font-weight="bold">FShaderCode 序列化</text>
+  <text x="570" y="323" text-anchor="middle" font-size="11" fill="#707070">可选符号 + 校验</text>
+
+  <!-- 阶段 3 箭头 -->
+  <line x1="230" y1="311" x2="275" y2="311" stroke="#e2a648" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="440" y1="311" x2="485" y2="311" stroke="#e2a648" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+  <!-- 阶段 4: FShaderMap -->
+  <rect x="30" y="370" width="200" height="42" rx="6" fill="url(#gradProc)" stroke="#222" stroke-width="1"/>
+  <text x="130" y="388" text-anchor="middle" font-size="13" fill="#e0e0e0" font-weight="bold">FShaderMap / FGlobalShaderMap</text>
+  <text x="130" y="403" text-anchor="middle" font-size="11" fill="#707070">FShader 实例容器</text>
+
+  <!-- 阶段 4: RHI -->
+  <rect x="280" y="370" width="180" height="42" rx="6" fill="url(#gradProc)" stroke="#222" stroke-width="1"/>
+  <text x="370" y="388" text-anchor="middle" font-size="13" fill="#e0e0e0" font-weight="bold">FRHIShader 创建</text>
+  <text x="370" y="403" text-anchor="middle" font-size="11" fill="#707070">D3D12/Vulkan PSO</text>
+
+  <!-- 阶段 4: RDG AddPass -->
+  <rect x="510" y="370" width="190" height="42" rx="6" fill="url(#gradProc)" stroke="#222" stroke-width="1"/>
+  <text x="605" y="387" text-anchor="middle" font-size="13" fill="#e0e0e0" font-weight="bold">GraphBuilder.AddPass()</text>
+  <text x="605" y="402" text-anchor="middle" font-size="11" fill="#707070">SetShaderParameters + Dispatch</text>
+
+  <!-- 阶段 4 箭头 -->
+  <line x1="230" y1="391" x2="275" y2="391" stroke="#e2a648" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="460" y1="391" x2="505" y2="391" stroke="#e2a648" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+  <!-- 从阶段 3 到阶段 4 的箭头 -->
+  <line x1="130" y1="332" x2="130" y2="365" stroke="#e2a648" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+  <!-- 时间线 -->
+  <text x="500" y="444" text-anchor="middle" font-size="10" fill="#505050">编译期 (C++ + SCW) ───────────────────── 存储 (DDC) ───────────────────── 运行时 (RenderThread + RHI)</text>
+</svg>
+</div>
+
+<h3 id="s3">1.2 核心概念速览</h3>
+
+<table>
+<thead><tr><th>概念</th><th>文件位置</th><th>职责</th></tr></thead>
+<tbody>
+<tr><td><code>FShaderType</code></td><td><code>RenderCore/Public/Shader.h</code></td><td>Shader 类型的元数据容器 (名称/源文件/排列数/构造器指针)</td></tr>
+<tr><td><code>FShader</code></td><td><code>RenderCore/Public/Shader.h</code></td><td>单个已编译 Shader 实例 (字节码 + 参数绑定)</td></tr>
+<tr><td><code>FShaderTypeRegistration</code></td><td><code>RenderCore/Public/Shader.h</code></td><td>全局 Shader 类型注册器 (静态初始化期收集, 引擎启动时 Commit)</td></tr>
+<tr><td><code>SHADER_PARAMETER_STRUCT</code></td><td><code>RenderCore/Public/ShaderParameterMacros.h</code></td><td>编译期反射宏: 自动生成参数元数据和 RHI 绑定代码</td></tr>
+<tr><td><code>FShaderPermutationDomain</code></td><td><code>RenderCore/Public/ShaderPermutation.h</code></td><td>编译期变体管理: 多维度 → 一维排列 ID 的映射</td></tr>
+<tr><td><code>FShaderCompilerEnvironment</code></td><td><code>RenderCore/Public/ShaderCore.h</code></td><td>编译环境: 宏定义 + Include 虚拟路径映射</td></tr>
+<tr><td><code>FShaderCompileJob</code></td><td><code>Engine/Private/ShaderCompiler/</code></td><td>单次编译任务: 封装类型/环境/平台</td></tr>
+<tr><td><code>FShaderMapResourceCode</code></td><td><code>RenderCore/Public/Shader.h</code></td><td>编译输出集合: 多个 Shader 的字节码 + 调试符号</td></tr>
+</tbody>
+</table>
+
+<!-- ==== 2. 顶层架构设计 ==== -->
+<h2 id="s4">2. 顶层架构设计</h2>
+
+<h3 id="s5">2.1 Shader 类型层级</h3>
+
+<p>UE 的 Shader 类型系统采用<strong>编译期多态 + 运行时动态分发</strong>的混合架构。所有 Shader 类都继承自 <code>FShader</code>，但其元类型 (ShaderMetaType) 决定了 Shader 的编译、缓存和查找方式。</p>
+
+<div class="diagram">
+<svg viewBox="0 0 960 500" xmlns="http://www.w3.org/2000/svg" style="max-width:960px; background:#0a0a0f;">
+  <defs>
+    <linearGradient id="gCls" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#12121a"/><stop offset="100%" stop-color="#0d0d13"/></linearGradient>
+    <marker id="at" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><path d="M0,0 L10,3.5 L0,7 z" fill="#707070"/></marker>
+  </defs>
+
+  <!-- FShaderType -->
+  <rect x="300" y="10" width="340" height="52" rx="6" fill="url(#gCls)" stroke="#4FC3F7" stroke-width="1.5"/>
+  <text x="470" y="32" text-anchor="middle" font-size="14" fill="#4FC3F7" font-weight="bold">FShaderType</text>
+  <text x="470" y="50" text-anchor="middle" font-size="10.5" fill="#707070">元类型: 名称 · 源文件 · 排列数 · 构造器指针</text>
+
+  <!-- FShader -->
+  <rect x="320" y="100" width="300" height="52" rx="6" fill="url(#gCls)" stroke="#ddd" stroke-width="1.5"/>
+  <text x="470" y="122" text-anchor="middle" font-size="14" fill="#e0e0e0" font-weight="bold">FShader</text>
+  <text x="470" y="140" text-anchor="middle" font-size="10.5" fill="#707070">实例: 输出哈希 · 参数绑定 · 资源索引</text>
+
+  <!-- 关系线 -->
+  <line x1="420" y1="62" x2="420" y2="95" stroke="#707070" stroke-width="1" marker-end="url(#at)"/>
+  <text x="400" y="82" font-size="10" fill="#606060">type → instance</text>
+
+  <!-- 分支 -->
+  <line x1="340" y1="152" x2="200" y2="210" stroke="#707070" stroke-width="1" marker-end="url(#at)"/>
+  <line x1="470" y1="152" x2="470" y2="210" stroke="#707070" stroke-width="1" marker-end="url(#at)"/>
+  <line x1="600" y1="152" x2="740" y2="210" stroke="#707070" stroke-width="1" marker-end="url(#at)"/>
+  <line x1="545" y1="152" x2="640" y2="210" stroke="#707070" stroke-width="1" marker-end="url(#at)"/>
+
+  <!-- FGlobalShader -->
+  <rect x="40" y="215" width="320" height="72" rx="6" fill="url(#gCls)" stroke="#78c8b0" stroke-width="1.5"/>
+  <text x="200" y="240" text-anchor="middle" font-size="14" fill="#78c8b0" font-weight="bold">FGlobalShader</text>
+  <text x="200" y="260" text-anchor="middle" font-size="10" fill="#909090">MetaType = FGlobalShaderType</text>
+  <text x="200" y="278" text-anchor="middle" font-size="10" fill="#707070">存储于 FGlobalShaderMap → GGlobalShaderMap[Platform]</text>
+
+  <!-- FMaterialShader -->
+  <rect x="370" y="215" width="200" height="72" rx="6" fill="url(#gCls)" stroke="#c8a070" stroke-width="1.5"/>
+  <text x="470" y="240" text-anchor="middle" font-size="14" fill="#c8a070" font-weight="bold">FMaterialShader</text>
+  <text x="470" y="260" text-anchor="middle" font-size="10" fill="#909090">MetaType = FMaterialShaderType</text>
+  <text x="470" y="278" text-anchor="middle" font-size="10" fill="#707070">与材质模板关联</text>
+
+  <!-- FMeshMaterialShader -->
+  <rect x="585" y="215" width="250" height="72" rx="6" fill="url(#gCls)" stroke="#c070b0" stroke-width="1.5"/>
+  <text x="710" y="240" text-anchor="middle" font-size="14" fill="#c070b0" font-weight="bold">FMeshMaterialShader</text>
+  <text x="710" y="260" text-anchor="middle" font-size="10" fill="#909090">MetaType = FMeshMaterialShaderType</text>
+  <text x="710" y="278" text-anchor="middle" font-size="10" fill="#707070">材质 + VertexFactory 关联</text>
+
+  <!-- 子类型 -->
+  <!-- FGlobalShader 子类型 -->
+  <rect x="40" y="310" width="150" height="42" rx="6" fill="url(#gCls)" stroke="#78c8b0" stroke-width="0.8"/>
+  <text x="115" y="335" text-anchor="middle" font-size="11" fill="#b0b0b0">ScreenPass Shaders</text>
+
+  <rect x="210" y="310" width="150" height="42" rx="6" fill="url(#gCls)" stroke="#78c8b0" stroke-width="0.8"/>
+  <text x="285" y="335" text-anchor="middle" font-size="11" fill="#b0b0b0">Lumen/Nanite CS</text>
+
+  <!-- FMeshMaterialShader 子类型 -->
+  <rect x="585" y="310" width="120" height="42" rx="6" fill="url(#gCls)" stroke="#c070b0" stroke-width="0.8"/>
+  <text x="645" y="335" text-anchor="middle" font-size="11" fill="#b0b0b0">BasePass VS/PS</text>
+
+  <rect x="715" y="310" width="120" height="42" rx="6" fill="url(#gCls)" stroke="#c070b0" stroke-width="0.8"/>
+  <text x="775" y="335" text-anchor="middle" font-size="11" fill="#b0b0b0">Velocity Shaders</text>
+
+  <!-- MetaType 分支 -->
+  <rect x="40" y="390" width="280" height="36" rx="4" fill="none" stroke="#606060" stroke-width="0.6" stroke-dasharray="3,2"/>
+  <text x="180" y="413" text-anchor="middle" font-size="9.5" fill="#505050">EShaderTypeForDynamicCast::Global / Material / MeshMaterial / Niagara / OCIO / ComputeKernel / NNERuntimeIREE</text>
+</svg>
+</div>
+
+<div class="note">
+  <strong>关键设计:</strong> <code>FShaderType</code> 使用 <code>EShaderTypeForDynamicCast</code> 枚举提供安全的运行时向下转型 (类似 LLVM 的 dyn_cast)。每种 ShaderMetaType 存储不同的函数指针 (构造器、ShouldCompilePermutation 等)，以多态方式支持不同的编译策略。
+</div>
+
+<h3 id="s6">2.2 SHADER_PARAMETER_STRUCT 宏体系</h3>
+
+<p>UE5 的 <code>SHADER_PARAMETER_STRUCT</code> 宏系统是整个参数绑定的核心，它利用 <strong>C++ 的编译期反射 + 侵入式单向链表</strong> 技术，自动从参数结构体生成元数据和运行时绑定代码。</p>
+
+<div class="diagram">
+<svg viewBox="0 0 940 300" xmlns="http://www.w3.org/2000/svg" style="max-width:940px; background:#0a0a0f;">
+  <rect x="20" y="10" width="900" height="280" rx="8" fill="#0f0f18" stroke="#1a1a26"/>
+
+  <!-- C++ 代码 -->
+  <text x="40" y="38" font-size="12" fill="#909090">C++ 声明</text>
+  <rect x="35" y="48" width="870" height="112" rx="5" fill="#09090d"/>
+  <text x="50" y="70" font-size="11" fill="#d7ba7d">BEGIN_SHADER_PARAMETER_STRUCT</text><text x="280" y="70" font-size="11" fill="#e0e0e0">(FMyParameters, )</text>
+  <text x="65" y="92" font-size="11" fill="#6a9955">// 常量: 编译期布局 + CPU → GPU cbuffer 映射</text>
+  <text x="65" y="112" font-size="11" fill="#4FC3F7">SHADER_PARAMETER</text><text x="260" y="112" font-size="11" fill="#e0e0e0">(float, Intensity)</text>
+  <text x="65" y="132" font-size="11" fill="#4FC3F7">SHADER_PARAMETER_RDG_TEXTURE</text><text x="260" y="132" font-size="11" fill="#e0e0e0">(Texture2D, InputTex)</text>
+  <text x="65" y="152" font-size="11" fill="#4FC3F7">RENDER_TARGET_BINDING_SLOTS</text><text x="260" y="152" font-size="11" fill="#e0e0e0">()</text>
+  <text x="50" y="174" font-size="11" fill="#d7ba7d">END_SHADER_PARAMETER_STRUCT</text><text x="280" y="174" font-size="11" fill="#e0e0e0">()</text>
+
+  <!-- 箭头 -->
+  <text x="220" y="210" text-anchor="middle" font-size="10" fill="#707070">展开为 INST_MEMBER_ID 单向链表</text>
+  <line x1="220" y1="218" x2="220" y2="240" stroke="#4FC3F7" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- 链表示意图 -->
+  <g transform="translate(40,248)">
+    <rect x="0" y="0" width="130" height="22" rx="4" fill="#1a1a26" stroke="#4FC3F7" stroke-width="0.8"/>
+    <text x="65" y="15" text-anchor="middle" font-size="9.5" fill="#ccc">intensity →</text>
+    <rect x="150" y="0" width="130" height="22" rx="4" fill="#1a1a26" stroke="#4FC3F7" stroke-width="0.8"/>
+    <text x="215" y="15" text-anchor="middle" font-size="9.5" fill="#ccc">InputTex →</text>
+    <rect x="300" y="0" width="130" height="22" rx="4" fill="#1a1a26" stroke="#4FC3F7" stroke-width="0.8"/>
+    <text x="365" y="15" text-anchor="middle" font-size="9.5" fill="#ccc">RenderTargets</text>
+  </g>
+
+  <!-- 右侧说明 -->
+  <text x="370" y="225" font-size="9" fill="#707070">END_SHADER_PARAMETER_STRUCT 逆序遍历链表</text>
+  <text x="370" y="240" font-size="9" fill="#707070">生成 zzGetMembers() → FShaderParametersMetadata</text>
+</svg>
+</div>
+
+<h4>参数类型全览</h4>
+
+<table style="margin-top:16px;">
+<thead><tr><th>宏</th><th>CMemberType</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>SHADER_PARAMETER(T, Name)</code></td><td>CBV 标量/向量/矩阵</td><td>常数缓冲区内存储 (float, FVector4f, FMatrix44f...)</td></tr>
+<tr><td><code>SHADER_PARAMETER_ARRAY(T, Name, [N])</code></td><td>CBV 数组</td><td>常数缓冲区数组 (需 16 字节对齐)</td></tr>
+<tr><td><code>SHADER_PARAMETER_TEXTURE(T, Name)</code></td><td>RHI 纹理指针</td><td>直接绑定 FRHITexture*</td></tr>
+<tr><td><code>SHADER_PARAMETER_SRV(T, Name)</code></td><td>RHI SRV 指针</td><td>Shader Resource View</td></tr>
+<tr><td><code>SHADER_PARAMETER_UAV(T, Name)</code></td><td>RHI UAV 指针</td><td>Unordered Access View</td></tr>
+<tr><td><code>SHADER_PARAMETER_SAMPLER(T, Name)</code></td><td>RHI 采样器指针</td><td>采样器状态</td></tr>
+<tr><td><code>SHADER_PARAMETER_RDG_TEXTURE(T, N)</code></td><td>FRDGTexture*</td><td>RDG 追踪纹理 <strong>(推荐)</strong></td></tr>
+<tr><td><code>SHADER_PARAMETER_RDG_TEXTURE_SRV(T, N)</code></td><td>FRDGTextureSRV*</td><td>RDG 追踪 SRV <strong>(推荐)</strong></td></tr>
+<tr><td><code>SHADER_PARAMETER_RDG_TEXTURE_UAV(T, N)</code></td><td>FRDGTextureUAV*</td><td>RDG 追踪 UAV <strong>(推荐)</strong></td></tr>
+<tr><td><code>SHADER_PARAMETER_RDG_BUFFER_SRV(T, N)</code></td><td>FRDGBufferSRV*</td><td>RDG 追踪 Buffer SRV</td></tr>
+<tr><td><code>SHADER_PARAMETER_RDG_BUFFER_UAV(T, N)</code></td><td>FRDGBufferUAV*</td><td>RDG 追踪 Buffer UAV</td></tr>
+<tr><td><code>SHADER_PARAMETER_RDG_UNIFORM_BUFFER(S, N)</code></td><td>TRDGUniformBufferBinding</td><td>RDG UniformBuffer 引用</td></tr>
+<tr><td><code>SHADER_PARAMETER_STRUCT_REF(S, N)</code></td><td>TUniformBufferBinding</td><td>直接 UB 结构体引用</td></tr>
+<tr><td><code>RENDER_TARGET_BINDING_SLOTS()</code></td><td>FRenderTargetBindingSlots</td><td>渲染目标绑定槽 (光栅化 Pass 必须)</td></tr>
+<tr><td><code>RDG_BUFFER_ACCESS(N, Access)</code></td><td>TRDGBufferAccess</td><td>RDG Buffer 访问转换</td></tr>
+<tr><td><code>RDG_TEXTURE_ACCESS(N, Access)</code></td><td>TRDGTextureAccess</td><td>RDG Texture 访问转换</td></tr>
+</tbody>
+</table>
+
+<h3 id="s7">2.3 Shader 排列系统</h3>
+
+<p>UE 使用 <code>TShaderPermutationDomain</code> 在编译期将多维变体参数映射为一维排列 ID。这避免了运行时的字符串查询，将所有排列索引计算完全在编译期完成。</p>
+
+<table>
+<thead><tr><th>宏</th><th>维度类型</th><th>示例</th><th>PermutationCount</th></tr></thead>
+<tbody>
+<tr><td><code>SHADER_PERMUTATION_BOOL("D")</code></td><td>bool</td><td>USE_FOO</td><td>2</td></tr>
+<tr><td><code>SHADER_SPECIALIZATION_BOOL("D")</code></td><td>bool (SpecConst)</td><td>ENABLE_FEATURE</td><td>2</td></tr>
+<tr><td><code>SHADER_PERMUTATION_INT("D", N)</code></td><td>int32 [0..N-1]</td><td>QUALITY_LEVEL</td><td>N</td></tr>
+<tr><td><code>SHADER_PERMUTATION_RANGE_INT("D", X, N)</code></td><td>int32 [X..X+N-1]</td><td>SAMPLE_COUNT</td><td>N</td></tr>
+<tr><td><code>SHADER_PERMUTATION_SPARSE_INT("D", v...)</code></td><td>int32 (稀疏)</td><td>1, 2, 4, 8</td><td>N</td></tr>
+<tr><td><code>SHADER_PERMUTATION_ENUM_CLASS("D", E)</code></td><td>枚举类 (0..MAX-1)</td><td>ELightingModel</td><td>MAX</td></tr>
+</tbody>
+</table>
+
+<h4>排列域的组合</h4>
+
+<div class="code-block">
+<div class="code-header"><span class="lang">C++</span> <span class="path">ShaderPermutation.h 使用示例</span></div>
+<pre><code><span class="ln"> 1</span><span class="kw">class</span> FMyDimA : <span class="macro">SHADER_PERMUTATION_BOOL</span>(<span class="str">"MY_DIM_A"</span>);
+<span class="ln"> 2</span><span class="kw">class</span> FMyDimB : <span class="macro">SHADER_PERMUTATION_INT</span>(<span class="str">"MY_DIM_B"</span>, 4);  <span class="cm">// 0..3</span>
+<span class="ln"> 3</span>
+<span class="ln"> 4</span><span class="cm">// 编译期: PermutationCount = 2 * 4 = 8</span>
+<span class="ln"> 5</span><span class="kw">using</span> FMyDomain = <span class="ty">TShaderPermutationDomain</span>&lt;FMyDimA, FMyDimB&gt;;
+<span class="ln"> 6</span>
+<span class="ln"> 7</span><span class="cm">// 设置排列向量</span>
+<span class="ln"> 8</span>FMyDomain PermutationVector;
+<span class="ln"> 9</span>PermutationVector.Set&lt;FMyDimA&gt;(<span class="num">true</span>);
+<span class="ln">10</span>PermutationVector.Set&lt;FMyDimB&gt;(<span class="num">3</span>);
+<span class="ln">11</span>
+<span class="ln">12</span><span class="cm">// 得到一维排列 ID = 1*1 + 3*2 = 7</span>
+<span class="ln">13</span><span class="kw">int32</span> PermutationId = PermutationVector.ToDimensionValueId();
+<span class="ln">14</span>
+<span class="ln">15</span><span class="cm">// ID 还原为向量</span>
+<span class="ln">16</span>FMyDomain Restored(<span class="num">7</span>);
+<span class="ln">17</span>assert(Restored.Get&lt;FMyDimA&gt;() == <span class="num">true</span>);
+<span class="ln">18</span>assert(Restored.Get&lt;FMyDimB&gt;() == <span class="num">3</span>);</code></pre>
+</div>
+
+<div class="note">
+  <strong>排列 ID 计算:</strong> 对于 n 维域 [D<sub>0</sub>, D<sub>1</sub>, ..., D<sub>n-1</sub>]，排列 ID = SUM<sub>i</sub> (dim<sub>i</sub>_val * PROD<sub>j&lt;i</sub> dim<sub>j</sub>_count)。这是编译期完成的，零运行时开销。
+</div>
+
+<h3 id="s8">2.4 示例一: 实现一个自定义 GlobalShader</h3>
+
+<p>以下是完整的自定义 PixelShader 实现示例，展示从 .usf 源码到 RDG 调度的完整流程。</p>
+
+<h4>(1) Shader 源文件: MyCustomShader.usf</h4>
+
+<div class="code-block">
+<div class="code-header"><span class="lang">HLSL</span> <span class="path">/Engine/Private/MyCustomShader.usf</span> <button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<pre><code><span class="ln"> 1</span><span class="pp">#include</span> <span class="str">"/Engine/Private/Common.ush"</span>
+<span class="ln"> 2</span>
+<span class="ln"> 3</span><span class="cm">// 与 C++ BEGIN_SHADER_PARAMETER_STRUCT 中的 SHADER_PARAMETER 一一对应</span>
+<span class="ln"> 4</span><span class="kw">float4</span> TintColor;         <span class="cm">// SHADER_PARAMETER(FVector4f, TintColor)</span>
+<span class="ln"> 5</span><span class="kw">float</span>  BlendFactor;       <span class="cm">// SHADER_PARAMETER(float, BlendFactor)</span>
+<span class="ln"> 6</span>Texture2D InputTexture;    <span class="cm">// SHADER_PARAMETER_RDG_TEXTURE(Texture2D, InputTexture)</span>
+<span class="ln"> 7</span>SamplerState InputSampler; <span class="cm">// SHADER_PARAMETER_SAMPLER(SamplerState, InputSampler)</span>
+<span class="ln"> 8</span>
+<span class="ln"> 9</span><span class="kw">void</span> <span class="fn">MainPS</span>(
+<span class="ln">10</span>    <span class="kw">in</span> <span class="kw">float2</span> UV : TEXCOORD0,
+<span class="ln">11</span>    <span class="kw">out</span> <span class="kw">float4</span> OutColor : SV_Target0)
+<span class="ln">12</span>{
+<span class="ln">13</span>    <span class="kw">float4</span> TexColor = InputTexture.Sample(InputSampler, UV);
+<span class="ln">14</span>    OutColor = lerp(TexColor, TintColor, BlendFactor);
+<span class="ln">15</span>}</code></pre>
+</div>
+
+<h4>(2) C++ 头文件: MyCustomShader.h</h4>
+
+<div class="code-block">
+<div class="code-header"><span class="lang">C++</span> <span class="path">Renderer/Private/MyCustomShader.h</span> <button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<pre><code><span class="pp">#pragma once</span>
+
+<span class="pp">#include</span> <span class="str">"GlobalShader.h"</span>
+<span class="pp">#include</span> <span class="str">"RenderGraphUtils.h"</span>
+
+<span class="cm">// ===== 定义全局 PixelShader =====</span>
+<span class="kw">class</span> <span class="ty">FMyCustomPS</span> : <span class="kw">public</span> <span class="ty">FGlobalShader</span>
+{
+<span class="kw">public</span>:
+    <span class="macro">DECLARE_GLOBAL_SHADER</span>(FMyCustomPS);
+    <span class="macro">SHADER_USE_PARAMETER_STRUCT</span>(FMyCustomPS, FGlobalShader);
+
+    <span class="cm">// ===== 参数结构体 =====</span>
+    <span class="macro">BEGIN_SHADER_PARAMETER_STRUCT</span>(FParameters, )
+        <span class="macro">SHADER_PARAMETER</span>(FVector4f, TintColor)
+        <span class="macro">SHADER_PARAMETER</span>(<span class="kw">float</span>, BlendFactor)
+        <span class="macro">SHADER_PARAMETER_RDG_TEXTURE</span>(Texture2D, InputTexture)
+        <span class="macro">SHADER_PARAMETER_SAMPLER</span>(SamplerState, InputSampler)
+        <span class="macro">RENDER_TARGET_BINDING_SLOTS</span>()
+    <span class="macro">END_SHADER_PARAMETER_STRUCT</span>()
+
+    <span class="cm">// ===== 排列示例: 一个 bool 维度 =====</span>
+    <span class="kw">class</span> FUseHDR : <span class="macro">SHADER_PERMUTATION_BOOL</span>(<span class="str">"USE_HDR"</span>);
+    <span class="kw">using</span> FPermutationDomain = <span class="ty">TShaderPermutationDomain</span>&lt;FUseHDR&gt;;
+
+    <span class="cm">// 控制哪些排列被编译</span>
+    <span class="kw">static</span> <span class="kw">bool</span> <span class="fn">ShouldCompilePermutation</span>(<span class="kw">const</span> FGlobalShaderPermutationParameters&amp; Parameters)
+    {
+        <span class="cm">// 只在 SM5+ 平台编译</span>
+        <span class="kw">return</span> IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
+    }
+};
+
+<span class="cm">// ===== 简易调度器 =====</span>
+<span class="kw">void</span> <span class="fn">AddMyCustomPass</span>(FRDGBuilder&amp; GraphBuilder, FRDGTextureRef InputRT, FRDGTextureRef OutputRT);</code></pre>
+</div>
+
+<h4>(3) C++ 实现文件: MyCustomShader.cpp</h4>
+
+<div class="code-block">
+<div class="code-header"><span class="lang">C++</span> <span class="path">Renderer/Private/MyCustomShader.cpp</span> <button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<pre><code><span class="pp">#include</span> <span class="str">"MyCustomShader.h"</span>
+<span class="pp">#include</span> <span class="str">"PixelShaderUtils.h"</span>
+<span class="pp">#include</span> <span class="str">"Renderer/Private/PostProcess/PostProcessing.h"</span>
+
+<span class="cm">// 注册 Shader 类型到全局表 (关键!)</span>
+<span class="cm">// 参数: ShaderClass, SourceFile, EntryFunction, Frequency</span>
+<span class="macro">IMPLEMENT_GLOBAL_SHADER</span>(FMyCustomPS, <span class="str">"/Engine/Private/MyCustomShader.usf"</span>, <span class="str">"MainPS"</span>, SF_Pixel);
+
+<span class="kw">void</span> <span class="fn">AddMyCustomPass</span>(FRDGBuilder&amp; GraphBuilder, FRDGTextureRef InputRT, FRDGTextureRef OutputRT)
+{
+    <span class="cm">// 1. 获取全局 ShaderMap</span>
+    FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(GMaxRHIFeatureLevel);
+
+    <span class="cm">// 2. 选择排列</span>
+    FMyCustomPS::FPermutationDomain PermutationVector;
+    PermutationVector.Set&lt;FMyCustomPS::FUseHDR&gt;(<span class="kw">false</span>);
+    TShaderMapRef&lt;FMyCustomPS&gt; PixelShader(ShaderMap, PermutationVector);
+
+    <span class="cm">// 3. 设置参数</span>
+    FMyCustomPS::FParameters* PassParameters =
+        GraphBuilder.AllocParameters&lt;FMyCustomPS::FParameters&gt;();
+    PassParameters-&gt;TintColor      = FVector4f(<span class="num">1.0f</span>, <span class="num">0.5f</span>, <span class="num">0.2f</span>, <span class="num">1.0f</span>);
+    PassParameters-&gt;BlendFactor    = <span class="num">0.3f</span>;
+    PassParameters-&gt;InputTexture   = InputRT;
+    PassParameters-&gt;InputSampler   = TStaticSamplerState&lt;&gt;::GetRHI();
+    PassParameters-&gt;RenderTargets[<span class="num">0</span>] = FRenderTargetBinding(OutputRT, ERenderTargetLoadAction::ENoAction);
+
+    <span class="cm">// 4. 添加到 RDG</span>
+    FPixelShaderUtils::AddFullscreenPass(
+        GraphBuilder,
+        ShaderMap,
+        RDG_EVENT_NAME(<span class="str">"MyCustomPass"</span>),
+        PixelShader,
+        PassParameters,
+        FIntRect(<span class="num">0</span>, <span class="num">0</span>, OutputRT-&gt;Desc.Extent.X, OutputRT-&gt;Desc.Extent.Y));
+}</code></pre>
+</div>
+
+<h3 id="s9">2.5 示例二: SHADER_PARAMETER_STRUCT 参数类型大全</h3>
+
+<p>以下展示实际渲染 Pass 中常用的参数结构体模式。</p>
+
+<div class="code-block">
+<div class="code-header"><span class="lang">C++</span> <span class="path">参数类型综合示例</span> <button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<pre><code><span class="cm">// ===== Compute Shader 参数 =====</span>
+<span class="macro">BEGIN_SHADER_PARAMETER_STRUCT</span>(FMyComputeParams, )
+    <span class="cm">// 基础标量/向量 (编译到 cbuffer)</span>
+    <span class="macro">SHADER_PARAMETER</span>(<span class="kw">float</span>,         Intensity)
+    <span class="macro">SHADER_PARAMETER</span>(FVector4f,       Tint)
+    <span class="macro">SHADER_PARAMETER</span>(FIntPoint,       Resolution)
+    <span class="macro">SHADER_PARAMETER</span>(FMatrix44f,      ViewProjection)
+
+    <span class="cm">// 数组</span>
+    <span class="macro">SHADER_PARAMETER_ARRAY</span>(FVector4f,  LightPositions, [<span class="num">8</span>])
+
+    <span class="cm">// RHI 纹理 (非 RDG, 较少使用)</span>
+    <span class="macro">SHADER_PARAMETER_TEXTURE</span>(Texture2D,     LegacyTexture)
+    <span class="macro">SHADER_PARAMETER_SAMPLER</span>(SamplerState,  LegacySampler)
+    <span class="macro">SHADER_PARAMETER_SRV</span>(Texture2D,        LegacySRV)
+
+    <span class="cm">// RDG 资源 (推荐)</span>
+    <span class="macro">SHADER_PARAMETER_RDG_TEXTURE</span>(Texture2D,       SceneColor)
+    <span class="macro">SHADER_PARAMETER_RDG_TEXTURE_SRV</span>(Texture2D,   SceneDepthSRV)
+    <span class="macro">SHADER_PARAMETER_RDG_TEXTURE_UAV</span>(RWTexture2D, OutputUAV)
+
+    <span class="cm">// RDG Buffer</span>
+    <span class="macro">SHADER_PARAMETER_RDG_BUFFER_SRV</span>(StructuredBuffer&lt;FInstanceData&gt;, InstanceBuffer)
+    <span class="macro">SHADER_PARAMETER_RDG_BUFFER_UAV</span>(RWStructuredBuffer&lt;FOutputData&gt;, OutputBuffer)
+
+    <span class="cm">// RDG Uniform Buffer 绑定</span>
+    <span class="macro">SHADER_PARAMETER_RDG_UNIFORM_BUFFER</span>(FSceneTextureParameters, SceneTextures)
+    <span class="macro">SHADER_PARAMETER_STRUCT_REF</span>(FViewUniformShaderParameters, View)
+
+    <span class="cm">// RDG Buffer 访问声明</span>
+    <span class="macro">RDG_BUFFER_ACCESS</span>(IndirectArgs, ERHIAccess::IndirectArgs)
+
+    <span class="cm">// 渲染目标 (光栅化 Pass 必须)</span>
+    <span class="macro">RENDER_TARGET_BINDING_SLOTS</span>()
+<span class="macro">END_SHADER_PARAMETER_STRUCT</span>()</code></pre>
+</div>
+
+<!-- ==== 3. 执行流程与数据流 ==== -->
+<h2 id="s10">3. 执行流程与数据流</h2>
+
+<h3 id="s11">3.1 .usf 源码到 GPU 字节码的完整流水线</h3>
+
+<p>本章节详细描述一个 <code>.usf</code> 文件如何通过整个系统的每一层转换，最终成为 GPU 上的可执行代码。</p>
+
+<div class="diagram">
+<svg viewBox="0 0 960 680" xmlns="http://www.w3.org/2000/svg" style="max-width:960px; background:#0a0a0f;">
+  <defs>
+    <marker id="ma" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 z" fill="#4FC3F7"/></marker>
+    <marker id="mb" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 z" fill="#e2a648"/></marker>
+    <linearGradient id="gb" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#131318"/><stop offset="100%" stop-color="#1a1a26"/></linearGradient>
+  </defs>
+
+  <!-- Step 0 -->
+  <rect x="30" y="20" width="900" height="48" rx="6" fill="#0f0f18" stroke="#2a2a3a"/>
+  <text x="50" y="42" font-size="12" fill="#4FC3F7" font-weight="bold">Step 0: 静态注册 (程序启动时)</text>
+  <text x="250" y="42" font-size="12" fill="#909090">IMPLEMENT_GLOBAL_SHADER → FShaderTypeRegistration → LazyTypeAccessor 加入全局列表</text>
+
+  <line x1="480" y1="68" x2="480" y2="88" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#ma)"/>
+
+  <!-- Step 1 -->
+  <rect x="30" y="93" width="900" height="68" rx="6" fill="url(#gb)" stroke="#2a2a3a"/>
+  <text x="50" y="113" font-size="12" fill="#4FC3F7" font-weight="bold">Step 1: FShaderTypeRegistration::CommitAll() &mdash; LaunchEngineLoop</text>
+  <text x="50" y="131" font-size="11" fill="#909090">遍历所有延迟注册的 FShaderTypeRegistration，调用 LazyAccessor() → 实例化静态的 FShaderType 单例</text>
+  <text x="50" y="149" font-size="11" fill="#707070">FShaderType 携带: Name · SourceFilename · FunctionName · Frequency · PermutationCount · 构造器函数指针</text>
+
+  <line x1="480" y1="161" x2="480" y2="181" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#ma)"/>
+
+  <!-- Step 2 -->
+  <rect x="30" y="186" width="900" height="68" rx="6" fill="url(#gb)" stroke="#2a2a3a"/>
+  <text x="50" y="206" font-size="12" fill="#4FC3F7" font-weight="bold">Step 2: BeginCompileShaderMap &mdash; 创建 FShaderCompileJob</text>
+  <text x="50" y="224" font-size="11" fill="#909090">遍历所有已注册 FShaderType: ShouldCompilePermutation? → 创建 FShaderCommonCompileJob</text>
+  <text x="50" y="242" font-size="11" fill="#707070">Job 封装: VirtualFilePath(.usf) · EntryPoint · FShaderCompilerEnvironment · PermutationId · Platform</text>
+
+  <line x1="480" y1="254" x2="480" y2="274" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#ma)"/>
+
+  <!-- Step 3 -->
+  <rect x="30" y="279" width="900" height="68" rx="6" fill="url(#gb)" stroke="#2a2a3a"/>
+  <text x="50" y="299" font-size="12" fill="#4FC3F7" font-weight="bold">Step 3: PreprocessShader &mdash; 在 Job 所在线程执行预处理</text>
+  <text x="50" y="317" font-size="11" fill="#909090">.usf 入口文件 → #include 展开 (递归) → #define 替换 (FShaderCompilerEnvironment) → 预处理器输出完整 HLSL 文本</text>
+  <text x="50" y="335" font-size="11" fill="#707070">#line 指令保留原始文件/行号映射 · 所有 include 文件参与 Hash 计算 (DDC 键)</text>
+
+  <line x1="480" y1="347" x2="480" y2="367" stroke="#e2a648" stroke-width="1.5" marker-end="url(#mb)"/>
+
+  <!-- Step 4 -->
+  <rect x="30" y="372" width="900" height="84" rx="6" fill="url(#gb)" stroke="#2a2a3a"/>
+  <text x="50" y="392" font-size="12" fill="#e2a648" font-weight="bold">Step 4: 平台编译 &mdash; ShaderCompileWorker (SCW) 进程</text>
+  <text x="50" y="412" font-size="11" fill="#909090">预处理的 HLSL → IShaderFormat::CompileShader() → 平台编译器</text>
+  <text x="50" y="430" font-size="11" fill="#707070">D3D12: dxc.exe -E MainPS -T ps_6_6 · Vulkan: dxc + spirv-opt · Metal: MetalShaderConverter · OpenGL: glslang</text>
+  <text x="50" y="448" font-size="11" fill="#606060">编译输出: FShaderCompilerOutput (ShaderCode + ParameterMap + Errors + Stats)</text>
+
+  <line x1="480" y1="456" x2="480" y2="476" stroke="#e2a648" stroke-width="1.5" marker-end="url(#mb)"/>
+
+  <!-- Step 5 -->
+  <rect x="30" y="481" width="900" height="68" rx="6" fill="url(#gb)" stroke="#2a2a3a"/>
+  <text x="50" y="501" font-size="12" fill="#e2a648" font-weight="bold">Step 5: FShaderMapResourceCode::AddShaderCompilerOutput &mdash; 收集结果到共享资源</text>
+  <text x="50" y="519" font-size="11" fill="#909090">ShaderCode (Oodle 压缩) + 可选数据 (EntryPoint · Features · PackedResourceCounts · UniformBuffers)</text>
+  <text x="50" y="537" font-size="11" fill="#707070">FShaderCodeResource (Header + Code FSharedBuffer + Symbols) → FShaderMapResource_InlineCode</text>
+
+  <line x1="480" y1="549" x2="480" y2="569" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#ma)"/>
+
+  <!-- Step 6 -->
+  <rect x="30" y="574" width="900" height="48" rx="6" fill="url(#gb)" stroke="#2a2a3a"/>
+  <text x="50" y="592" font-size="12" fill="#4FC3F7" font-weight="bold">Step 6: CreateRHIShader &mdash; 运行时按需创建 RHI 层 Shader 对象</text>
+  <text x="50" y="610" font-size="11" fill="#909090">GetShader(index) → 双检查锁 → CreateRHIShaderOrCrash → RHICreate*Shader → 存储到 RHIShaders 原子数组</text>
+
+  <line x1="480" y1="622" x2="480" y2="642" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#ma)"/>
+
+  <!-- Step 7 -->
+  <rect x="30" y="647" width="900" height="32" rx="6" fill="#0a2a1a" stroke="#4FC3F7" stroke-width="0.8"/>
+  <text x="50" y="668" font-size="12" fill="#4FC3F7" font-weight="bold">Step 7: SetShaderParameters + Dispatch &mdash; 运行时参数绑定与执行</text>
+</svg>
+</div>
+
+<h3 id="s12">3.2 Shader 查找与运行时绑定路径</h3>
+
+<p>运行时获取 Shader 引用的两条主要路径：</p>
+
+<table>
+<thead><tr><th>路径</th><th>入口</th><th>适用场景</th><th>代码</th></tr></thead>
+<tbody>
+<tr>
+  <td>全局 Shader Map</td>
+  <td><code>GetGlobalShaderMap(Platform)</code></td>
+  <td>后处理、光照、所有非材质 Shader</td>
+  <td><code>TShaderMapRef&lt;FMyPS&gt;(ShaderMap)</code></td>
+</tr>
+<tr>
+  <td>材质 Shader Map</td>
+  <td><code>Material.GetRenderingThreadShaderMap()</code></td>
+  <td>材质渲染 (BasePass/Shadow/Light)</td>
+  <td><code>MaterialShaderMap-&gt;GetShader&lt;FMyMeshPS&gt;()</code></td>
+</tr>
+</tbody>
+</table>
+
+<div class="note">
+  <strong>双检查锁定 (Double-Checked Locking):</strong> <code>FShaderMapResource::GetShader()</code> 使用 <code>std::memory_order_acquire</code> / <code>std::memory_order_relaxed</code> 原子操作实现无锁读取路径。只有当 RHI Shader 尚未创建时才获取 <code>RHIShadersCreationGuard</code> 互斥锁。
+</div>
+
+<!-- ==== 4. 设计决策与权衡 ==== -->
+<h2 id="s13">4. 设计决策与权衡</h2>
+
+<h3 id="s14">4.1 编译期反射宏 vs 手动绑定</h3>
+
+<div class="card">
+<h3>编译期反射方案 (SHADER_PARAMETER_STRUCT)</h3>
+
+<table>
+<thead><tr><th>方面</th><th>优势</th><th>代价</th></tr></thead>
+<tbody>
+<tr><td>类型安全</td><td>编译期检查参数名和类型; 运行时 ValidateShaderParameters 验证所有资源已设置</td><td>宏展开复杂, 调试困难; 错误信息常指向宏内部而非用户代码</td></tr>
+<tr><td>自动化</td><td>自动生成 FShaderParametersMetadata (布局/偏移/类型); 自动绑定到 RHI</td><td>侵入式单向链表存储每个成员; END_SHADER_PARAMETER_STRUCT 需逆序遍历重建数组</td></tr>
+<tr><td>代码量</td><td>每个 Shader 的参数定义简化为几行宏调用</td><td>生成的模板代码编译时间长; .usf 中的变量名必须与 C++ 中的宏名精确匹配</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>核心权衡: 编译期反射牺牲了编译速度和模板复杂度，换取了运行时零开销的类型安全参数绑定。在 UE5.8 中，<strong>RDG 参数 (SHADER_PARAMETER_RDG_*)</strong> 不仅绑定资源还自动插入资源转换 Barrier，这是手动绑定无法达成的。</p>
+
+<h3 id="s15">4.2 Shader 排列爆炸的缓解策略</h3>
+
+<div class="warn note">
+  <strong>排列爆炸问题:</strong> 如果 N 个材质功能各有一个 bool 维度 (Quality, Shadow, Fog, Reflection...)，排列总数 = 2<sup>N</sup>。N=10 时即达 1024 排列。实际项目中 50+ 维度很常见，理论排列数远超合理范围。
+</div>
+
+<p>UE5.8 的缓解策略:</p>
+<ul>
+<li><strong>ShouldCompilePermutation 过滤器:</strong> 每个 Shader 类可重写此函数，按平台/功能等级过滤，只编译实际使用的排列</li>
+<li><strong>ShouldPrecachePermutation 预缓存控制:</strong> 区分 "Precached" / "NotPrecached" / "NotUsed"，运行时只预缓存必要变体</li>
+<li><strong>Specialization Constants:</strong> 使用 <code>SHADER_SPECIALIZATION_BOOL</code> (而非 <code>SHADER_PERMUTATION_BOOL</code>) 将编译期变体转为运行时 Specialization Constant，减少编译次数但保留运行时特化</li>
+<li><strong>延迟编译 (ODSC):</strong> On-Demand Shader Compilation 在需要时才编译特定排列，而非预编译所有</li>
+<li><strong>减少宏维度:</strong> 合并相关功能为枚举维度 (SHADER_PERMUTATION_ENUM_CLASS) 而非多个 bool</li>
+</ul>
+
+<h3 id="s16">4.3 Cook 时预编译 vs 运行时按需编译</h3>
+
+<table>
+<thead><tr><th>策略</th><th>适用场景</th><th>优点</th><th>缺点</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>Cook 预编译</strong></td>
+  <td>发行版构建</td>
+  <td>零运行时编译延迟; 所有 Shader 质量保证</td>
+  <td>Cook 时间长; 大量排列导致 DDC 膨胀</td>
+</tr>
+<tr>
+  <td><strong>运行时按需编译 (ODSC)</strong></td>
+  <td>编辑器/开发</td>
+  <td>Cook 快速; 只编译实际用到的排列</td>
+  <td>首次编译卡顿; 用户可能遭遇 Shader 编译等待</td>
+</tr>
+</tbody>
+</table>
+
+<h3 id="s17">4.4 DXC vs FXC 的选择</h3>
+
+<div class="card">
+<p>UE5.8 <strong>默认使用 DXC</strong> (DirectX Shader Compiler) 编译 Shader Model 6 代码。</p>
+
+<table>
+<thead><tr><th>特性</th><th>FXC (旧)</th><th>DXC (新)</th></tr></thead>
+<tbody>
+<tr><td>Shader Model</td><td>最大 SM 5.1</td><td>SM 6.0+ (6.6/6.7)</td></tr>
+<tr><td>Wave Intrinsics</td><td>不支持</td><td>WaveActiveSum, WavePrefixSum, WaveReadLaneAt...</td></tr>
+<tr><td>16-bit 类型</td><td>不支持</td><td>min16float (硬件加速)</td></tr>
+<tr><td>Bindless Resources</td><td>不支持</td><td>ResourceDescriptorHeap / SamplerDescriptorHeap</td></tr>
+<tr><td>Raytracing (DXR)</td><td>不支持</td><td>RayQuery, TraceRay, CallShader</td></tr>
+<tr><td>网格着色器</td><td>不支持</td><td>AmplificationShader + MeshShader</td></tr>
+<tr><td>SPIR-V 输出</td><td>不支持</td><td>-spirv (Vulkan 路径)</td></tr>
+<tr><td>原子操作 (64-bit)</td><td>不支持</td><td>InterlockedAdd64 等</td></tr>
+<tr><td>编译速度</td><td>较快</td><td>较慢 (LLVM 后端)</td></tr>
+<tr><td>UE 控制 CVar</td><td><code>r.D3D.ForceDXC 0</code></td><td>默认启用</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="note">
+  <strong>Wave Intrinsics 在 UE5.8 中的关键应用:</strong> Nanite 裁剪/光栅化使用 <code>WaveActiveCountBits</code> 做 Cluster 级别压缩; Lumen 使用 <code>WavePrefixSum</code> 做自适应采样分配; MegaLights 使用 Wave 操作做光源分组剔除。
+</div>
+
+<!-- ==== 5. 底层实现关联 ==== -->
+<h2 id="s17">5. 底层实现关联</h2>
+
+<h3 id="s18">5.1 SHADER_PARAMETER_STRUCT 宏展开机制</h3>
+
+<p><code>SHADER_PARAMETER_STRUCT</code> 宏系统的核心技巧是 <strong>编译期的侵入式单向链表</strong>。每个 <code>SHADER_PARAMETER</code> 宏调用都在结构体内生成一个 <code>zzMemberId</code> 嵌套类型，并通过函数指针串联前后成员。</p>
+
+<div class="code-block">
+<div class="code-header"><span class="lang">C++</span> <span class="path">宏展开伪代码 (简化)</span> <button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<pre><code><span class="cm">// SHADER_PARAMETER(float, Intensity) 展开为:</span>
+<span class="kw">struct</span> zzMemberId##__LINE__ {
+    <span class="kw">using</span> PrevMemberId = zzLastMemberId;       <span class="cm">// 指向前一个成员 ID</span>
+    <span class="kw">static</span> <span class="kw">constexpr</span> <span class="kw">int32</span> MemberOffset = __COUNTER__;
+};
+<span class="kw">using</span> zzLastMemberId = zzMemberId##__LINE__;  <span class="cm">// 更新链表尾</span>
+
+<span class="cm">// 存储实际数据成员</span>
+<span class="kw">typename</span> TShaderParameterTypeInfo&lt;<span class="kw">float</span>&gt;::Type Intensity;
+
+<span class="cm">// 元数据收集器函数 (链表中每个节点的 zzFuncPtr 指向它)</span>
+<span class="kw">static</span> <span class="kw">void</span>* zzAppendMember##__LINE__(
+    <span class="kw">int32</span> zzMemberId, TArray&lt;FShaderParametersMetadata::FMember&gt;* Members)
+{
+    <span class="cm">// 填充 FMember: Name, Offset, BaseType, Precision, NumElements, ...</span>
+    Members-&gt;Emplace(...);
+    <span class="kw">return</span> <span class="kw">reinterpret_cast</span>&lt;<span class="kw">void</span>*&gt;(zzFuncPtrPrev); <span class="cm">// 返回指向前一个节点</span>
+}
+
+<span class="cm">// END_SHADER_PARAMETER_STRUCT 中的 zzGetMembers() 逆序遍历链表</span>
+<span class="cm">// 将函数指针数组反向, 按成员顺序填充 FMember 列表</span></code></pre>
+</div>
+
+<h3 id="s19">5.2 FShaderMap 的 Shader 查找路径</h3>
+
+<p><code>FShaderMapResource</code> 持有一个 <code>std::atomic&lt;FRHIShader*&gt;[]</code> 数组，索引由 <code>FShader::ResourceIndex</code> 标识。</p>
+
+<div class="code-block">
+<div class="code-header"><span class="lang">C++</span> <span class="path">Shader.h 查找流程 (简化)</span> <button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+<pre><code><span class="cm">// 1. 按类型 + 排列 ID 查找 FShader 实例</span>
+FShaderMapBase::GetShader(ShaderType, PermutationId)
+  → FShaderId{Type, MaterialHash, Pipeline, VFType, PermutationId, Platform}
+  → FShadermapEntry (TMap Find) → FShader*
+
+<span class="cm">// 2. 从 FShader 获取 RHI Shader (可能触发创建)</span>
+FShaderMapResource::GetShader(ResourceIndex)
+  → <span class="kw">auto</span> ptr = RHIShaders[ResourceIndex].load(memory_order_acquire)
+  → <span class="kw">if</span> (ptr == <span class="kw">nullptr</span>)
+       CreateShaderOrCrash(ResourceIndex)  <span class="cm">// 持锁创建</span></code></pre>
+</div>
+
+<h3 id="s20">5.3 Shader 编译 Job 调度</h3>
+
+<p><code>FShaderCompilingManager</code> 管理所有编译任务的调度和执行。核心流程:</p>
+
+<ol>
+<li><strong>ProcessAsyncTasks:</strong> 主循环，处理传入和完成的编译任务</li>
+<li><strong>ProcessFinishedJob:</strong> 处理单个完结 Job，将 MapResults 反射应用到 FShaderMap</li>
+<li><strong>ProcessCompiledShaderMaps:</strong> 批量处理完成的 Shader Map，触发材质重编译</li>
+<li><strong>ProcessAsyncResults:</strong> 轮询 SCW 进程的结果</li>
+</ol>
+
+<p>Job 优先级通过 <code>EShaderCompileJobPriority</code> 控制 (Low → Normal → High → ExtraHigh → ForceLocal)。全局 Shader 默认为 <code>High</code> 优先级。</p>
+
+<!-- ==== 6. UE5.8 演进变化 ==== -->
+<h2 id="s21">6. UE5.8 演进变化</h2>
+
+<div class="card">
+<h3>DXC 成为默认编译器</h3>
+<p>UE5.8 在所有支持平台上默认使用 DXC (DirectX Shader Compiler)，FXC 仅通过 <code>r.D3D.ForceDXC 0</code> 回退使用。DXC 基于 LLVM 后端，支持 SM 6.0+ 的所有特性。</p>
+</div>
+
+<div class="card">
+<h3>Shader Model 6.6 / 6.7 Wave Intrinsics</h3>
+<p>SM 6.6 引入 <code>WaveSize</code> 属性、16-bit 类型和 Enhanced Barriers。SM 6.7 引入 <code>QuadAny</code>/<code>QuadAll</code>、I8Dot 等。UE5.8 的 Nanite/Lumen 大量使用 Wave Intrinsics:</p>
+<ul>
+  <li><strong>Nanite Cluster Culling:</strong> <code>WaveActiveCountBits</code> 压缩存活 Cluster 列表</li>
+  <li><strong>Lumen Radiance Cache:</strong> <code>WavePrefixSum</code> 自适应探针分配</li>
+  <li><strong>MegaLights:</strong> <code>WaveReadLaneAt</code> 分组光源剔除</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>Nanite/Lumen Compute Shader 专用路径</h3>
+<p>UE5.8 中，Nanite 的材质着色 (<code>NaniteShading.cpp</code>) 和 Lumen 的 ReSTIR Gather (<code>LumenReSTIRGather.cpp</code>) 完全以 Compute Shader 实现，绕过传统 PS/VS 硬件光栅化管线:</p>
+<ul>
+  <li>Nanite: VisBuffer64 → Screen-Space ShadeBinning → DispatchBasePass (Compute)</li>
+  <li>Lumen: 屏幕探针 → Wave 自适应采样 → 去噪 → 合成 (Compute)</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>新特性标记</h3>
+<table>
+<thead><tr><th>特性</th><th>代码特征</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>EShaderCodeFeatures::WaveOps</code></td><td><code>ShaderCore.h:852</code></td><td>Wave Intrinsics 使用标记</td></tr>
+<tr><td><code>EShaderCodeFeatures::BindlessResources</code></td><td><code>ShaderCore.h:857</code></td><td>Bindless 资源绑定 (SM6.6+)</td></tr>
+<tr><td><code>EShaderCodeFeatures::Atomic64</code></td><td><code>ShaderCore.h:855</code></td><td>64 位原子操作</td></tr>
+<tr><td><code>EShaderCodeFeatures::BarycentricsSemantic</code></td><td><code>ShaderCore.h:860</code></td><td>重心坐标语义 (SM6.1+)</td></tr>
+<tr><td><code>EShaderResourceUsageFlags::BindlessResources</code></td><td><code>ShaderCore.h:781</code></td><td>运行时 Bindless 资源使用</td></tr>
+<tr><td><code>ResourceExclusions (5.8 废弃兼容)</code></td><td><code>ShaderParameterStruct.h:311</code></td><td><code>SetShaderParameters</code> 现需显式传入 ResourceExclusions</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ==== CVar 速查表 ==== -->
+<h2 id="s22">CVar 速查表</h2>
+
+<table class="cvar-table">
+<thead><tr><th>CVar</th><th>默认</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>r.D3D.ForceDXC</code></td><td>1</td><td>强制使用 DXC 编译器; 0 = 回退到 FXC</td></tr>
+<tr><td><code>r.ShaderDevelopmentMode</code></td><td>0</td><td>1 = 启用详细 Shader 日志; 控制 LogShaders 运行时输出</td></tr>
+<tr><td><code>r.Shaders.Symbols</code></td><td>0</td><td>生成调试符号: 1=启发式, 2=全部, 3=全部+强制生成</td></tr>
+<tr><td><code>r.Shaders.Optimize</code></td><td>1</td><td>优化控制: 0=无优化, 1=默认, 2=最大优化</td></tr>
+<tr><td><code>r.Shaders.FastMath</code></td><td>1</td><td>启用快速数学 (精度换速度)</td></tr>
+<tr><td><code>r.Shaders.ZeroInitialise</code></td><td>1</td><td>零初始化未绑定的 CB 变量</td></tr>
+<tr><td><code>r.Shaders.BoundsChecking</code></td><td>0</td><td>启用运行时边界检查</td></tr>
+<tr><td><code>r.Shaders.WarningsAsErrors</code></td><td>0</td><td>将 Shader 编译警告视为错误</td></tr>
+<tr><td><code>r.Shaders.RemoveDeadCode</code></td><td>1</td><td>移除未使用代码</td></tr>
+<tr><td><code>r.Shaders.SkipCompression</code></td><td>0</td><td>跳过 Oodle 压缩</td></tr>
+<tr><td><code>r.ShaderCompiler.RecompileShadersOnSave</code></td><td>0</td><td>保存 .usf 时自动重编译 (编辑器功能)</td></tr>
+<tr><td><code>r.ShaderCompiler.LogSlowJobThreshold</code></td><td>5.0</td><td>超过秒数的编译任务打印日志</td></tr>
+<tr><td><code>r.ShaderCompiler.DumpDDCKeys</code></td><td>0</td><td>导出 DDC 键到文件用于调试</td></tr>
+<tr><td><code>r.Shaders.Validation</code></td><td>1</td><td>运行时 Shader 验证</td></tr>
+<tr><td><code>r.SceneCulling</code></td><td>1</td><td>GPU 场景裁剪 (Nanite 依赖)</td></tr>
+</tbody>
+</table>
+
+<!-- ===== 底部导航 ===== -->
+<div class="footer-nav">
+  <a class="prev" href="../RDG/index.html">
+    <span class="label">上一章</span>
+    <span class="title">Render Dependency Graph (RDG)</span>
+  </a>
+  <a class="next" href="../材质体系/index.html">
+    <span class="label">下一章</span>
+    <span class="title">材质体系</span>
+  </a>
+</div>
+
+</main>
+
+<!-- ===== JS ===== -->
+<script>
+// 复制代码
+function copyCode(btn) {
+  const pre = btn.closest('.code-block').querySelector('pre');
+  const text = pre.innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '已复制';
+    setTimeout(() => btn.textContent = '复制', 1500);
+  });
+}
+
+// 大纲高亮
+(function() {
+  const nav = document.querySelector('.sidebar nav');
+  const links = nav.querySelectorAll('a');
+  const sections = [];
+  links.forEach(a => {
+    const id = a.getAttribute('href').substring(1);
+    const el = document.getElementById(id);
+    if (el) sections.push({id, el, a});
+  });
+  window.addEventListener('scroll', () => {
+    let current = sections[0];
+    for (const s of sections) {
+      if (s.el.getBoundingClientRect().top < 120) current = s;
+    }
+    links.forEach(l => l.classList.remove('active'));
+    if (current) current.a.classList.add('active');
+  });
+})();
+
+// 章节搜索
+function searchContent() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const main = document.querySelector('.main');
+  // 清除旧高亮
+  main.querySelectorAll('.search-highlight').forEach(el => {
+    el.replaceWith(el.textContent);
+  });
+  if (q.length < 2) return;
+
+  // 在正文段落和标题中搜索
+  const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT, null, false);
+  const textNodes = [];
+  while (walker.nextNode()) {
+    if (walker.currentNode.parentElement.closest('pre,code,style,script,.code-header,.breadcrumb')) continue;
+    textNodes.push(walker.currentNode);
+  }
+  let firstMatch = null;
+  textNodes.forEach(node => {
+    const idx = node.textContent.toLowerCase().indexOf(q);
+    if (idx >= 0) {
+      if (!firstMatch) firstMatch = node.parentElement;
+      const span = document.createElement('span');
+      span.className = 'search-highlight';
+      const range = document.createRange();
+      range.setStart(node, idx);
+      range.setEnd(node, idx + q.length);
+      range.surroundContents(span);
+    }
+  });
+  if (firstMatch) {
+    firstMatch.scrollIntoView({behavior: 'smooth', block: 'center'});
+  }
+}
+
+// 回车触发搜索
+document.getElementById('searchInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') searchContent();
+});
+</script>
+
+</body>
+</html>

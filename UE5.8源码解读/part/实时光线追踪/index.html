@@ -1,0 +1,1562 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实时光线追踪 - UE5.8.0 渲染架构</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --card-bg: #131318;
+  --code-bg: #09090d;
+  --primary: #4FC3F7;
+  --primary-dim: #2a7a9e;
+  --text: #e0e0e0;
+  --text-dim: #909090;
+  --border: #1e1e2a;
+  --accent-g: #66BB6A;
+  --accent-o: #FFA726;
+  --accent-r: #EF5350;
+  --accent-p: #AB47BC;
+  --nav-width: 260px;
+  --topbar-h: 48px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  line-height: 1.72;
+  font-size: 15px;
+}
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* 左侧导航 */
+#sidebar {
+  position: fixed; left: 0; top: 0; bottom: 0;
+  width: var(--nav-width); background: var(--card-bg);
+  border-right: 1px solid var(--border);
+  overflow-y: auto; z-index: 100;
+  padding: 16px 0;
+}
+#sidebar h3 {
+  padding: 0 20px 12px; font-size: 14px;
+  color: var(--primary); letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border); margin-bottom: 8px;
+}
+#sidebar nav a {
+  display: block; padding: 6px 20px; font-size: 13px;
+  color: var(--text-dim); transition: all 0.15s;
+  border-left: 2px solid transparent;
+}
+#sidebar nav a:hover, #sidebar nav a.active {
+  color: var(--primary); background: rgba(79,195,247,0.06);
+  border-left-color: var(--primary); text-decoration: none;
+}
+#sidebar nav a.sub { padding-left: 36px; font-size: 12.5px; }
+
+/* 顶部栏 */
+#topbar {
+  position: fixed; left: var(--nav-width); right: 0; top: 0;
+  height: var(--topbar-h); background: rgba(10,10,15,0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 24px; z-index: 99;
+}
+#topbar .breadcrumb { font-size: 12.5px; color: var(--text-dim); }
+#topbar .breadcrumb span { color: var(--primary); }
+#topbar .search-wrap { margin-left: auto; position: relative; }
+#topbar .search-wrap input {
+  background: var(--card-bg); border: 1px solid var(--border);
+  color: var(--text); padding: 6px 12px 6px 32px; border-radius: 4px;
+  font-size: 13px; width: 200px; outline: none;
+  transition: border-color 0.2s;
+}
+#topbar .search-wrap input:focus { border-color: var(--primary); }
+#topbar .search-wrap .search-icon {
+  position: absolute; left: 10px; top: 50%;
+  transform: translateY(-50%); color: var(--text-dim); font-size: 13px;
+}
+
+/* 主内容 */
+#content {
+  margin-left: var(--nav-width); margin-top: var(--topbar-h);
+  padding: 40px 48px; max-width: 1040px;
+}
+section { margin-bottom: 56px; }
+h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; color: #fff; }
+h2 { font-size: 24px; font-weight: 600; margin: 40px 0 16px;
+     padding-bottom: 8px; border-bottom: 1px solid var(--border); color: #fff; }
+h3 { font-size: 18px; font-weight: 600; margin: 28px 0 12px; color: var(--primary); }
+h4 { font-size: 15px; font-weight: 600; margin: 18px 0 8px; color: #ccc; }
+p { margin-bottom: 12px; color: var(--text-dim); }
+strong { color: var(--text); }
+
+/* 面包屑 */
+.src-path {
+  font-size: 12px; color: var(--text-dim); margin-bottom: 24px;
+  font-family: "JetBrains Mono","Cascadia Code","Consolas",monospace;
+}
+.src-path a { color: var(--primary-dim); }
+
+/* 架构图 SVG */
+.arch-svg {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 24px; margin: 16px 0;
+  text-align: center; overflow-x: auto;
+}
+.arch-svg .caption { display: block; color: var(--text-dim); font-size: 12.5px; margin-top: 10px; }
+
+/* 代码块 */
+.code-block {
+  position: relative; background: var(--code-bg);
+  border: 1px solid var(--border); border-radius: 6px;
+  margin: 14px 0; overflow: hidden;
+}
+.code-block .header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 14px; background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.code-block .header .lang { color: var(--primary); font-weight: 600; }
+.code-block .header .file { color: var(--text-dim); margin-left: 12px; }
+.code-block .copy-btn {
+  background: none; border: 1px solid var(--border); color: var(--text-dim);
+  padding: 2px 10px; border-radius: 3px; cursor: pointer; font-size: 11px;
+  transition: all 0.15s;
+}
+.code-block .copy-btn:hover { border-color: var(--primary); color: var(--primary); }
+.code-block .copy-btn.copied { border-color: var(--accent-g); color: var(--accent-g); }
+.code-block pre {
+  margin: 0; padding: 14px 14px 14px 0; counter-reset: line;
+  overflow-x: auto; font-size: 13px; line-height: 1.6;
+}
+.code-block pre .line {
+  display: block; counter-increment: line; padding-left: 54px;
+  position: relative; white-space: pre;
+}
+.code-block pre .line::before {
+  content: counter(line);
+  position: absolute; left: 0; width: 38px;
+  text-align: right; padding-right: 10px;
+  color: #555; font-size: 11px; user-select: none;
+}
+.code-block pre .line:hover { background: rgba(79,195,247,0.04); }
+
+/* 语法高亮 */
+.kw { color: #C792EA; }   /* 关键字 */
+.ty { color: #FFCB6B; }   /* 类型 */
+.fn { color: #82AAFF; }   /* 函数 */
+.str { color: #C3E88D; }  /* 字符串 */
+.cm { color: #676E95; font-style: italic; } /* 注释 */
+.nu { color: #F78C6C; }   /* 数字 */
+.ma { color: #89DDFF; }   /* 宏 */
+.pre { color: #C792EA; }  /* 预处理 */
+.op { color: #89DDFF; }   /* 操作符 */
+
+/* 卡片 */
+.card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin: 16px 0; }
+.card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+.card h4 { margin-top: 0; color: var(--primary); }
+.card p { font-size: 13.5px; }
+.card .tag {
+  display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px;
+  margin-right: 4px; font-weight: 600;
+}
+.tag-blue { background: rgba(79,195,247,0.15); color: var(--primary); }
+.tag-green { background: rgba(102,187,106,0.15); color: var(--accent-g); }
+.tag-orange { background: rgba(255,167,38,0.15); color: var(--accent-o); }
+
+/* 表格 */
+.table-wrap { overflow-x: auto; margin: 16px 0; }
+table {
+  width: 100%; border-collapse: collapse; font-size: 13.5px;
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px;
+}
+thead th {
+  background: rgba(79,195,247,0.08); color: var(--primary);
+  padding: 10px 14px; text-align: left; font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+tbody td {
+  padding: 9px 14px; border-bottom: 1px solid var(--border);
+  color: var(--text-dim); vertical-align: top;
+}
+tbody td:first-child { color: var(--text); font-family: "JetBrains Mono","Consolas",monospace; font-size: 12.5px; }
+tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+/* CVar 速查表 */
+.cvar-table tbody td:first-child { color: var(--accent-o); }
+.cvar-table tbody td:nth-child(2) { color: var(--accent-g); }
+
+/* 调用链 */
+.flow-list { padding-left: 20px; margin: 8px 0; list-style: none; }
+.flow-list li {
+  padding: 4px 0; color: var(--text-dim); font-size: 13.5px;
+  border-left: 2px solid var(--border); padding-left: 16px;
+}
+.flow-list li:hover { border-left-color: var(--primary); color: var(--text); }
+
+/* 对比卡片 */
+.compare-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+.compare-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 18px; }
+.compare-card.pro { border-left: 3px solid var(--accent-g); }
+.compare-card.con { border-left: 3px solid var(--accent-r); }
+.compare-card h4 { margin-top: 0; }
+.compare-card.pro h4 { color: var(--accent-g); }
+.compare-card.con h4 { color: var(--accent-r); }
+
+/* callout */
+.callout {
+  background: rgba(79,195,247,0.06); border-left: 3px solid var(--primary);
+  padding: 12px 16px; border-radius: 0 6px 6px 0; margin: 16px 0;
+  font-size: 13.5px; color: var(--text-dim);
+}
+.callout strong { color: var(--primary); }
+
+/* 底部导航 */
+#bottom-nav {
+  display: flex; justify-content: space-between;
+  margin: 48px 0 24px; padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+#bottom-nav a {
+  display: flex; flex-direction: column; font-size: 13px;
+}
+#bottom-nav a .label { font-size: 11px; color: var(--text-dim); }
+#bottom-nav a .title { color: var(--primary); font-weight: 600; }
+
+/* 高亮搜索匹配 */
+mark { background: rgba(255,167,38,0.35); color: inherit; border-radius: 2px; padding: 0 1px; }
+.hidden-section { display: none; }
+
+/* 响应式 */
+@media (max-width: 900px) {
+  #sidebar { display: none; }
+  #content { margin-left: 0; }
+  #topbar { left: 0; }
+}
+
+/* 面板 */
+.panel {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 18px 22px; margin: 14px 0;
+}
+.panel h4 { margin-top: 0; color: var(--primary); font-size: 14.5px; }
+.panel p { font-size: 13px; margin: 6px 0; }
+
+/* 步骤编号 */
+.step-list { counter-reset: step; list-style: none; padding: 0; margin: 14px 0; }
+.step-list li {
+  counter-increment: step; padding: 10px 14px 10px 52px;
+  position: relative; margin-bottom: 6px;
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 6px; font-size: 13.5px; color: var(--text-dim);
+}
+.step-list li::before {
+  content: counter(step);
+  position: absolute; left: 14px; top: 10px;
+  width: 26px; height: 26px; line-height: 26px; text-align: center;
+  background: rgba(79,195,247,0.12); color: var(--primary);
+  border-radius: 50%; font-weight: 700; font-size: 12px;
+}
+.step-list li strong { display: block; color: var(--text); margin-bottom: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ==================== 左侧导航 ==================== -->
+<div id="sidebar">
+  <h3>UE5.8 渲染架构</h3>
+  <nav>
+    <a href="#sec1">1. 概述与定位</a>
+    <a href="#sec1-1" class="sub">应用场景全景</a>
+    <a href="#sec2">2. 顶层架构设计</a>
+    <a href="#sec2-1" class="sub">三层抽象架构</a>
+    <a href="#sec2-2" class="sub">加速结构体系</a>
+    <a href="#sec2-3" class="sub">SBT 封装设计</a>
+    <a href="#sec2-4" class="sub">材质 Hit Shader 编译链</a>
+    <a href="#sec3">3. 执行流程与数据流</a>
+    <a href="#sec3-1" class="sub">完整时序图</a>
+    <a href="#sec3-2" class="sub">场景实例收集</a>
+    <a href="#sec4">4. 设计决策与权衡</a>
+    <a href="#sec4-1" class="sub">内联光追 vs 动态管线</a>
+    <a href="#sec4-2" class="sub">TLAS 重建 vs 增量更新</a>
+    <a href="#sec4-3" class="sub">材质与 SBT 平衡</a>
+    <a href="#sec4-4" class="sub">反射级联策略</a>
+    <a href="#sec5">5. 底层实现关联</a>
+    <a href="#sec5-1" class="sub">DXR BLAS/TLAS 构建</a>
+    <a href="#sec5-2" class="sub">SBT Shader Record 布局</a>
+    <a href="#sec5-3" class="sub">RTPSO 管线状态</a>
+    <a href="#sec6">6. UE5.8 演进变化</a>
+    <a href="#cvar">CVar 速查表</a>
+  </nav>
+</div>
+
+<!-- ==================== 顶部栏 ==================== -->
+<div id="topbar">
+  <div class="breadcrumb">
+    UE5.8 渲染文档 / <span>实时光线追踪</span>
+  </div>
+  <div class="search-wrap">
+    <span class="search-icon">&#x1F50D;</span>
+    <input type="text" id="sectionSearch" placeholder="搜索章节内容..." oninput="searchSections()">
+  </div>
+</div>
+
+<!-- ==================== 主内容 ==================== -->
+<div id="content">
+
+<h1>实时光线追踪系统</h1>
+<div class="src-path">
+  源码根路径：<a href="#">Engine/Source/Runtime/Renderer/Private/RayTracing/</a> &nbsp;|&nbsp;
+  核心文件：<a href="#">RayTracing.cpp</a> &middot;
+  <a href="#">RayTracingMaterialHitShaders.cpp</a> &middot;
+  <a href="#">RayTracingShadows.cpp</a> &middot;
+  <a href="#">RayTracingScene.cpp</a> &middot;
+  <a href="#">RayTracingShaderBindingTable.cpp</a> &middot;
+  <a href="#">D3D12RayTracing.cpp</a>
+</div>
+
+<p>UE5.8.0 的实时光线追踪系统通过 <strong>DXR / VulkanRT 的完整封装</strong>，将硬件光追能力深度集成到延迟渲染管线中，为<strong>阴影、反射、全局光照（GI）和路径追踪</strong>提供统一的底层支撑。它不是一个孤立的渲染特性，而是一套横跨 RHI、引擎层和应用层的<strong>三重抽象体系</strong>——从 D3D12 的底层 BuildRaytracingAccelerationStructure 调用，到引擎层的 SBT（Shader Binding Table）管理和材质 Hit Shader 编译链，再到阴影/反射/Lumen/GI 等应用层功能，形成一条完整的端到端渲染路径。</p>
+
+<!-- ==================== 1. 概述与定位 ==================== -->
+<section id="sec1">
+<h2>1. 概述与定位</h2>
+
+<div class="card">
+<h4>UE5 光线追踪的核心理念</h4>
+<p>UE5 将光线追踪视为<strong>一种通用的射线查询基础设施</strong>，而非仅限于全局光照。所有需要空间射线查询的渲染功能——阴影遮挡测试、反射射线追踪、Lumen 硬件光追加速、路径追踪——都通过同一套加速结构（BLAS/TLAS）和同一套 SBT 机制来完成。这种统一设计避免了为每个功能独立维护光追资源的冗余。</p>
+</div>
+
+<h3 id="sec1-1">光追在 UE5 中的应用场景全景</h3>
+
+<div class="arch-svg">
+<svg width="900" height="480" viewBox="0 0 900 480" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="gCore" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4FC3F7" stop-opacity="0.18"/><stop offset="1" stop-color="#4FC3F7" stop-opacity="0.04"/></linearGradient>
+  <linearGradient id="gApp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#66BB6A" stop-opacity="0.14"/><stop offset="1" stop-color="#66BB6A" stop-opacity="0.03"/></linearGradient>
+  <linearGradient id="gAdv" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#AB47BC" stop-opacity="0.14"/><stop offset="1" stop-color="#AB47BC" stop-opacity="0.03"/></linearGradient>
+  <filter id="sh"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-opacity="0.25"/></filter>
+  <marker id="arr" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M2,2 L8,5 L2,8 z" fill="#4FC3F7"/></marker>
+</defs>
+
+<!-- 核心层 -->
+<rect x="260" y="20" width="380" height="70" rx="8" fill="url(#gCore)" stroke="#4FC3F7" stroke-opacity="0.4" stroke-width="1.5" filter="url(#sh)"/>
+<text x="450" y="50" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">实时光线追踪核心基础设施</text>
+<text x="450" y="72" text-anchor="middle" fill="#909090" font-size="12">加速结构 (BLAS/TLAS) &middot; SBT &middot; RTPSO</text>
+
+<!-- 箭头 -->
+<line x1="450" y1="90" x2="450" y2="135" stroke="#4FC3F7" stroke-opacity="0.4" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- 基础应用 -->
+<rect x="20" y="140" width="860" height="120" rx="8" fill="url(#gApp)" stroke="#66BB6A" stroke-opacity="0.35" stroke-width="1" filter="url(#sh)"/>
+<text x="35" y="165" fill="#66BB6A" font-size="12" font-weight="600">基础应用层</text>
+
+<rect x="35" y="180" width="185" height="60" rx="5" fill="#131318" stroke="#1e1e2a" stroke-width="1"/>
+<text x="60" y="203" fill="#c8c8d0" font-size="11" font-weight="600">光追阴影</text>
+<text x="60" y="220" fill="#909090" font-size="10">RayTracingShadows.cpp</text>
+<text x="60" y="233" fill="#909090" font-size="9">硬阴影 / 软阴影 / 半透明阴影</text>
+
+<rect x="240" y="180" width="185" height="60" rx="5" fill="#131318" stroke="#1e1e2a" stroke-width="1"/>
+<text x="265" y="203" fill="#c8c8d0" font-size="11" font-weight="600">光追反射</text>
+<text x="265" y="220" fill="#909090" font-size="10">RayTracingReflections.cpp</text>
+<text x="265" y="233" fill="#909090" font-size="9">高质量反射 / 粗糙度分级</text>
+
+<rect x="445" y="180" width="195" height="60" rx="5" fill="#131318" stroke="#1e1e2a" stroke-width="1"/>
+<text x="470" y="203" fill="#c8c8d0" font-size="11" font-weight="600">环境光遮蔽</text>
+<text x="470" y="220" fill="#909090" font-size="10">RayTracingAmbientOcclusion.cpp</text>
+<text x="470" y="233" fill="#909090" font-size="9">RTAO 高质量遮蔽</text>
+
+<rect x="660" y="180" width="200" height="60" rx="5" fill="#131318" stroke="#1e1e2a" stroke-width="1"/>
+<text x="685" y="203" fill="#c8c8d0" font-size="11" font-weight="600">天空光照</text>
+<text x="685" y="220" fill="#909090" font-size="10">RaytracingSkylight.cpp</text>
+<text x="685" y="233" fill="#909090" font-size="9">RTAO + 天空可见性</text>
+
+<!-- 高级应用 -->
+<line x1="450" y1="260" x2="450" y2="305" stroke="#4FC3F7" stroke-opacity="0.4" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<rect x="20" y="310" width="860" height="100" rx="8" fill="url(#gAdv)" stroke="#AB47BC" stroke-opacity="0.35" stroke-width="1" filter="url(#sh)"/>
+<text x="35" y="335" fill="#AB47BC" font-size="12" font-weight="600">高级应用层</text>
+
+<rect x="35" y="350" width="185" height="45" rx="5" fill="#131318" stroke="#1e1e2a" stroke-width="1"/>
+<text x="60" y="370" fill="#c8c8d0" font-size="11" font-weight="600">Lumen HWRT</text>
+<text x="60" y="386" fill="#909090" font-size="9">硬件光追加速 GI</text>
+
+<rect x="240" y="350" width="195" height="45" rx="5" fill="#131318" stroke="#1e1e2a" stroke-width="1"/>
+<text x="265" y="370" fill="#c8c8d0" font-size="11" font-weight="600">Path Tracer</text>
+<text x="265" y="386" fill="#909090" font-size="9">参考级路径追踪</text>
+
+<rect x="455" y="350" width="195" height="45" rx="5" fill="#131318" stroke="#1e1e2a" stroke-width="1"/>
+<text x="480" y="370" fill="#c8c8d0" font-size="11" font-weight="600">MegaLights 光追</text>
+<text x="480" y="386" fill="#909090" font-size="9">大量动态光源采样</text>
+
+<rect x="670" y="350" width="190" height="45" rx="5" fill="#131318" stroke="#1e1e2a" stroke-width="1"/>
+<text x="695" y="370" fill="#c8c8d0" font-size="11" font-weight="600">主射线</text>
+<text x="695" y="386" fill="#909090" font-size="9">PrimaryRay 可见性</text>
+</svg>
+<span class="caption">图1：UE5 实时光线追踪应用全景 -- 从基础遮挡测试到完整的路径追踪参考渲染器</span>
+</div>
+
+<h3>核心源码模块</h3>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>文件</th><th>职责</th><th>关键功能</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td>RayTracing.cpp</td>
+  <td>光追核心管理</td>
+  <td>场景选项配置、实例收集与缓存、动态几何体管理、并行任务调度</td>
+</tr>
+<tr>
+  <td>RayTracingScene.cpp</td>
+  <td>TLAS 场景管理</td>
+  <td>实例注册/更新/可见性标记、实例 Buffer 构建、TLAS 构建与反馈</td>
+</tr>
+<tr>
+  <td>RayTracingShaderBindingTable.cpp</td>
+  <td>SBT 绑定表</td>
+  <td>静态/动态几何体 SBT 分配、Persistent SBT、Shader Record 布局</td>
+</tr>
+<tr>
+  <td>RayTracingMaterialHitShaders.cpp</td>
+  <td>材质 Hit Shader</td>
+  <td>CHS/AHS/IS 编译、光照贴图策略参数化、Trivial Shader 回退</td>
+</tr>
+<tr>
+  <td>RayTracingShadows.cpp</td>
+  <td>光追阴影</td>
+  <td>遮挡光线生成、软阴影、半透明阴影传输、毛发光照</td>
+</tr>
+<tr>
+  <td>D3D12RayTracing.cpp</td>
+  <td>DXR 底层实现</td>
+  <td>BLAS/TLAS 构建、RTPSO 创建、DispatchRays、NVAPI 扩展、Shader Record 缓存</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<!-- ==================== 2. 顶层架构设计 ==================== -->
+<section id="sec2">
+<h2>2. 顶层架构设计</h2>
+
+<h3 id="sec2-1">光追三层抽象架构</h3>
+
+<div class="arch-svg">
+<svg width="880" height="520" viewBox="0 0 880 520" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="l1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4FC3F7" stop-opacity="0.12"/><stop offset="1" stop-color="#4FC3F7" stop-opacity="0.03"/></linearGradient>
+  <linearGradient id="l2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFA726" stop-opacity="0.12"/><stop offset="1" stop-color="#FFA726" stop-opacity="0.03"/></linearGradient>
+  <linearGradient id="l3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#66BB6A" stop-opacity="0.12"/><stop offset="1" stop-color="#66BB6A" stop-opacity="0.03"/></linearGradient>
+  <filter id="shadow2"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-opacity="0.3"/></filter>
+  <marker id="arr2" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M2,2 L8,5 L2,8 z" fill="#909090"/></marker>
+</defs>
+
+<!-- 第3层：应用层 -->
+<rect x="30" y="15" width="820" height="140" rx="8" fill="url(#l3)" stroke="#66BB6A" stroke-opacity="0.35" stroke-width="1.5" filter="url(#shadow2)"/>
+<text x="50" y="42" fill="#66BB6A" font-size="14" font-weight="700">第3层：应用层（Application Layer）</text>
+<text x="50" y="62" fill="#909090" font-size="11">渲染功能模块通过统一的 API 使用光线追踪</text>
+
+<rect x="50" y="78" width="170" height="55" rx="5" fill="#131318" stroke="#1e1e2a"/>
+<text x="70" y="100" fill="#c8c8d0" font-size="11" font-weight="600">阴影</text>
+<text x="70" y="116" fill="#909090" font-size="9.5">FOcclusionRGS / CS</text>
+<text x="70" y="129" fill="#909090" font-size="9">LightType 差异排列</text>
+
+<rect x="240" y="78" width="170" height="55" rx="5" fill="#131318" stroke="#1e1e2a"/>
+<text x="260" y="100" fill="#c8c8d0" font-size="11" font-weight="600">反射</text>
+<text x="260" y="116" fill="#909090" font-size="9.5">IndirectDiffuse + Specular</text>
+<text x="260" y="129" fill="#909090" font-size="9">粗糙度 / 级联策略</text>
+
+<rect x="430" y="78" width="185" height="55" rx="5" fill="#131318" stroke="#1e1e2a"/>
+<text x="450" y="100" fill="#c8c8d0" font-size="11" font-weight="600">GI (Lumen HWRT)</text>
+<text x="450" y="116" fill="#909090" font-size="9.5">Screen Probe / ReSTIR</text>
+<text x="450" y="129" fill="#909090" font-size="9">Radiance Cache 加速</text>
+
+<rect x="635" y="78" width="195" height="55" rx="5" fill="#131318" stroke="#1e1e2a"/>
+<text x="655" y="100" fill="#c8c8d0" font-size="11" font-weight="600">Path Tracer</text>
+<text x="655" y="116" fill="#909090" font-size="9.5">Monte Carlo 路径追踪</text>
+<text x="655" y="129" fill="#909090" font-size="9">参考级离屏渲染</text>
+
+<!-- 向上箭头 -->
+<line x1="440" y1="155" x2="440" y2="185" stroke="#909090" stroke-opacity="0.4" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+<!-- 第2层：引擎层 -->
+<rect x="30" y="190" width="820" height="145" rx="8" fill="url(#l2)" stroke="#FFA726" stroke-opacity="0.35" stroke-width="1.5" filter="url(#shadow2)"/>
+<text x="50" y="217" fill="#FFA726" font-size="14" font-weight="700">第2层：引擎光追管理层（Engine RayTracing Layer）</text>
+<text x="50" y="237" fill="#909090" font-size="11">平台无关的场景管理、着色器绑定、材质编译</text>
+
+<rect x="50" y="253" width="180" height="52" rx="5" fill="#131318" stroke="#1e1e2a"/>
+<text x="68" y="273" fill="#c8c8d0" font-size="10.5" font-weight="600">FRayTracingScene</text>
+<text x="68" y="289" fill="#909090" font-size="9">TLAS 管理 + 实例收集</text>
+<text x="68" y="301" fill="#909090" font-size="9">Layer/Base/Decals/FarField</text>
+
+<rect x="250" y="253" width="200" height="52" rx="5" fill="#131318" stroke="#1e1e2a"/>
+<text x="268" y="273" fill="#c8c8d0" font-size="10.5" font-weight="600">FRayTracingShaderBindingTable</text>
+<text x="268" y="289" fill="#909090" font-size="9">SBT 分配 + Persistent SBT</text>
+<text x="268" y="301" fill="#909090" font-size="9">静态/动态几何体分段</text>
+
+<rect x="470" y="253" width="180" height="52" rx="5" fill="#131318" stroke="#1e1e2a"/>
+<text x="488" y="273" fill="#c8c8d0" font-size="10.5" font-weight="600">Material Hit Shaders</text>
+<text x="488" y="289" fill="#909090" font-size="9">CHS / AHS / IS 编译链</text>
+<text x="488" y="301" fill="#909090" font-size="9">LMP + TextureLod 排列</text>
+
+<rect x="670" y="253" width="160" height="52" rx="5" fill="#131318" stroke="#1e1e2a"/>
+<text x="688" y="273" fill="#c8c8d0" font-size="10.5" font-weight="600">Geometry Manager</text>
+<text x="688" y="289" fill="#909090" font-size="9">BLAS 生命周期</text>
+<text x="688" y="301" fill="#909090" font-size="9">动态几何追踪</text>
+
+<!-- 向上箭头 -->
+<line x1="440" y1="335" x2="440" y2="365" stroke="#909090" stroke-opacity="0.4" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+<!-- 第1层：RHI 底层 -->
+<rect x="30" y="370" width="820" height="120" rx="8" fill="url(#l1)" stroke="#4FC3F7" stroke-opacity="0.35" stroke-width="1.5" filter="url(#shadow2)"/>
+<text x="50" y="397" fill="#4FC3F7" font-size="14" font-weight="700">第1层：RHI 平台抽象层（RHI Platform Abstraction Layer）</text>
+<text x="50" y="417" fill="#909090" font-size="11">平台原生光追 API 的统一封装</text>
+
+<rect x="50" y="433" width="230" height="40" rx="5" fill="#131318" stroke="#1e1e2a"/>
+<text x="70" y="452" fill="#c8c8d0" font-size="10.5" font-weight="600">D3D12RayTracing.cpp (DXR 1.1+)</text>
+<text x="70" y="466" fill="#909090" font-size="9">BuildRaytracingAccelerationStructure / DispatchRays</text>
+
+<rect x="310" y="433" width="230" height="40" rx="5" fill="#131318" stroke="#1e1e2a"/>
+<text x="330" y="452" fill="#c8c8d0" font-size="10.5" font-weight="600">VulkanRayTracing.cpp (VK_KHR_rt)</text>
+<text x="330" y="466" fill="#909090" font-size="9">vkCmdBuildAccelerationStructuresKHR</text>
+
+<rect x="570" y="433" width="260" height="40" rx="5" fill="#131318" stroke="#1e1e2a"/>
+<text x="590" y="452" fill="#c8c8d0" font-size="10.5" font-weight="600">共享定义（RayTracingDefinitions.h）</text>
+<text x="590" y="466" fill="#909090" font-size="9">InstanceMask / ShaderSlot / PayloadType</text>
+</svg>
+<span class="caption">图2：UE5 光追三层抽象架构 -- RHI 层封装平台差异，引擎层管理场景和着色器，应用层消费光追查询</span>
+</div>
+
+<div class="callout">
+<strong>设计要点</strong>：引擎层的 FRayTracingScene 和 FRayTracingShaderBindingTable 是上层功能和底层 API 之间的关键桥梁。它们管理实例收集、可见性标记、SBT 分配，使得阴影/反射/GI 等模块不需要直接操作 D3D12 或 Vulkan 的光追对象，只需调用统一的 C++ 接口。
+</div>
+
+<h3 id="sec2-2">加速结构体系：BLAS + TLAS</h3>
+
+<p>UE5 采用标准的<strong>两级加速结构（Two-Level Acceleration Structure）</strong>模型，这是 DXR 和 VulkanRT 共同支持的标准架构：</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>层级</th><th>全称</th><th>构建粒度</th><th>更新频率</th><th>管理方式</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td>BLAS</td>
+  <td>Bottom-Level Acceleration Structure（几何底层层级）</td>
+  <td>单个 FRayTracingGeometry，对应一个 Static Mesh 或 Skeletal Mesh</td>
+  <td>静态几何仅构建一次；动态几何（骨骼网格）每帧更新</td>
+  <td>FRayTracingGeometryManager -- GeometryHandle 跟踪</td>
+</tr>
+<tr>
+  <td>TLAS</td>
+  <td>Top-Level Acceleration Structure（实例顶层层级）</td>
+  <td>场景中所有可见实例的变换矩阵 + BLAS 引用</td>
+  <td>每帧重建（FastBuild）或更新（FastTrace）</td>
+  <td>FRayTracingScene -- 按 Layer 管理、支持 View 级可见性</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h4>BLAS 构建与更新策略</h4>
+
+<div class="code-block">
+<div class="header">
+  <span class="lang">C++</span>
+  <span class="file">D3D12RayTracing.cpp:5069-5111 -- BLAS 构建入口</span>
+  <button class="copy-btn" onclick="copyCode(this)">复制</button>
+</div>
+<pre>
+<span class="line"><span class="kw">void</span> <span class="ty">FD3D12CommandContext</span>::<span class="fn">RHIBuildAccelerationStructures</span>(</span>
+<span class="line">    TConstArrayView&lt;<span class="ty">FRayTracingGeometryBuildParams</span>&gt; Params,</span>
+<span class="line">    <span class="kw">const</span> <span class="ty">FRHIBufferRange</span>&amp; ScratchBufferRange)</span>
+<span class="line">{</span>
+<span class="line">    <span class="cm">// 1. 更新几何体顶点缓冲区绑定</span></span>
+<span class="line">    <span class="kw">for</span> (<span class="kw">const</span> <span class="ty">FRayTracingGeometryBuildParams</span>&amp; P : Params) {</span>
+<span class="line">        <span class="ty">FD3D12RayTracingGeometry</span>* Geometry = ...;</span>
+<span class="line">        <span class="kw">if</span> (P.Segments.Num()) {</span>
+<span class="line">            <span class="cm">// 仅更新 VertexBuffer 绑定，不重建 BLAS 内存</span></span>
+<span class="line">            Geometry-&gt;Initializer.Segments[i].VertexBuffer = ...;</span>
+<span class="line">        }</span>
+<span class="line">    }</span>
+<span class="line">    <span class="cm">// 2. 收集构建描述符</span></span>
+<span class="line">    TArray&lt;<span class="ty">D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC</span>&gt; BuildDescs;</span>
+<span class="line">    <span class="cm">// 3. 翻译构建标志：AllowUpdate/FastTrace/FastBuild/AllowCompaction</span></span>
+<span class="line">    <span class="kw">auto</span> Flags = TranslateRayTracingAccelerationStructureFlags(Geometry-&gt;Initializer.Flags);</span>
+<span class="line">    <span class="cm">// 4. 调用 DXR API 执行 Build</span></span>
+<span class="line">    BuildAccelerationStructuresInternal(BuildDescs);</span>
+<span class="line">}</span>
+</pre>
+</div>
+
+<p>构建标志通过 <code>TranslateRayTracingAccelerationStructureFlags()</code> 将 UE 的枚举翻译为 D3D12 原生标志：</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>UE 标志（ERayTracingAccelerationStructureFlags）</th><th>D3D12 原生标志</th><th>用途</th></tr>
+</thead>
+<tbody>
+<tr><td>AllowUpdate</td><td>D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE</td><td>允许增量更新（需在首次构建时声明）</td></tr>
+<tr><td>AllowCompaction</td><td>D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION</td><td>构建后可压缩以节省显存</td></tr>
+<tr><td>FastTrace</td><td>D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE</td><td>优化遍历性能（牺牲构建速度）</td></tr>
+<tr><td>FastBuild</td><td>D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD</td><td>优化构建速度（牺牲遍历性能）</td></tr>
+<tr><td>MinimizeMemory</td><td>D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_MINIMIZE_MEMORY</td><td>最小化显存占用</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Compaction（压缩）的启停由 <code>r.D3D12.RayTracing.AllowCompaction</code> 控制，默认开启。构建完成后，可通过 <code>r.D3D12.RayTracing.MaxBatchedCompaction</code>（默认 64）限制每帧 Compaction 请求数量，避免峰值延迟。</p>
+
+<h4>TLAS 构建策略</h4>
+
+<p>TLAS 通过 <code>FRayTracingScene::Update()</code> 构建实例 Buffer，然后在 <code>FRayTracingScene::Build()</code> 阶段调用 <code>RHIBuildAccelerationStructures()</code> 执行：</p>
+
+<div class="code-block">
+<div class="header">
+  <span class="lang">C++</span>
+  <span class="file">RayTracingScene.cpp:223-252 -- FRayTracingScene::Update()</span>
+  <button class="copy-btn" onclick="copyCode(this)">复制</button>
+</div>
+<pre>
+<span class="line"><span class="kw">void</span> <span class="ty">FRayTracingScene</span>::<span class="fn">Update</span>(<span class="ty">FRDGBuilder</span>&amp; GraphBuilder, ...)</span>
+<span class="line">{</span>
+<span class="line">    <span class="kw">const</span> <span class="ty">ERayTracingAccelerationStructureFlags</span> BuildFlags = </span>
+<span class="line">        CVarRayTracingSceneBuildMode.GetValueOnRenderThread()</span>
+<span class="line">        ? ERayTracingAccelerationStructureFlags::<span class="kw">FastTrace</span>   <span class="cm">// 模式 1: 优化遍历</span></span>
+<span class="line">        : ERayTracingAccelerationStructureFlags::<span class="kw">FastBuild</span>;   <span class="cm">// 模式 0: 优化构建</span></span>
+<span class="line">    <span class="cm">// 按 Layer 和 View 遍历，创建 InstanceBuffer</span></span>
+<span class="line">    <span class="kw">for</span> (<span class="kw">uint32</span> LayerIndex = <span class="nu">0</span>; LayerIndex &lt; NumLayers; ++LayerIndex) {</span>
+<span class="line">        <span class="kw">for</span> (<span class="kw">int32</span> ViewIndex : ActiveViews) {</span>
+<span class="line">            <span class="cm">// 分配/调整 TLAS GPU 缓冲区大小</span></span>
+<span class="line">            <span class="kw">if</span> (NumNativeInstancesAligned &gt; LayerView.RayTracingSceneRHI-&gt;GetInitializer().MaxNumInstances) {</span>
+<span class="line">                <span class="ty">FRayTracingSceneInitializer</span> Initializer;</span>
+<span class="line">                LayerView.RayTracingSceneRHI = <span class="fn">RHICreateRayTracingScene</span>(...);</span>
+<span class="line">            }</span>
+<span class="line">            <span class="cm">// 分配 Scratch 缓冲区用于 BVH 构建</span></span>
+<span class="line">            LayerView.BuildScratchBuffer = ...;</span>
+<span class="line">        }</span>
+<span class="line">    }</span>
+<span class="line">}</span>
+</pre>
+</div>
+
+<p>TLAS 构建模式由 <code>r.RayTracing.Scene.BuildMode</code> 控制，默认使用 <strong>FastTrace（1）</strong> 模式。同时支持 <code>r.RayTracing.Scene.BatchedBuild</code>（默认开启），将多个 TLAS 的构建操作批量提交以减少 GPU Barrier。</p>
+
+<h3 id="sec2-3">Shader Binding Table（SBT）封装设计</h3>
+
+<p>SBT 是 DXR/VulkanRT 中连接<strong>几何实例</strong>与<strong>着色器程序</strong>的核心数据结构。UE5 的 SBT 封装提供了三个关键抽象层次：</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>抽象</th><th>职责</th><th>生命周期</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td>FRayTracingSBTAllocation</td>
+  <td>单个几何体的 SBT 记录分配，存储 BaseRecordIndex + SegmentCount</td>
+  <td>与 FRayTracingGeometry 生命周期一致</td>
+</tr>
+<tr>
+  <td>FRayTracingShaderBindingTable</td>
+  <td>管理所有 SBT 分配、Persistent SBT ID 分配/释放、脏绑定收集</td>
+  <td>与 View/Scene 帧生命周期一致</td>
+</tr>
+<tr>
+  <td>FRHIShaderBindingTable (RHI)</td>
+  <td>平台原生 SBT 资源（D3D12 中的 Shader Table Buffer）</td>
+  <td>按需创建/销毁</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h4>SBT Record 组织结构</h4>
+
+<p>每个几何体段（Geometry Segment）在 SBT 中占用 <strong>RAY_TRACING_NUM_SHADER_SLOTS（=2）</strong> 个 Record：</p>
+
+<div class="code-block">
+<div class="header">
+  <span class="lang">HLSL/C++</span>
+  <span class="file">RayTracingDefinitions.h:28-31 -- SBT Shader Slot 定义</span>
+  <button class="copy-btn" onclick="copyCode(this)">复制</button>
+</div>
+<pre>
+<span class="line"><span class="pre">#define</span> RAY_TRACING_SHADER_SLOT_MATERIAL   <span class="nu">0</span>   <span class="cm">// 材质着色 (CHS/AHS/IS)</span></span>
+<span class="line"><span class="pre">#define</span> RAY_TRACING_SHADER_SLOT_SHADOW     <span class="nu">1</span>   <span class="cm">// 阴影着色 (仅 OpaqueShadowCHS)</span></span>
+<span class="line"><span class="pre">#define</span> RAY_TRACING_NUM_SHADER_SLOTS       <span class="nu">2</span></span>
+<span class="line"></span>
+<span class="line"><span class="pre">#define</span> RAY_TRACING_MISS_SHADER_SLOT_DEFAULT   <span class="nu">0</span>   <span class="cm">// 默认 Miss: 设置 HitT="miss"</span></span>
+<span class="line"><span class="pre">#define</span> RAY_TRACING_MISS_SHADER_SLOT_LIGHTING  <span class="nu">1</span>   <span class="cm">// 光照 Miss: 评估光源辐亮度</span></span>
+<span class="line"><span class="pre">#define</span> RAY_TRACING_NUM_MISS_SHADER_SLOTS      <span class="nu">2</span></span>
+</pre>
+</div>
+
+<h4>Persistent SBT 机制</h4>
+
+<p>UE5.8 引入了 <strong>Persistent SBT</strong> 机制（<code>r.RayTracing.PersistentSBT</code>，默认开启），将 SBT 数据持久化在 GPU 内存中，仅更新"脏"记录：</p>
+
+<ol class="flow-list">
+<li><strong>静态几何体 SBT</strong>：一次性分配，几乎不更新（仅在 Compaction 或材质变更时标记脏）</li>
+<li><strong>动态几何体 SBT</strong>：每帧按需更新（骨骼网格等变形的几何体）</li>
+<li><strong>Inline Binding Data</strong>：与 Persistent SBT 关联的内联绑定数据 Buffer，通过 <code>GetPersistentInlineBindingDataBuffer()</code> 获取</li>
+</ol>
+
+<p>这种设计大幅降低了 CPU 端每帧的 SBT 更新开销，特别是在大规模场景中。通过 <code>FRayTracingShaderBindingTable::GetDirtyBindings()</code> 收集所有标记为脏的绑定记录，然后仅更新这些记录。</p>
+
+<div class="code-block">
+<div class="header">
+  <span class="lang">C++</span>
+  <span class="file">RayTracingShaderBindingTable.cpp:105-111 -- 脏绑定收集</span>
+  <button class="copy-btn" onclick="copyCode(this)">复制</button>
+</div>
+<pre>
+<span class="line"><span class="ty">FRayTracingShaderBindingDataOneFrameArray</span> </span>
+<span class="line"><span class="ty">FRayTracingShaderBindingTable</span>::<span class="fn">GetDirtyBindings</span>(</span>
+<span class="line">    TConstArrayView&lt;<span class="ty">FRayTracingShaderBindingData</span>&gt; VisibleBindings,</span>
+<span class="line">    <span class="kw">bool</span> bForceAllDirty)   <span class="cm">// 调试模式: r.RayTracing.PersistentSBT.ForceAlwaysDirty</span></span>
+<span class="line">{</span>
+<span class="line">    <span class="cm">// 对比"可见绑定"与"当前已提交绑定"，收集差异</span></span>
+<span class="line">    <span class="cm">// 仅返回需要更新的 Record</span></span>
+<span class="line">}</span>
+</pre>
+</div>
+
+<h3 id="sec2-4">材质 Hit Shader 编译链</h3>
+
+<p>材质 Hit Shader 是 UE 光追系统中最复杂的编译链之一。核心类 <code>TMaterialCHS</code> 有四个模板参数维度：</p>
+
+<div class="code-block">
+<div class="header">
+  <span class="lang">C++</span>
+  <span class="file">RayTracingMaterialHitShaders.cpp:141-142 -- TMaterialCHS 模板参数</span>
+  <button class="copy-btn" onclick="copyCode(this)">复制</button>
+</div>
+<pre>
+<span class="line"><span class="kw">template</span>&lt;</span>
+<span class="line">    <span class="kw">typename</span> <span class="ty">LightMapPolicyType</span>,     <span class="cm">// 光照贴图策略: NoLM / LQ / HQ / DFO / PIV</span></span>
+<span class="line">    <span class="kw">bool</span> UseAnyHitShader,            <span class="cm">// 是否编译 Any-Hit Shader</span></span>
+<span class="line">    <span class="kw">bool</span> UseIntersectionShader,      <span class="cm">// 是否编译 Intersection Shader（程序化几何体）</span></span>
+<span class="line">    <span class="kw">bool</span> UseRayConeTextureLod        <span class="cm">// 是否使用 Ray Cone 计算纹理 LOD</span></span>
+<span class="line">&gt;</span>
+<span class="line"><span class="kw">class</span> <span class="ty">TMaterialCHS</span> : <span class="kw">public</span> <span class="ty">FMaterialCHS</span> { ... };</span>
+</pre>
+</div>
+
+<p>排列组合产生 <strong>6 (LightMap) x 2 (AHS) x 2 (IS) x 2 (LOD) = 48</strong> 种基本变体，通过宏 <code>IMPLEMENT_MATERIALCHS_TYPE</code> 将每种光照贴图策略展开为 8 种排列：</p>
+
+<div class="code-block">
+<div class="header">
+  <span class="lang">C++</span>
+  <span class="file">RayTracingMaterialHitShaders.cpp:274-296 -- IMPLEMENT_MATERIALCHS_TYPE 宏展开</span>
+  <button class="copy-btn" onclick="copyCode(this)">复制</button>
+</div>
+<pre>
+<span class="line"><span class="pre">#define IMPLEMENT_MATERIALCHS_TYPE</span>(LightMapPolicyType, LightMapPolicyName, AnyHitShaderName) \</span>
+<span class="line">    <span class="cm">// CHS 仅 Closest-Hit</span></span>
+<span class="line">    IMPLEMENT_MATERIAL_SHADER_TYPE(..., <span class="str">"closesthit=MaterialCHS"</span>, SF_RayHitGroup); \</span>
+<span class="line">    <span class="cm">// CHS + AHS (Closest-Hit + Any-Hit)</span></span>
+<span class="line">    IMPLEMENT_MATERIAL_SHADER_TYPE(..., <span class="str">"closesthit=MaterialCHS anyhit=MaterialAHS"</span>, SF_RayHitGroup); \</span>
+<span class="line">    <span class="cm">// CHS + TextureLOD</span></span>
+<span class="line">    IMPLEMENT_MATERIAL_SHADER_TYPE(..., <span class="str">"closesthit=MaterialCHS"</span>, SF_RayHitGroup); \</span>
+<span class="line">    <span class="cm">// CHS + AHS + TextureLOD</span></span>
+<span class="line">    IMPLEMENT_MATERIAL_SHADER_TYPE(..., <span class="str">"closesthit=MaterialCHS anyhit=MaterialAHS"</span>, SF_RayHitGroup); \</span>
+<span class="line">    <span class="cm">// CHS + IS (程序化几何体)</span></span>
+<span class="line">    IMPLEMENT_MATERIAL_SHADER_TYPE(..., <span class="str">"closesthit=MaterialCHS intersection=MaterialIS"</span>, SF_RayHitGroup); \</span>
+<span class="line">    <span class="cm">// CHS + AHS + IS</span></span>
+<span class="line">    IMPLEMENT_MATERIAL_SHADER_TYPE(..., <span class="str">"closesthit=MaterialCHS anyhit=MaterialAHS intersection=MaterialIS"</span>, SF_RayHitGroup); \</span>
+<span class="line">    <span class="cm">// CHS + IS + TextureLOD</span></span>
+<span class="line">    IMPLEMENT_MATERIAL_SHADER_TYPE(..., , SF_RayHitGroup); \</span>
+<span class="line">    <span class="cm">// CHS + AHS + IS + TextureLOD</span></span>
+<span class="line">    IMPLEMENT_MATERIAL_SHADER_TYPE(..., , SF_RayHitGroup);</span>
+<span class="line"></span>
+<span class="line"><span class="fn">IMPLEMENT_MATERIALCHS_TYPE</span>(TUniformLightMapPolicy&lt;LMP_NO_LIGHTMAP&gt;, FNoLightMapPolicy, FAnyHitShader);</span>
+<span class="line"><span class="fn">IMPLEMENT_MATERIALCHS_TYPE</span>(..., FPrecomputedVolumetricLightmapLightingPolicy, FAnyHitShader);</span>
+<span class="line"><span class="fn">IMPLEMENT_MATERIALCHS_TYPE</span>(..., TLightMapPolicyLQ, FAnyHitShader);</span>
+<span class="line"><span class="fn">IMPLEMENT_MATERIALCHS_TYPE</span>(..., TLightMapPolicyHQ, FAnyHitShader);</span>
+<span class="line"><span class="fn">IMPLEMENT_MATERIALCHS_TYPE</span>(..., TDistanceFieldShadowsAndLightMapPolicyHQ, FAnyHitShader);</span>
+</pre>
+</div>
+
+<h4>AHS 触发条件</h4>
+
+<p>Any-Hit Shader 不是所有材质都需要。通过 <code>RTNeedsAnyHitShader()</code> 判断：</p>
+
+<div class="code-block">
+<div class="header">
+  <span class="lang">C++</span>
+  <span class="file">RayTracingMaterialHitShaders.cpp:125-139 -- AHS 触发逻辑</span>
+  <button class="copy-btn" onclick="copyCode(this)">复制</button>
+</div>
+<pre>
+<span class="line"><span class="kw">static bool</span> <span class="fn">RTNeedsAnyHitShader</span>(<span class="ty">EBlendMode</span> BlendMode)</span>
+<span class="line">{</span>
+<span class="line">    <span class="kw">switch</span> (BlendMode) {</span>
+<span class="line">        <span class="kw">case</span> BLEND_Opaque:      <span class="kw">return false</span>;  <span class="cm">// 不透明: 永远命中, 无需 AHS</span></span>
+<span class="line">        <span class="kw">case</span> BLEND_Masked:      <span class="kw">return true</span>;   <span class="cm">// Masked: 需要 AHS 做 alpha 测试</span></span>
+<span class="line">        <span class="kw">case</span> BLEND_Translucent:  <span class="kw">return true</span>;   <span class="cm">// 半透明: 需要 AHS 处理颜色阴影</span></span>
+<span class="line">        <span class="kw">case</span> BLEND_Additive:     <span class="kw">return false</span>;  <span class="cm">// 叠加: 永远不命中, 走默认着色器</span></span>
+<span class="line">        <span class="kw">case</span> BLEND_Modulate:     <span class="kw">return true</span>;   <span class="cm">// 调制: 投射颜色阴影</span></span>
+<span class="line">        ...</span>
+<span class="line">    }</span>
+<span class="line">}</span>
+</pre>
+</div>
+
+<h4>Trivial Shader 回退</h4>
+
+<p>当材质编译未完成或通过 <code>r.RayTracing.EnableMaterials=0</code> 禁用材质着色时，使用 <strong>Trivial Shader</strong> 作为回退：</p>
+
+<div class="code-block">
+<div class="header">
+  <span class="lang">C++</span>
+  <span class="file">RayTracingMaterialHitShaders.cpp:272 -- Trivial Shader 声明</span>
+  <button class="copy-btn" onclick="copyCode(this)">复制</button>
+</div>
+<pre>
+<span class="line"><span class="cm">// 不透明几何体: 直接返回遮挡, 不计算材质</span></span>
+<span class="line"><span class="fn">IMPLEMENT_MATERIAL_SHADER_TYPE</span>(, <span class="ty">FTrivialMaterialCHS</span>,</span>
+<span class="line">    <span class="str">"/Engine/Private/RayTracing/RayTracingMaterialDefaultHitShaders.usf"</span>,</span>
+<span class="line">    TEXT(<span class="str">"closesthit=OpaqueShadowCHS"</span>), SF_RayHitGroup);</span>
+<span class="line"></span>
+<span class="line"><span class="cm">// 隐藏几何体: 忽略命中</span></span>
+<span class="line"><span class="fn">IMPLEMENT_GLOBAL_SHADER</span>(<span class="ty">FHiddenMaterialHitGroup</span>, ...,</span>
+<span class="line">    <span class="str">"closesthit=HiddenMaterialCHS anyhit=HiddenMaterialAHS"</span>, SF_RayHitGroup);</span>
+<span class="line"></span>
+<span class="line"><span class="cm">// 仅阴影: 确认遮挡但不计算颜色</span></span>
+<span class="line"><span class="fn">IMPLEMENT_GLOBAL_SHADER</span>(<span class="ty">FOpaqueShadowHitGroup</span>, ...,</span>
+<span class="line">    <span class="str">"closesthit=OpaqueShadowCHS"</span>, SF_RayHitGroup);</span>
+</pre>
+</div>
+
+<h4>非阻塞管线创建</h4>
+
+<p>通过 <code>r.RayTracing.NonBlockingPipelineCreation</code>（默认开启），材质 Hit Shader 的 RTPSO 创建在后台异步进行。在材质着色器就绪前，使用 <strong>不透明黑色回退材质</strong>：</p>
+</section>
+
+<!-- ==================== 3. 执行流程与数据流 ==================== -->
+<section id="sec3">
+<h2>3. 执行流程与数据流</h2>
+
+<h3 id="sec3-1">完整时序图：场景收集到光线分发</h3>
+
+<div class="arch-svg">
+<svg width="880" height="620" viewBox="0 0 880 620" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="gl1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFA726" stop-opacity="0.12"/><stop offset="1" stop-color="#FFA726" stop-opacity="0.02"/></linearGradient>
+  <linearGradient id="gl2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4FC3F7" stop-opacity="0.12"/><stop offset="1" stop-color="#4FC3F7" stop-opacity="0.02"/></linearGradient>
+  <linearGradient id="gl3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#66BB6A" stop-opacity="0.12"/><stop offset="1" stop-color="#66BB6A" stop-opacity="0.02"/></linearGradient>
+  <linearGradient id="gBox" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4FC3F7" stop-opacity="0.14"/><stop offset="1" stop-color="#4FC3F7" stop-opacity="0.04"/></linearGradient>
+  <filter id="sh3"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-opacity="0.25"/></filter>
+  <marker id="arr3" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M2,2 L8,5 L2,8 z" fill="#4FC3F7"/></marker>
+</defs>
+
+<!-- 阶段1: 场景收集 -->
+<rect x="20" y="10" width="840" height="90" rx="6" fill="url(#gl1)" stroke="#FFA726" stroke-opacity="0.3" stroke-width="1"/>
+<text x="35" y="36" fill="#FFA726" font-size="12" font-weight="600">阶段1: 场景几何收集（CPU 并行）</text>
+
+<rect x="40" y="48" width="250" height="38" rx="5" fill="url(#gBox)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#sh3)"/>
+<text x="52" y="65" fill="#c8c8d0" font-size="10">CreateGatherInstancesTaskData()</text>
+<text x="52" y="78" fill="#909090" font-size="9">创建多View收集任务数据</text>
+
+<rect x="310" y="48" width="260" height="38" rx="5" fill="url(#gBox)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#sh3)"/>
+<text x="322" y="65" fill="#c8c8d0" font-size="10">BeginGatherInstances()</text>
+<text x="322" y="78" fill="#909090" font-size="9">并行收集静态/动态几何体实例</text>
+
+<rect x="590" y="48" width="250" height="38" rx="5" fill="url(#gBox)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#sh3)"/>
+<text x="602" y="65" fill="#c8c8d0" font-size="10">GatherDynamicRayTracingInstances()</text>
+<text x="602" y="78" fill="#909090" font-size="9">异步收集动态几何体</text>
+
+<line x1="440" y1="100" x2="440" y2="130" stroke="#4FC3F7" stroke-opacity="0.5" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+<!-- 阶段2: BLAS -->
+<rect x="20" y="135" width="840" height="90" rx="6" fill="url(#gl2)" stroke="#4FC3F7" stroke-opacity="0.3" stroke-width="1"/>
+<text x="35" y="161" fill="#4FC3F7" font-size="12" font-weight="600">阶段2: BLAS 构建/更新（GPU）</text>
+
+<rect x="40" y="173" width="280" height="38" rx="5" fill="url(#gBox)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#sh3)"/>
+<text x="52" y="190" fill="#c8c8d0" font-size="10">静态几何 BLAS: 一次性构建（含 Compaction）</text>
+<text x="52" y="203" fill="#909090" font-size="9">FRayTracingGeometryManager 管理生命周期</text>
+
+<rect x="340" y="173" width="270" height="38" rx="5" fill="url(#gBox)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#sh3)"/>
+<text x="352" y="190" fill="#c8c8d0" font-size="10">动态几何 BLAS: 每帧更新（AllowUpdate）</text>
+<text x="352" y="203" fill="#909090" font-size="9">骨骼网格 / 变形几何体 -- VertexBuffer 更新</text>
+
+<rect x="630" y="173" width="210" height="38" rx="5" fill="url(#gBox)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#sh3)"/>
+<text x="642" y="190" fill="#c8c8d0" font-size="10">Nanite 代理几何 BLAS</text>
+<text x="642" y="203" fill="#909090" font-size="9">LOD Proxy Mesh 自动生成</text>
+
+<line x1="440" y1="225" x2="440" y2="255" stroke="#4FC3F7" stroke-opacity="0.5" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+<!-- 阶段3: TLAS -->
+<rect x="20" y="260" width="840" height="90" rx="6" fill="url(#gl2)" stroke="#4FC3F7" stroke-opacity="0.3" stroke-width="1"/>
+<text x="35" y="286" fill="#4FC3F7" font-size="12" font-weight="600">阶段3: TLAS 构建（GPU）</text>
+
+<rect x="40" y="298" width="260" height="38" rx="5" fill="url(#gBox)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#sh3)"/>
+<text x="52" y="315" fill="#c8c8d0" font-size="10">FRayTracingScene::BuildInitializationData()</text>
+<text x="52" y="328" fill="#909090" font-size="9">构建实例初始化元数据</text>
+
+<rect x="320" y="298" width="260" height="38" rx="5" fill="url(#gBox)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#sh3)"/>
+<text x="332" y="315" fill="#c8c8d0" font-size="10">FRayTracingScene::Update()</text>
+<text x="332" y="328" fill="#909090" font-size="9">实例Buffer构建 + TLAS缓冲区分配</text>
+
+<rect x="600" y="298" width="240" height="38" rx="5" fill="url(#gBox)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#sh3)"/>
+<text x="612" y="315" fill="#c8c8d0" font-size="10">FRayTracingScene::Build()</text>
+<text x="612" y="328" fill="#909090" font-size="9">RHIBuildAccelerationStructures (TLAS)</text>
+
+<line x1="440" y1="350" x2="440" y2="380" stroke="#4FC3F7" stroke-opacity="0.5" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+<!-- 阶段4: SBT + RTPSO -->
+<rect x="20" y="385" width="840" height="90" rx="6" fill="url(#gl2)" stroke="#4FC3F7" stroke-opacity="0.3" stroke-width="1"/>
+<text x="35" y="411" fill="#4FC3F7" font-size="12" font-weight="600">阶段4: SBT 绑定 + RTPSO 创建（CPU + GPU）</text>
+
+<rect x="40" y="423" width="220" height="38" rx="5" fill="url(#gBox)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#sh3)"/>
+<text x="52" y="440" fill="#c8c8d0" font-size="10">GetDirtyBindings() (CPU)</text>
+<text x="52" y="453" fill="#909090" font-size="9">收集Persistent SBT脏记录</text>
+
+<rect x="280" y="423" width="270" height="38" rx="5" fill="url(#gBox)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#sh3)"/>
+<text x="292" y="440" fill="#c8c8d0" font-size="10">SBT Shader Record 写入 (CPU→GPU)</text>
+<text x="292" y="453" fill="#909090" font-size="9">UniformBuffer + ShaderIdentifier 上传</text>
+
+<rect x="570" y="423" width="270" height="38" rx="5" fill="url(#gBox)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#sh3)"/>
+<text x="582" y="440" fill="#c8c8d0" font-size="10">RTPSO 创建（异步/阻塞）</text>
+<text x="582" y="453" fill="#909090" font-size="9">NonBlockingPipelineCreation 控制</text>
+
+<line x1="440" y1="475" x2="440" y2="505" stroke="#4FC3F7" stroke-opacity="0.5" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+<!-- 阶段5: DispatchRays -->
+<rect x="20" y="510" width="840" height="75" rx="6" fill="url(#gl3)" stroke="#66BB6A" stroke-opacity="0.35" stroke-width="1.5"/>
+<text x="35" y="536" fill="#66BB6A" font-size="12" font-weight="600">阶段5: DispatchRays + 结果处理（GPU）</text>
+
+<rect x="40" y="548" width="160" height="26" rx="4" fill="#131318" stroke="#1e1e2a"/>
+<text x="55" y="565" fill="#c8c8d0" font-size="10">阴影: FOcclusionRGS</text>
+
+<rect x="215" y="548" width="160" height="26" rx="4" fill="#131318" stroke="#1e1e2a"/>
+<text x="230" y="565" fill="#c8c8d0" font-size="10">反射: RayGen + Hit</text>
+
+<rect x="390" y="548" width="160" height="26" rx="4" fill="#131318" stroke="#1e1e2a"/>
+<text x="405" y="565" fill="#c8c8d0" font-size="10">Lumen HWRT: ScreenProbe</text>
+
+<rect x="565" y="548" width="160" height="26" rx="4" fill="#131318" stroke="#1e1e2a"/>
+<text x="580" y="565" fill="#c8c8d0" font-size="10">PathTracer: Monte Carlo</text>
+
+</svg>
+<span class="caption">图3：UE5 光追帧内时序 -- 从场景收集到 DispatchRays 的五个关键阶段</span>
+</div>
+
+<h3 id="sec3-2">场景实例收集的并行化设计</h3>
+
+<p>UE5 的场景几何体收集采用了<strong>多层并行化</strong>策略，以应对大型场景中数万个几何体实例的收集开销：</p>
+
+<ol class="step-list">
+<li>
+  <strong>CreateGatherInstancesTaskData() -- 创建任务数据</strong>
+  为每个 View 创建独立的 FGatherInstancesTaskData，包含场景引用、RayTracingProxyType 过滤等上下文信息。
+</li>
+<li>
+  <strong>BeginGatherInstances() -- 启动并行收集</strong>
+  启动多个异步任务，每个任务负责收集场景中特定类型的几何体（静态网格、骨骼网格、HISM、Nanite 代理等）。通过 GActiveRayTracingProxyTypes 过滤启用的代理类型。
+</li>
+<li>
+  <strong>FDynamicRayTracingInstancesContext -- 动态实例并行收集</strong>
+  通过 FDynamicPrimitiveIndexQueue 实现 work-stealing 模式，多个工作线程从队列中竞争获取 Primitive 进行收集。任务数量由 r.RayTracing.DynamicInstances.Parallel.NumTasks 控制。
+</li>
+<li>
+  <strong>FinishGatherInstances() -- 汇总并提交到 Scene</strong>
+  在渲染线程完成所有收集任务的结果汇总，将实例添加到 FRayTracingScene 并分配 SBT 记录。
+</li>
+</ol>
+
+<div class="code-block">
+<div class="header">
+  <span class="lang">C++</span>
+  <span class="file">RayTracing.cpp:336-351 -- InstancingKey 去重机制</span>
+  <button class="copy-btn" onclick="copyCode(this)">复制</button>
+</div>
+<pre>
+<span class="line"><span class="kw">uint64</span> <span class="fn">InstancingKey</span>() <span class="kw">const</span></span>
+<span class="line">{</span>
+<span class="line">    <span class="kw">uint64</span> Key = CachedMeshCommandFlags.CachedMeshCommandHash;</span>
+<span class="line">    Key ^= <span class="kw">uint64</span>(CachedMeshCommandFlags.InstanceMask) &lt;&lt; <span class="nu">32</span>;</span>
+<span class="line">    Key ^= CachedMeshCommandFlags.bAllSegmentsOpaque ? <span class="nu">0x1ull</span> &lt;&lt; <span class="nu">40</span> : <span class="nu">0x0</span>;</span>
+<span class="line">    Key ^= CachedMeshCommandFlags.bAllSegmentsCastShadow ? <span class="nu">0x1ull</span> &lt;&lt; <span class="nu">41</span> : <span class="nu">0x0</span>;</span>
+<span class="line">    Key ^= CachedMeshCommandFlags.bAnySegmentsCastShadow ? <span class="nu">0x1ull</span> &lt;&lt; <span class="nu">42</span> : <span class="nu">0x0</span>;</span>
+<span class="line">    Key ^= CachedMeshCommandFlags.bAnySegmentsDecal ? <span class="nu">0x1ull</span> &lt;&lt; <span class="nu">43</span> : <span class="nu">0x0</span>;</span>
+<span class="line">    Key ^= CachedMeshCommandFlags.bAllSegmentsDecal ? <span class="nu">0x1ull</span> &lt;&lt; <span class="nu">44</span> : <span class="nu">0x0</span>;</span>
+<span class="line">    Key ^= CachedMeshCommandFlags.bTwoSided ? <span class="nu">0x1ull</span> &lt;&lt; <span class="nu">45</span> : <span class="nu">0x0</span>;</span>
+<span class="line">    Key ^= CachedMeshCommandFlags.bIsSky ? <span class="nu">0x1ull</span> &lt;&lt; <span class="nu">46</span> : <span class="nu">0x0</span>;</span>
+<span class="line">    Key ^= CachedMeshCommandFlags.bAllSegmentsTranslucent ? <span class="nu">0x1ull</span> &lt;&lt; <span class="nu">47</span> : <span class="nu">0x0</span>;</span>
+<span class="line">    Key ^= CachedMeshCommandFlags.bAllSegmentsReverseCulling ? <span class="nu">0x1ull</span> &lt;&lt; <span class="nu">48</span> : <span class="nu">0x0</span>;</span>
+<span class="line">    Key ^= <span class="kw">uint64</span>(LightingChannelMask) &lt;&lt; <span class="nu">49</span>;</span>
+<span class="line">    <span class="kw">return</span> Key ^ <span class="kw">reinterpret_cast</span>&lt;<span class="kw">uint64</span>&gt;(RayTracingGeometry-&gt;<span class="fn">GetRHI</span>());</span>
+<span class="line">}</span>
+</pre>
+</div>
+
+<p>相同的几何体即使有多个变换实例，只要材质、标志、光照通道一致，就可以通过 <code>InstancingKey</code> 共享同一个 SBT 分配，大幅减少 SBT 条目数量。</p>
+</section>
+
+<!-- ==================== 4. 设计决策与权衡 ==================== -->
+<section id="sec4">
+<h2>4. 设计决策与权衡</h2>
+
+<h3 id="sec4-1">内联光追 vs 动态 Shader 管线</h3>
+
+<div class="compare-row">
+<div class="compare-card">
+<h4>内联光追（Inline Ray Tracing）</h4>
+<p><span class="tag" style="color:#66BB6A;font-weight:600">优点：</span></p>
+<ul style="margin:0;padding-left:18px;color:var(--text-dim);font-size:13px;">
+<li>在 Compute Shader 中直接调用 TraceRayInline()，无需 RayGen/Miss/HitGroup 切换</li>
+<li>Shading 开销更低，适合简单的遮挡测试（如阴影）</li>
+<li>GPU 上 Wave 利用率更高（无 Shader Table 查找开销）</li>
+<li>UE 中通过 FOcclusionCS 实现，用于方向光硬阴影等场景</li>
+</ul>
+<p><span class="tag" style="color:#EF5350;font-weight:600">限制：</span></p>
+<ul style="margin:0;padding-left:18px;color:var(--text-dim);font-size:13px;">
+<li>不支持递归追踪，无法在 Hit 后发起次级射线</li>
+<li>无法利用材质 Hit Shader 的动态定制能力</li>
+<li>需要手动管理 Payload（所有数据通过 registers 传递）</li>
+<li>要求 1:1 Wave 映射（ThreadGroupSize = 8x4）</li>
+</ul>
+</div>
+<div class="compare-card">
+<h4>动态 Shader 管线（RayGen/Hit/Miss）</h4>
+<p><span class="tag" style="color:#66BB6A;font-weight:600">优点：</span></p>
+<ul style="margin:0;padding-left:18px;color:var(--text-dim);font-size:13px;">
+<li>支持复杂的材质着色逻辑（CHS 中可执行完整 BasePass 计算）</li>
+<li>SBT 按几何体自动分发正确的 Hit Shader</li>
+<li>支持递归射线（反射中的次级射线、路径追踪的多次弹射）</li>
+<li>UE 中 FOcclusionRGS 用于软阴影、带材质的阴影</li>
+</ul>
+<p><span class="tag" style="color:#EF5350;font-weight:600">限制：</span></p>
+<ul style="margin:0;padding-left:18px;color:var(--text-dim);font-size:13px;">
+<li>RTPSO 创建开销大（需编译所有可能的 Shader Record 组合）</li>
+<li>SBT 查找和 Shader 切换有额外延迟</li>
+<li>复杂材质下的寄存器压力可能限制 Occupancy</li>
+</ul>
+</div>
+</div>
+
+<div class="callout">
+<strong>UE5.8 的选择</strong>：两种方式<strong>并存</strong>。阴影系统同时提供 FOcclusionRGS（动态管线，支持软阴影+半透明）和 FOcclusionCS（内联，用于方向光硬阴影）。通过 <code>r.RayTracing.Shadows.AcceptFirstHit</code> 等 CVar 可以在此二者间切换策略。Lumen HWRT 偏向内联光追，因为它需要大量简单射线查询；Path Tracer 必须使用动态管线，因为它依赖 CHS 来计算复杂材质。
+</div>
+
+<h3 id="sec4-2">TLAS 全量重建 vs 增量更新</h3>
+
+<table>
+<thead>
+<tr><th>策略</th><th>触发条件</th><th>BuildFlags</th><th>性能特征</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td>全量重建</td>
+  <td>每帧（r.RayTracing.Scene.BuildMode=0 FastBuild）</td>
+  <td>AllowUpdate + FastBuild</td>
+  <td>构建快、遍历慢。适合场景几何频繁变化的动态场景</td>
+</tr>
+<tr>
+  <td>增量更新</td>
+  <td>每帧（r.RayTracing.Scene.BuildMode=1 FastTrace 默认）</td>
+  <td>AllowUpdate + FastTrace</td>
+  <td>构建慢、遍历快。适合场景几何相对稳定的渲染</td>
+</tr>
+<tr>
+  <td>Batched Build</td>
+  <td>r.RayTracing.Scene.BatchedBuild=true（默认）</td>
+  <td>批量提交</td>
+  <td>减少 GPU Barrier，提高多 View / 多 Layer 场景效率</td>
+</tr>
+<tr>
+  <td>Compact Instances</td>
+  <td>r.RayTracing.Scene.CompactInstances=true</td>
+  <td>仅活跃实例</td>
+  <td>减少实例 Buffer 大小。不支持 Indirect TLAS 的平台需 GPU→CPU Readback</td>
+</tr>
+</tbody>
+</table>
+
+<p>增量更新的关键约束：<strong>首次构建时必须声明 AllowUpdate 标志</strong>。之后的更新操作仅修改实例变换矩阵和 SBT 索引，而不重建 BVH 拓扑。这要求场景中几何体数量不变（或仅实例变换变化）。</p>
+
+<h3 id="sec4-3">材质复杂度与 SBT 大小的平衡</h3>
+
+<p>UE5 的材质 Hit Shader 编译会产生数百种排列，如果所有排列都独立占用 SBT 条目，SBT 大小将线性膨胀。UE 通过以下机制平衡：</p>
+
+<ul class="flow-list">
+<li><strong>InstancingKey 去重</strong>：相同材质 + 相同光照贴图策略 + 相同标志的几何体共享 SBT 分配</li>
+<li><strong>Trivial Shader 回退</strong>：当 r.RayTracing.EnableMaterials=0 或编译未完成时，所有几何体使用简单的 OpaqueShadowCHS</li>
+<li><strong>Shader Record 缓存</strong>（r.D3D12.RayTracing.CacheShaderRecords=1）：自动缓存和复用 SBT Hit Group Record，大幅减少相同网格实例的重复上传</li>
+<li><strong>Persistent SBT</strong>：仅更新脏记录的 UniformBuffer 内容，不变的部分保持在 GPU 上</li>
+</ul>
+
+<h3 id="sec4-4">光追反射 vs SSR vs Planar Reflection 的级联策略</h3>
+
+<div class="arch-svg">
+<svg width="840" height="320" viewBox="0 0 840 320" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <marker id="arr4" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M2,2 L8,5 L2,8 z" fill="#4FC3F7"/></marker>
+</defs>
+
+<!-- 标题 -->
+<text x="420" y="24" text-anchor="middle" fill="#fff" font-size="14" font-weight="600">反射策略级联：从低开销到高保真</text>
+
+<!-- SSR -->
+<rect x="40" y="50" width="220" height="100" rx="6" fill="#131318" stroke="#4FC3F7" stroke-opacity="0.3" stroke-width="1"/>
+<text x="60" y="78" fill="#4FC3F7" font-size="13" font-weight="600">SSR（屏幕空间反射）</text>
+<text x="60" y="98" fill="#c8c8d0" font-size="10.5">仅屏幕内可见几何体</text>
+<text x="60" y="114" fill="#909090" font-size="9.5">性能开销: 低 | 质量: 低</text>
+<text x="60" y="130" fill="#909090" font-size="9">失效时可见屏幕边缘拉伸/缺失</text>
+<text x="60" y="144" fill="#EF5350" font-size="9">屏幕外信息完全缺失</text>
+
+<line x1="260" y1="100" x2="300" y2="100" stroke="#4FC3F7" stroke-opacity="0.4" stroke-width="1.5" marker-end="url(#arr4)"/>
+
+<!-- Planar -->
+<rect x="310" y="50" width="220" height="100" rx="6" fill="#131318" stroke="#FFA726" stroke-opacity="0.3" stroke-width="1"/>
+<text x="330" y="78" fill="#FFA726" font-size="13" font-weight="600">Planar Reflection</text>
+<text x="330" y="98" fill="#c8c8d0" font-size="10.5">额外渲染整个场景到反射平面</text>
+<text x="330" y="114" fill="#909090" font-size="9.5">性能开销: 高 | 质量: 中</text>
+<text x="330" y="130" fill="#909090" font-size="9">适合水面/镜面等平面反射</text>
+<text x="330" y="144" fill="#FFA726" font-size="9">仅支持平面表面</text>
+
+<line x1="530" y1="100" x2="570" y2="100" stroke="#4FC3F7" stroke-opacity="0.4" stroke-width="1.5" marker-end="url(#arr4)"/>
+
+<!-- Ray Tracing -->
+<rect x="580" y="50" width="220" height="100" rx="6" fill="#131318" stroke="#66BB6A" stroke-opacity="0.4" stroke-width="2"/>
+<text x="600" y="78" fill="#66BB6A" font-size="13" font-weight="600">光追反射 (RT Reflections)</text>
+<text x="600" y="98" fill="#c8c8d0" font-size="10.5">BVH 全场景查询</text>
+<text x="600" y="114" fill="#909090" font-size="9.5">性能开销: 最高 | 质量: 最高</text>
+<text x="600" y="130" fill="#909090" font-size="9">任意曲面、屏幕外几何体</text>
+<text x="600" y="144" fill="#66BB6A" font-size="9">粗糙度自适应精度</text>
+
+<!-- 级联说明 -->
+<text x="420" y="190" text-anchor="middle" fill="#909090" font-size="11">级联策略：优先使用 SSR（低开销），SSR 缺失区域退回到光追反射，Planar Reflection 用于特殊平面</text>
+
+<!-- 默认混合策略 -->
+<rect x="100" y="215" width="640" height="80" rx="6" fill="rgba(79,195,247,0.04)" stroke="#4FC3F7" stroke-opacity="0.2" stroke-width="1"/>
+<text x="120" y="242" fill="#4FC3F7" font-size="11" font-weight="600">UE5.8 默认反射策略：SSR + Lumen Reflections</text>
+<text x="120" y="262" fill="#909090" font-size="10">1. Hit Lighting (SSR) — 从屏幕空间追踪，找到交点后使用 Lumen Surface Cache 或直接采样进行着色</text>
+<text x="120" y="278" fill="#909090" font-size="10">2. Lumen HWRT — 当启用 Hardware Ray Tracing 时，使用硬件光追加速 Surface Cache 的射线查询</text>
+<text x="120" y="294" fill="#909090" font-size="10">3. Standalone RT Reflections — 完全独立的光追反射，绕过 Lumen，提供最高质量但不与 GI 系统集成</text>
+</svg>
+<span class="caption">图4：反射质量/性能级联策略 -- 根据可用性和质量需求自动降级</span>
+</div>
+</section>
+
+<!-- ==================== 5. 底层实现关联 ==================== -->
+<section id="sec5">
+<h2>5. 底层实现关联</h2>
+
+<h3 id="sec5-1">DXR BLAS 构建的完整 D3D12 调用链</h3>
+
+<p>BLAS（Bottom-Level Acceleration Structure）是 DXR 中最基础的几何体加速结构。UE5 在 <code>FD3D12CommandContext::RHIBuildAccelerationStructures()</code> 中完成完整的 BLAS 构建流程：</p>
+
+<div class="code-block">
+<div class="header">
+  <span class="lang">C++</span>
+  <span class="file">D3D12RayTracing.cpp:5111-5257 -- BLAS 构建全流程</span>
+  <button class="copy-btn" onclick="copyCode(this)">复制</button>
+</div>
+<pre>
+<span class="line"><span class="kw">void</span> <span class="ty">FD3D12CommandContext</span>::<span class="fn">RHIBuildAccelerationStructures</span>(</span>
+<span class="line">    TConstArrayView&lt;<span class="ty">FRayTracingGeometryBuildParams</span>&gt; Params,</span>
+<span class="line">    <span class="kw">const</span> <span class="ty">FRHIBufferRange</span>&amp; ScratchBufferRange)</span>
+<span class="line">{</span>
+<span class="line">    <span class="cm">// 步骤1: 更新顶点缓冲区绑定（仅当 P.Segments 非空时）</span></span>
+<span class="line">    <span class="kw">for</span> (<span class="kw">const</span> <span class="ty">FRayTracingGeometryBuildParams</span>&amp; P : Params) {</span>
+<span class="line">        <span class="ty">FD3D12RayTracingGeometry</span>* Geometry = <span class="fn">FD3D12DynamicRHI::ResourceCast</span>(P.Geometry.GetReference());</span>
+<span class="line">        <span class="kw">if</span> (P.Segments.Num()) {</span>
+<span class="line">            <span class="kw">for</span> (<span class="kw">int32</span> i = <span class="nu">0</span>; i &lt; P.Segments.Num(); ++i) {</span>
+<span class="line">                Geometry-&gt;Initializer.Segments[i].VertexBuffer            = P.Segments[i].VertexBuffer;</span>
+<span class="line">                Geometry-&gt;Initializer.Segments[i].VertexBufferElementType = P.Segments[i].VertexBufferElementType;</span>
+<span class="line">                Geometry-&gt;Initializer.Segments[i].VertexBufferStride      = P.Segments[i].VertexBufferStride;</span>
+<span class="line">                Geometry-&gt;Initializer.Segments[i].VertexBufferOffset      = P.Segments[i].VertexBufferOffset;</span>
+<span class="line">            }</span>
+<span class="line">        }</span>
+<span class="line">    }</span>
+<span class="line">    <span class="cm">// 步骤2: 每个几何体生成 D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC</span></span>
+<span class="line">    <span class="kw">for</span> (<span class="kw">int32</span> i = <span class="nu">0</span>; i &lt; Params.Num(); i++) {</span>
+<span class="line">        <span class="kw">const</span> <span class="ty">FRayTracingGeometryBuildParams</span>&amp; P = Params[i];</span>
+<span class="line">        <span class="ty">D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC</span> Desc = {};</span>
+<span class="line">        Desc.Inputs.Type = GetD3D12GeometryType(Geometry-&gt;Initializer.Type); <span class="cm">// Triangles / Procedural</span></span>
+<span class="line">        Desc.Inputs.Flags = TranslateBuildFlags(Flags);</span>
+<span class="line">        Desc.Inputs.NumDescs = Geometry-&gt;Initializer.NumGeometryDescs();</span>
+<span class="line">        Desc.SourceAccelerationStructureData = ...;  <span class="cm">// 增量更新时的源 AS</span></span>
+<span class="line">        Desc.DestAccelerationStructureData = ...;     <span class="cm">// 目标 AS 的 GPU 地址</span></span>
+<span class="line">        Desc.ScratchAccelerationStructureData = ...;  <span class="cm">// 临时 Scratch Buffer 地址</span></span>
+<span class="line">    }</span>
+<span class="line">    <span class="cm">// 步骤3: 执行构建 (同时支持标准 DXR 和 NVAPI Ex)</span></span>
+<span class="line">    <span class="fn">BuildAccelerationStructuresInternal</span>(BuildDescs);    <span class="cm">// D3D12 标准调用</span></span>
+<span class="line">    <span class="fn">BuildAccelerationStructuresInternalEx</span>(BuildDescsEx); <span class="cm">// NVAPI 扩展 (SER 等)</span></span>
+<span class="line">}</span>
+</pre>
+</div>
+
+<p>BLAS 构建的底层 D3D12 入口调用最终是：</p>
+
+<div class="code-block">
+<div class="header">
+  <span class="lang">C++</span>
+  <span class="file">D3D12RayTracing.cpp:5069-5076 -- D3D12 API 最终调用</span>
+  <button class="copy-btn" onclick="copyCode(this)">复制</button>
+</div>
+<pre>
+<span class="line"><span class="kw">void</span> <span class="ty">FD3D12CommandContext</span>::<span class="fn">BuildAccelerationStructuresInternal</span>(</span>
+<span class="line">    TConstArrayView&lt;<span class="ty">D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC</span>&gt; BuildDescs)</span>
+<span class="line">{</span>
+<span class="line">    <span class="kw">for</span> (<span class="kw">const</span> <span class="kw">auto</span>&amp; Desc : BuildDescs) {</span>
+<span class="line">        <span class="fn">GraphicsCommandList4</span>()-&gt;<span class="fn">BuildRaytracingAccelerationStructure</span>(&amp;Desc, <span class="nu">0</span>, <span class="kw">nullptr</span>);</span>
+<span class="line">    }</span>
+<span class="line">}</span>
+</pre>
+</div>
+
+<h3 id="sec5-2">SBT 的 Shader Record 布局</h3>
+
+<p>每个几何体段在 SBT 中的布局由 <code>RAY_TRACING_NUM_SHADER_SLOTS</code> 决定（两个 Record 槽位）：</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Slot Index</th><th>用途</th><th>绑定的着色器类型</th><th>使用场景</th></tr>
+</thead>
+<tbody>
+<tr><td>0 (MATERIAL)</td><td>材质着色 Record</td><td>CHS + 可选 AHS/IS</td><td>反射、GI、路径追踪等需要材质颜色的 Ray</td></tr>
+<tr><td>1 (SHADOW)</td><td>阴影着色 Record</td><td>OpaqueShadowCHS（简化，无颜色计算）</td><td>阴影射线（仅需确定遮挡，不需要材质输出）</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>对于 Miss Shader，同样有 2 个槽位：</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Slot Index</th><th>用途</th><th>行为</th></tr>
+</thead>
+<tbody>
+<tr><td>0 (DEFAULT)</td><td>默认 Miss</td><td>设置 HitT = 表示"未命中"的值（FMinimalPayload::SetMiss()）</td></tr>
+<tr><td>1 (LIGHTING)</td><td>光照 Miss</td><td>可用于在光追反射和半透明中评估光源辐亮度</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>在 <code>FRayTracingSBTAllocation::GetRecordIndex()</code> 中计算实际的 Record Index：</p>
+
+<div class="code-block">
+<div class="header">
+  <span class="lang">C++</span>
+  <span class="file">RayTracingShaderBindingTable.cpp:77-90 -- Record Index 计算</span>
+  <button class="copy-btn" onclick="copyCode(this)">复制</button>
+</div>
+<pre>
+<span class="line"><span class="kw">uint32</span> <span class="ty">FRayTracingSBTAllocation</span>::<span class="fn">GetRecordIndex</span>(</span>
+<span class="line">    <span class="ty">ERayTracingShaderBindingLayer</span> Layer,</span>
+<span class="line">    <span class="kw">uint32</span> SegmentIndex) <span class="kw">const</span></span>
+<span class="line">{</span>
+<span class="line">    <span class="cm">// 1. 计算低于目标 Layer 的所有已分配 Layer 中的 Slot 数量</span></span>
+<span class="line">    <span class="kw">uint32</span> LayerMask = (<span class="nu">1</span> &lt;&lt; (<span class="kw">uint32</span>)Layer) - <span class="nu">1</span>;</span>
+<span class="line">    LayerMask = (<span class="kw">uint32</span>)AllocatedLayers &amp; LayerMask;</span>
+<span class="line">    <span class="kw">uint32</span> RecordTypeBaseOffset = <span class="fn">FMath::CountBits</span>(LayerMask) * RecordsPerLayer;</span>
+<span class="line">    <span class="cm">// 2. RecordIndex = BaseRecordIndex + Layer偏移 + SegmentIndex * NUM_SHADER_SLOTS</span></span>
+<span class="line">    <span class="kw">return</span> BaseRecordIndex + RecordTypeBaseOffset +</span>
+<span class="line">           SegmentIndex * RAY_TRACING_NUM_SHADER_SLOTS;</span>
+<span class="line">}</span>
+</pre>
+</div>
+
+<h3 id="sec5-3">RTPSO 管线状态创建</h3>
+
+<p>光线追踪管线状态对象（RTPSO）是 DXR 1.1+ 的核心概念。UE5 通过以下机制优化创建：</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>特性</th><th>CVar</th><th>行为</th></tr>
+</thead>
+<tbody>
+<tr><td>Specialized State Objects</td><td>r.D3D12.RayTracing.SpecializeStateObjects</td><td>为每个 RayGen Shader 创建唯一的 RTPSO（默认关闭，需 DXR 1.1+）</td></tr>
+<tr><td>Allow Specialized RTPSO</td><td>r.D3D12.RayTracing.AllowSpecializedStateObjects</td><td>使用已创建的 Specialized RTPSO（默认开启，性能测试用）</td></tr>
+<tr><td>Non-Blocking Pipeline Creation</td><td>r.RayTracing.NonBlockingPipelineCreation</td><td>后台创建 RTPSO，不阻塞渲染/渲染线程（默认开启）</td></tr>
+<tr><td>GPU Validation</td><td>r.D3D12.RayTracing.GPUValidation</td><td>GPU 端验证光追几何体和结构正确性（需 SM6，默认关闭）</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code-block">
+<div class="header">
+  <span class="lang">C++</span>
+  <span class="file">D3D12RayTracing.cpp:6012-6211 -- DispatchRays 调度</span>
+  <button class="copy-btn" onclick="copyCode(this)">复制</button>
+</div>
+<pre>
+<span class="line"><span class="kw">static void</span> <span class="fn">DispatchRays</span>(<span class="ty">FD3D12CommandContext</span>&amp; CommandContext,</span>
+<span class="line">    <span class="kw">const</span> <span class="ty">FD3D12RayTracingPipelineState</span>* Pipeline,</span>
+<span class="line">    <span class="kw">uint32</span> RayGenShaderIndex, ...)</span>
+<span class="line">{</span>
+<span class="line">    <span class="cm">// 1. 生成 DispatchRays 描述符</span></span>
+<span class="line">    <span class="ty">D3D12_DISPATCH_RAYS_DESC</span> Desc =;</span>
+<span class="line">    Desc.RayGenerationShaderRecord.StartAddress = ShaderTable-&gt;GetRayGenRecord(RayGenShaderIndex);</span>
+<span class="line">    Desc.MissShaderTable.StartAddress = ShaderTable-&gt;GetMissRecord();</span>
+<span class="line">    Desc.HitGroupTable.StartAddress = ShaderTable-&gt;GetHitGroupRecord();</span>
+<span class="line">    Desc.Width = MaxWidth; Desc.Height = MaxHeight; Desc.Depth = <span class="nu">1</span>;</span>
+<span class="line">    <span class="cm">// 2. 通过 ID3D12GraphicsCommandList4::DispatchRays() 调度</span></span>
+<span class="line">    CommandContext.<span class="fn">GraphicsCommandList4</span>()-&gt;<span class="fn">DispatchRays</span>(&amp;Desc);</span>
+<span class="line">}</span>
+</pre>
+</div>
+</section>
+
+<!-- ==================== 6. UE5.8 演进变化 ==================== -->
+<section id="sec6">
+<h2>6. UE5.8 演进变化</h2>
+
+<h3>Lumen HWRT 与独立光追的融合趋势</h3>
+<p>UE5.8 的一个重要趋势是<strong>Lumen Hardware Ray Tracing（HWRT）与独立光线追踪的深度整合</strong>。以往，Lumen 的软件光追（Signed Distance Field）和独立的硬件光追反射/阴影是两套相对独立的系统。5.8 中：</p>
+<ul class="flow-list">
+<li>Lumen 的 Surface Cache 和 Radiance Cache 越来越多地利用硬件光追加速，而非纯粹的 SDF 追踪</li>
+<li>RayTracingScene 通过 <code>LumenHardwareRayTracing::SetRayTracingSceneOptions()</code> 直接配置光追场景选项，实现"一次构建、多处使用"</li>
+<li>MegaLights 的光照采样通过 <code>MegaLights::IsUsingLightingChannels()</code> 影响场景的 AHS 配置</li>
+<li>SceneOptions 构造函数统一处理 Lumen/反射/阴影/半透明的几何体包含需求（<code>bTranslucentGeometry</code>、<code>bIncludeSky</code> 等）</li>
+</ul>
+
+<div class="code-block">
+<div class="header">
+  <span class="lang">C++</span>
+  <span class="file">RayTracing.cpp:267-310 -- SceneOptions 统一配置</span>
+  <button class="copy-btn" onclick="copyCode(this)">复制</button>
+</div>
+<pre>
+<span class="line"><span class="ty">FSceneOptions</span>::<span class="fn">FSceneOptions</span>(<span class="kw">const</span> <span class="ty">FScene</span>&amp; Scene, ...)</span>
+<span class="line">{</span>
+<span class="line">    bTranslucentGeometry = <span class="kw">false</span>;</span>
+<span class="line">    <span class="cm">// Lumen HWRT 添加其对光追场景的需求</span></span>
+<span class="line">    LumenHardwareRayTracing::<span class="fn">SetRayTracingSceneOptions</span>(View, DiffuseIndirectMethod, ReflectionsMethod, *<span class="kw">this</span>);</span>
+<span class="line">    <span class="cm">// 阴影添加对半透明几何体的需求</span></span>
+<span class="line">    RayTracingShadows::<span class="fn">SetRayTracingSceneOptions</span>(View.bHasRayTracingShadows, *<span class="kw">this</span>);</span>
+<span class="line">    <span class="cm">// 路径追踪强制包含半透明和天空几何体</span></span>
+<span class="line">    <span class="kw">if</span> (ViewFamily.EngineShowFlags.PathTracing) {</span>
+<span class="line">        bTranslucentGeometry = <span class="kw">true</span>;</span>
+<span class="line">    }</span>
+<span class="line">    bIncludeSky = GRayTracingExcludeSky == <span class="nu">0</span> || ViewFamily.EngineShowFlags.PathTracing;</span>
+<span class="line">    <span class="cm">// MegaLights 通过光照通道影响 AHS 使用</span></span>
+<span class="line">    bLightingChannelsUsingAHS = MegaLights::<span class="fn">IsEnabled</span>(ViewFamily) &amp;&amp; MegaLights::<span class="fn">IsUsingLightingChannels</span>();</span>
+<span class="line">}</span>
+</pre>
+</div>
+
+<h3>Path Tracer 采样改进</h3>
+<p>UE5.8 的路径追踪器进一步成熟：</p>
+<ul class="flow-list">
+<li><strong>Payload 类型扩展</strong>：新增 <code>ERayTracingPayloadType::PathTracingMaterial</code>（可与 Decals Payload 组合），Path Tracer 使用独立的 Payload 布局以容纳更多数据</li>
+<li><strong>Decals 支持</strong>：PathTracing 可包含 Decals 层（<code>PathTracing::UsesDecals()</code>），使用独立的 <code>ERayTracingPayloadType::Decals</code></li>
+<li><strong>参考大气和 DOF</strong>：<code>PathTracing::UsesReferenceAtmosphere()</code> 和 <code>PathTracing::UsesReferenceDOF()</code> 增加了对物理精确的大气散射和景深效果的支持</li>
+<li><strong>非阻塞 RTPSO</strong>：Path Tracer 的 Hit Shader 编译通过非阻塞管线机制，在着色器就绪前使用不透明黑色回退，不会阻塞交互式操作</li>
+</ul>
+
+<h3>Work Graph 对光追管线的影响</h3>
+<p>虽然 Work Graph 在 5.8 中仍处于实验阶段，但其对光追的影响趋势已经显现：</p>
+<ul class="flow-list">
+<li><strong>动态 Shader 负载</strong>：Work Graph 的核心思想是 GPU 端动态决定下一个执行的 Shader。这与光追的动态 Hit Shader 分发天然契合——光线命中后，GPU 可以根据材质类型直接 dispatch 对应的着色工作，不需要返回到 RayGen 进行二次分类</li>
+<li><strong>SBT 简化</strong>：在 Work Graph 模型中，SBT 的 Shader Record 分配可以被 Graph Node 的动态记录替换，RTPSO 创建可能被 Work Graph 的紧凑 PSO 创建取代</li>
+<li><strong>Nanite 集成</strong>：Nanite 的 GPU-Driven 管线与 Work Graph 理念一致——VisBuffer 解码后直接在 GPU 端确定需要的材质计算节点</li>
+</ul>
+
+<h3>5.8 性能与质量改进汇总</h3>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>改进领域</th><th>详情</th><th>相关 CVar</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td>Persistent SBT</td>
+  <td>SBT 数据持久化，仅更新脏记录，大幅减少 CPU 上传开销</td>
+  <td>r.RayTracing.PersistentSBT</td>
+</tr>
+<tr>
+  <td>Shader Record 缓存</td>
+  <td>自动缓存和复用相同几何体的 SBT Record</td>
+  <td>r.D3D12.RayTracing.CacheShaderRecords</td>
+</tr>
+<tr>
+  <td>并行实例收集</td>
+  <td>动态几何体实例并行收集，Work-Stealing 调度</td>
+  <td>r.RayTracing.DynamicInstances.Parallel.NumTasks</td>
+</tr>
+<tr>
+  <td>实例 Buffer 压缩</td>
+  <td>仅包含活跃实例，减小 TLAS InstanceBuffer 大小</td>
+  <td>r.RayTracing.Scene.CompactInstances</td>
+</tr>
+<tr>
+  <td>Tracing Feedback</td>
+  <td>基于上一帧命中数据，仅更新被命中的动态几何体</td>
+  <td>r.RayTracing.Scene.UseTracingFeedback</td>
+</tr>
+<tr>
+  <td>Lighting Channels AHS</td>
+  <td>MegaLights 光照通道通过 AHS 优化实例数量</td>
+  <td>r.MegaLights.Allow</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<!-- ==================== CVar 速查表 ==================== -->
+<section id="cvar">
+<h2>CVar 速查表</h2>
+
+<div class="table-wrap cvar-table">
+<table>
+<thead>
+<tr><th>CVar</th><th>默认值</th><th>说明</th></tr>
+</thead>
+<tbody>
+<tr><td>r.RayTracing.Scene.BuildMode</td><td>1</td><td>TLAS 构建模式 -- 0=FastBuild, 1=FastTrace</td></tr>
+<tr><td>r.RayTracing.Scene.BatchedBuild</td><td>true</td><td>批量提交 TLAS 构建以减少 GPU Barrier</td></tr>
+<tr><td>r.RayTracing.Scene.CompactInstances</td><td>false</td><td>压缩实例 Buffer 仅包含活跃实例</td></tr>
+<tr><td>r.RayTracing.Scene.UseTracingFeedback</td><td>false</td><td>基于上一帧命中结果仅更新被命中的动态几何体</td></tr>
+<tr><td>r.RayTracing.PersistentSBT</td><td>1</td><td>启用持久化 Shader Binding Table</td></tr>
+<tr><td>r.RayTracing.DynamicInstances</td><td>true</td><td>是否在光追场景中包含动态实例</td></tr>
+<tr><td>r.RayTracing.DynamicInstances.Parallel.NumTasks</td><td>4</td><td>动态实例并行收集任务数</td></tr>
+<tr><td>r.RayTracing.AutoInstance</td><td>1</td><td>自动实例化相同静态网格</td></tr>
+<tr><td>r.RayTracing.ExcludeTranslucent</td><td>0</td><td>是否排除半透明对象（0=包含, 1=排除）</td></tr>
+<tr><td>r.RayTracing.ExcludeSky</td><td>1</td><td>是否排除天空几何体（0=包含, 1=排除）</td></tr>
+<tr><td>r.RayTracing.EnableMaterials</td><td>1</td><td>是否使用真实材质 Hit Shader（0=Trivial Shader 回退）</td></tr>
+<tr><td>r.RayTracing.NonBlockingPipelineCreation</td><td>1</td><td>后台创建 RTPSO，不阻塞渲染线程</td></tr>
+<tr><td>r.RayTracing.CompileMaterialCHS</td><td>1</td><td>编译材质 Closest-Hit Shader（只读）</td></tr>
+<tr><td>r.RayTracing.CompileMaterialAHS</td><td>1</td><td>编译材质 Any-Hit Shader（只读）</td></tr>
+<tr><td>r.RayTracing.Shadows</td><td>系统自适应</td><td>光追阴影开关</td></tr>
+<tr><td>r.RayTracing.Shadows.EnableMaterials</td><td>1</td><td>阴影射线使用材质 Shader（0=默认 Trivial Shader）</td></tr>
+<tr><td>r.RayTracing.Shadows.AcceptFirstHit</td><td>1</td><td>阴影射线提前终止在第一个命中</td></tr>
+<tr><td>r.RayTracing.Shadows.EnableTwoSidedGeometry</td><td>1</td><td>阴影射线启用双面几何体</td></tr>
+<tr><td>r.RayTracing.NormalBias</td><td>0.1</td><td>射线起点沿法线偏移的最大值（mm）</td></tr>
+<tr><td>r.RayTracing.ParallelMeshBatchSetup</td><td>1</td><td>并行设置光追材质 MeshBatch</td></tr>
+<tr><td>r.RayTracing.ParallelMeshBatchSize</td><td>1024</td><td>并行 MeshBatch 处理的批次大小</td></tr>
+<tr><td>r.RayTracing.ParallelPrimitiveGather</td><td>1</td><td>并行收集光追相关 Primitive</td></tr>
+<tr><td>r.RayTracing.DebugDisableTriangleCull</td><td>0</td><td>强制双面渲染（禁用背面剔除）</td></tr>
+<tr><td>r.RayTracing.DebugForceOpaque</td><td>0</td><td>强制所有几何体为不透明（禁用 AHS）</td></tr>
+<tr><td>r.D3D12.RayTracing.CacheShaderRecords</td><td>1</td><td>缓存和复用 SBT Hit Group Record</td></tr>
+<tr><td>r.D3D12.RayTracing.AllowCompaction</td><td>1</td><td>自动压缩静态加速结构以节省显存</td></tr>
+<tr><td>r.D3D12.RayTracing.MaxBatchedCompaction</td><td>64</td><td>每帧最大 Compaction 请求数</td></tr>
+<tr><td>r.D3D12.RayTracing.SpecializeStateObjects</td><td>0</td><td>为每个 RayGen 创建唯一 RTPSO（需 DXR 1.1+）</td></tr>
+<tr><td>r.D3D12.RayTracing.AllowSpecializedStateObjects</td><td>1</td><td>使用已创建的 Specialized RTPSO</td></tr>
+<tr><td>r.D3D12.RayTracing.DebugForceBuildMode</td><td>0</td><td>强制 AS 构建模式（0=默认, 1=FastBuild, 2=FastTrace）</td></tr>
+<tr><td>r.D3D12.RayTracing.GPUValidation</td><td>0</td><td>GPU 端验证光追结构（需 SM6）</td></tr>
+<tr><td>r.RayTracing.DynamicGeometryLastRenderTimeUpdateDistance</td><td>5000.0</td><td>动态几何体更新距离内的 LastRenderTime 刷新范围</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<!-- ==================== 底部导航 ==================== -->
+<div id="bottom-nav">
+  <a href="../MegaLights/index.html" class="prev">
+    <span class="label">上一章</span>
+    <span class="title">MegaLights 动态光照系统</span>
+  </a>
+  <a href="../移动端渲染/index.html" class="next">
+    <span class="label">下一章</span>
+    <span class="title">移动端渲染</span>
+  </a>
+</div>
+</div><!-- /#content -->
+
+<!-- ==================== 脚本 ==================== -->
+<script>
+// 大纲高亮
+(function() {
+  const navLinks = document.querySelectorAll('#sidebar nav a');
+  const sections = [];
+  navLinks.forEach(a => {
+    const id = a.getAttribute('href').replace('#', '');
+    const el = document.getElementById(id);
+    if (el) sections.push({link: a, top: el.offsetTop - 80});
+  });
+
+  let activeLink = null;
+  window.addEventListener('scroll', () => {
+    const scrollY = window.scrollY + 120;
+    let current = null;
+    for (let i = sections.length - 1; i >= 0; i--) {
+      if (scrollY >= sections[i].top) { current = sections[i].link; break; }
+    }
+    if (current !== activeLink) {
+      navLinks.forEach(a => a.classList.remove('active'));
+      if (current) current.classList.add('active');
+      activeLink = current;
+    }
+  });
+})();
+
+// 复制按钮
+function copyCode(btn) {
+  const pre = btn.closest('.code-block').querySelector('pre');
+  const text = Array.from(pre.querySelectorAll('.line')).map(l => l.textContent).join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '已复制';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '复制'; btn.classList.remove('copied'); }, 1500);
+  });
+}
+
+// 章节内搜索
+function searchSections() {
+  const query = document.getElementById('sectionSearch').value.trim().toLowerCase();
+  const sections = document.querySelectorAll('section');
+  const allMarked = document.querySelectorAll('mark');
+  allMarked.forEach(m => { const p = m.parentNode; p.replaceChild(document.createTextNode(m.textContent), m); p.normalize(); });
+
+  if (!query) {
+    sections.forEach(s => s.classList.remove('hidden-section'));
+    return;
+  }
+
+  sections.forEach(s => {
+    const text = s.innerText.toLowerCase();
+    if (text.includes(query)) {
+      s.classList.remove('hidden-section');
+      // 高亮
+      highlightInElement(s, query);
+    } else {
+      s.classList.add('hidden-section');
+    }
+  });
+}
+
+function highlightInElement(el, query) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+  textNodes.forEach(node => {
+    const parent = node.parentNode;
+    if (parent.tagName === 'MARK' || parent.tagName === 'SCRIPT' || parent.tagName === 'STYLE') return;
+    const idx = node.textContent.toLowerCase().indexOf(query);
+    if (idx >= 0) {
+      const mark = document.createElement('mark');
+      const before = node.textContent.substring(0, idx);
+      const match = node.textContent.substring(idx, idx + query.length);
+      const after = node.textContent.substring(idx + query.length);
+      const beforeNode = document.createTextNode(before);
+      mark.textContent = match;
+      const afterNode = document.createTextNode(after);
+      parent.insertBefore(beforeNode, node);
+      parent.insertBefore(mark, node);
+      parent.insertBefore(afterNode, node);
+      parent.removeChild(node);
+    }
+  });
+}
+</script>
+</body>
+</html>

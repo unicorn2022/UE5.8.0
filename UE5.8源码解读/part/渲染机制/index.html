@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UE5.8.0 渲染机制 - FSceneRenderer / MeshPass / 可见性 / GPU Scene</title>
+<style>
+/* ===== CSS Reset & Base ===== */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;
+  --card:#131318;
+  --code-bg:#09090d;
+  --primary:#4FC3F7;
+  --primary-dim:rgba(79,195,247,0.15);
+  --text:#e0e0e0;
+  --text-dim:#909090;
+  --border:#1e1e28;
+  --accent-green:#66BB6A;
+  --accent-orange:#FFA726;
+  --accent-red:#EF5350;
+  --accent-yellow:#FFEE58;
+  --accent-purple:#AB47BC;
+  --sidebar-w:260px;
+  --header-h:52px;
+}
+html{scroll-behavior:smooth;font-size:15px}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  line-height:1.72;
+  display:flex;
+  min-height:100vh;
+}
+
+/* ===== Sidebar ===== */
+.sidebar{
+  position:fixed;top:0;left:0;
+  width:var(--sidebar-w);height:100vh;
+  background:var(--card);
+  border-right:1px solid var(--border);
+  overflow-y:auto;overflow-x:hidden;
+  z-index:100;
+  display:flex;flex-direction:column;
+}
+.sidebar-header{
+  padding:16px 18px;border-bottom:1px solid var(--border);
+  font-size:1rem;font-weight:700;color:var(--primary);
+  flex-shrink:0;
+}
+.sidebar-header .ver{font-size:.7rem;color:var(--text-dim);font-weight:400;margin-left:4px}
+.sidebar-search{
+  padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0;
+}
+.sidebar-search input{
+  width:100%;padding:7px 12px;border-radius:6px;border:1px solid var(--border);
+  background:var(--code-bg);color:var(--text);font-size:.82rem;outline:none;
+  transition:border-color .2s;
+}
+.sidebar-search input:focus{border-color:var(--primary)}
+.sidebar-nav{flex:1;overflow-y:auto;padding:8px 0}
+.sidebar-nav a{
+  display:block;padding:7px 18px;font-size:.82rem;color:var(--text-dim);
+  text-decoration:none;border-left:2px solid transparent;transition:all .15s;
+}
+.sidebar-nav a:hover,.sidebar-nav a.active{color:var(--text);background:var(--primary-dim);border-left-color:var(--primary)}
+.sidebar-nav a.l2{padding-left:34px;font-size:.78rem}
+
+/* ===== Main ===== */
+.main{margin-left:var(--sidebar-w);flex:1;min-width:0}
+.topbar{
+  position:sticky;top:0;z-index:50;
+  height:var(--header-h);background:var(--card);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 24px;gap:14px;
+}
+.breadcrumb{font-size:.78rem;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.breadcrumb a{color:var(--primary);text-decoration:none}
+.breadcrumb span{color:var(--text-dim)}
+.content{max-width:1100px;margin:0 auto;padding:32px 40px 60px}
+
+/* ===== Typography ===== */
+h1{font-size:2rem;font-weight:700;margin-bottom:6px;color:#fff}
+h1 .sub{font-size:1.05rem;font-weight:400;color:var(--text-dim);margin-left:10px}
+h2{
+  font-size:1.45rem;font-weight:700;color:var(--primary);
+  margin:52px 0 18px;padding-bottom:9px;border-bottom:1px solid var(--border);
+}
+h3{font-size:1.15rem;font-weight:600;color:#fff;margin:34px 0 14px}
+h4{font-size:1rem;font-weight:600;color:var(--text);margin:24px 0 10px}
+p{margin:10px 0;color:var(--text)}
+.lead{font-size:1.08rem;color:var(--text-dim);margin-bottom:28px}
+
+/* ===== Card ===== */
+.card{
+  background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:20px 24px;margin:16px 0;
+}
+.card-title{font-size:.95rem;font-weight:600;color:var(--primary);margin-bottom:10px}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:16px 0}
+
+/* ===== Code ===== */
+.code-block{
+  background:var(--code-bg);border:1px solid var(--border);border-radius:8px;
+  margin:14px 0;overflow:hidden;position:relative;
+}
+.code-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 14px;background:rgba(255,255,255,.03);border-bottom:1px solid var(--border);
+  font-size:.74rem;color:var(--text-dim);
+}
+.code-header .lang{color:var(--primary)}
+.code-header .path{font-family:"Cascadia Code","Fira Code",monospace;font-size:.7rem}
+.code-header button{
+  background:transparent;border:1px solid var(--border);color:var(--text-dim);
+  padding:3px 10px;border-radius:4px;cursor:pointer;font-size:.7rem;transition:all .15s;
+}
+.code-header button:hover{color:var(--primary);border-color:var(--primary)}
+.code-block pre{padding:14px 16px;overflow-x:auto;margin:0}
+.code-block code{
+  font-family:"Cascadia Code","Fira Code","JetBrains Mono",monospace;
+  font-size:.8rem;line-height:1.55;
+}
+.ln{color:#505060;user-select:none;margin-right:14px;display:inline-block;width:32px;text-align:right}
+.kw{color:#C792EA} .ty{color:#FFCB6B} .fn{color:#82AAFF}
+.str{color:#C3E88D} .num{color:#F78C6C} .cm{color:#546E7A}
+.mac{color:#FF5370} .op{color:#89DDFF} .id{color:#EEFFFF}
+.hl{background:rgba(79,195,247,.08);display:inline-block;width:100%}
+
+/* ===== Tables ===== */
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.85rem}
+thead th{
+  background:var(--primary-dim);color:var(--primary);font-weight:600;
+  padding:9px 14px;text-align:left;border-bottom:1px solid var(--border);
+  white-space:nowrap;
+}
+tbody td{padding:8px 14px;border-bottom:1px solid var(--border);color:var(--text)}
+tbody tr:hover{background:rgba(255,255,255,.02)}
+.tag{
+  display:inline-block;padding:2px 8px;border-radius:4px;font-size:.72rem;
+  font-weight:600;margin-right:3px;
+}
+.tag-cpu{background:rgba(255,167,38,.2);color:var(--accent-orange)}
+.tag-gpu{background:rgba(239,83,80,.2);color:var(--accent-red)}
+.tag-stat{background:rgba(102,187,106,.2);color:var(--accent-green)}
+.tag-dyn{background:rgba(171,71,188,.2);color:var(--accent-purple)}
+
+/* ===== Flow Diagram SVG ===== */
+.diagram-wrap{
+  text-align:center;margin:24px 0;
+  background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:24px 16px;overflow-x:auto;
+}
+.diagram-wrap svg{max-width:100%;height:auto}
+.diagram-wrap .caption{font-size:.78rem;color:var(--text-dim);margin-top:10px}
+
+/* ===== CVar Table ===== */
+.cvar-table th:nth-child(1){width:260px}
+.cvar-table th:nth-child(2){width:80px}
+.cvar-table td:first-child{font-family:"Cascadia Code","Fira Code",monospace;font-size:.8rem}
+.cvar-table td:first-child code{color:var(--primary)}
+
+/* ===== Search Highlight ===== */
+.search-hl{background:rgba(255,242,0,.25);border-radius:2px;padding:0 1px}
+
+/* ===== Bottom Nav ===== */
+.bottom-nav{
+  display:flex;justify-content:space-between;align-items:center;
+  margin-top:60px;padding-top:20px;border-top:1px solid var(--border);
+}
+.bottom-nav a{
+  display:flex;flex-direction:column;text-decoration:none;
+  padding:12px 18px;border-radius:8px;border:1px solid var(--border);
+  transition:all .2s;max-width:48%;
+}
+.bottom-nav a:hover{border-color:var(--primary);background:var(--primary-dim)}
+.bottom-nav .dir{font-size:.72rem;color:var(--text-dim);margin-bottom:2px}
+.bottom-nav .title{font-size:.9rem;color:var(--text);font-weight:600}
+.bottom-nav a.prev{align-items:flex-start}
+.bottom-nav a.next{align-items:flex-end;text-align:right}
+
+/* ===== Compare Cards ===== */
+.compare-card{
+  background:var(--card);border:1px solid var(--border);border-radius:8px;
+  padding:18px 20px;margin:10px 0;
+}
+.compare-card h4{color:var(--primary);margin-bottom:8px}
+.compare-card .pro{color:var(--accent-green)}
+.compare-card .con{color:var(--accent-orange)}
+
+/* ===== Responsive ===== */
+@media(max-width:860px){
+  .sidebar{display:none}
+  .main{margin-left:0}
+  .content{padding:20px 16px}
+  .card-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== Sidebar ===== -->
+<nav class="sidebar">
+  <div class="sidebar-header">
+    &#9881; UE5.8 渲染机制 <span class="ver">v5.8.0</span>
+  </div>
+  <div class="sidebar-search">
+    <input type="text" id="searchInput" placeholder="搜索章节内容..." oninput="doSearch()">
+  </div>
+  <div class="sidebar-nav" id="sidebarNav">
+    <a href="#sec1" class="active">1. 概述 &amp; 定位</a>
+    <a href="#sec2" class="l2">1.1 核心问题</a>
+    <a href="#sec2_1" class="l2">1.2 双路径全景</a>
+    <a href="#sec3">2. 顶层架构设计</a>
+    <a href="#sec3_1" class="l2">2.1 类层级</a>
+    <a href="#sec3_2" class="l2">2.2 FPrimitiveSceneProxy</a>
+    <a href="#sec3_3" class="l2">2.3 FMeshPassProcessor</a>
+    <a href="#sec3_4" class="l2">2.4 EMeshPass::Type</a>
+    <a href="#sec3_5" class="l2">2.5 自定义 MeshPass 示例</a>
+    <a href="#sec4">3. 执行流程 / 数据流</a>
+    <a href="#sec4_1" class="l2">3.1 BeginInitViews</a>
+    <a href="#sec4_2" class="l2">3.2 可见性裁剪</a>
+    <a href="#sec4_3" class="l2">3.3 网格收集与分发</a>
+    <a href="#sec4_4" class="l2">3.4 时序图</a>
+    <a href="#sec5">4. 设计决策 &amp; 权衡</a>
+    <a href="#sec5_1" class="l2">4.1 动/静分离</a>
+    <a href="#sec5_2" class="l2">4.2 Proxy 模式权衡</a>
+    <a href="#sec5_3" class="l2">4.3 MeshBatch 复用</a>
+    <a href="#sec5_4" class="l2">4.4 GPU Scene 粒度</a>
+    <a href="#sec6">5. 底层实现关联</a>
+    <a href="#sec6_1" class="l2">5.1 源码索引</a>
+    <a href="#sec6_2" class="l2">5.2 关键代码片段</a>
+    <a href="#sec7">6. UE5.8 演进变化</a>
+    <a href="#sec8">CVar 速查表</a>
+  </div>
+</nav>
+
+<!-- ===== Main Content ===== -->
+<div class="main">
+<div class="topbar">
+  <div class="breadcrumb">
+    <a href="../index.html">UE5.8 渲染文档</a> &rsaquo;
+    <span>渲染机制</span>
+  </div>
+</div>
+
+<div class="content" id="mainContent">
+
+<!-- ===== Title ===== -->
+<h1>渲染机制<span class="sub">FSceneRenderer / MeshPass / 可见性 / GPU Scene</span></h1>
+<p class="lead">
+  深入解读 UE5.8.0 渲染机制核心模块：场景渲染器架构、Mesh Pass 处理管线、可见性计算系统、GPU 场景数据管理，
+  以及静态与动态渲染路径的设计与协作。
+</p>
+
+<!-- ============================================== -->
+<!-- SECTION 1: 概述 & 定位 -->
+<!-- ============================================== -->
+<h2 id="sec1">1. 概述 &amp; 定位</h2>
+
+<h3 id="sec2">1.1 核心问题</h3>
+<p>
+  渲染机制模块回答一个根本性问题：<strong>场景中的几何体如何变成 GPU 上的 DrawCall？</strong>
+  这个问题在 UE5.8 中被拆分为四个子系统协同解决：
+</p>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="card-title">场景渲染器 (FSceneRenderer)</div>
+    <p>统筹整帧渲染，作为"总指挥"协调各子系统按序执行。派生 <code>FDeferredShadingSceneRenderer</code>（桌面/主机延迟渲染）和 <code>FMobileSceneRenderer</code>（移动端），按平台分流。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">可见性计算 (SceneVisibility)</div>
+    <p>决定哪些物体需要渲染——视锥裁剪、遮挡剔除、距离裁剪、LOD 选择。采用多线程异步任务图并行执行，支持 HZB 和硬件遮挡查询两种模式。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">Mesh Pass 处理 (FMeshPassProcessor)</div>
+    <p>将可见物体制成 <code>FMeshDrawCommand</code>，按 Pass 类型分组。每个 Pass 定义为不同的渲染目标配置（DepthPass、BasePass、ShadowDepth...共 39 种）。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">GPU 场景数据 (FGPUScene)</div>
+    <p>在 GPU 可访问的缓冲区中维护图元+实例数据，使得 Shader 可自行从三角形 ID 反查图元属性，避免了传统 UBO 逐 Draw 切换的开销。</p>
+  </div>
+</div>
+
+<h3 id="sec2_1">1.2 静态/动态渲染双路径全景</h3>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 960 620" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#4FC3F7"/></marker>
+    <marker id="arr-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#909090"/></marker>
+    <linearGradient id="gradTop" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a0f"/><stop offset="1" stop-color="#131318"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+
+  <rect x="0" y="0" width="960" height="620" fill="#0a0a0f" rx="8"/>
+
+  <!-- 标题 -->
+  <text x="480" y="30" text-anchor="middle" fill="#e0e0e0" font-size="15" font-weight="600">UE5.8 场景渲染双路径全景 — 几何体 → DrawCall</text>
+
+  <!-- 顶部分流 -->
+  <rect x="400" y="52" width="160" height="40" rx="6" fill="#1a1a28" stroke="#4FC3F7" stroke-width="1.5"/>
+  <text x="480" y="76" text-anchor="middle" fill="#4FC3F7" font-size="12" font-weight="600">场景几何体</text>
+
+  <!-- 分流箭头 -->
+  <line x1="440" y1="92" x2="200" y2="140" stroke="#909090" stroke-width="1.5" marker-end="url(#arr-gray)"/>
+  <line x1="520" y1="92" x2="760" y2="140" stroke="#909090" stroke-width="1.5" marker-end="url(#arr-gray)"/>
+
+  <!-- 左侧: 静态路径 -->
+  <rect x="40" y="142" width="330" height="370" rx="8" fill="#131318" stroke="#66BB6A" stroke-width="1"/>
+  <text x="205" y="170" text-anchor="middle" fill="#66BB6A" font-size="13" font-weight="700">静态渲染路径 (Static Path)</text>
+
+  <rect x="60" y="185" width="290" height="34" rx="5" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+  <text x="205" y="207" text-anchor="middle" fill="#e0e0e0" font-size="11">FPrimitiveSceneProxy (静态图元代理)</text>
+
+  <text x="205" y="241" text-anchor="middle" fill="#909090" font-size="10">&#8595; 注册时构建</text>
+
+  <rect x="60" y="252" width="290" height="48" rx="5" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+  <text x="205" y="270" text-anchor="middle" fill="#e0e0e0" font-size="11">StaticMeshBatch 缓存</text>
+  <text x="205" y="288" text-anchor="middle" fill="#909090" font-size="10">顶点工厂 + 材质数据预封装</text>
+
+  <text x="205" y="320" text-anchor="middle" fill="#909090" font-size="10">&#8595; 可见性筛选后</text>
+
+  <rect x="60" y="332" width="290" height="34" rx="5" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+  <text x="205" y="354" text-anchor="middle" fill="#e0e0e0" font-size="11">FMeshDrawCommand (静态版本)</text>
+
+  <text x="205" y="386" text-anchor="middle" fill="#909090" font-size="10">&#8595; 复用缓存，跳过 Process 阶段</text>
+
+  <rect x="60" y="396" width="290" height="34" rx="5" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+  <text x="205" y="418" text-anchor="middle" fill="#e0e0e0" font-size="11">GPU Indirect Dispatch</text>
+
+  <rect x="60" y="446" width="290" height="48" rx="5" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+  <text x="205" y="464" text-anchor="middle" fill="#e0e0e0" font-size="11">GPU Scene → FGPUScene</text>
+  <text x="205" y="482" text-anchor="middle" fill="#909090" font-size="10">Buffer SRV: 图元数据 / 实例数据 / Lightmap</text>
+
+  <!-- 右侧: 动态路径 -->
+  <rect x="590" y="142" width="330" height="370" rx="8" fill="#131318" stroke="#FFA726" stroke-width="1"/>
+  <text x="755" y="170" text-anchor="middle" fill="#FFA726" font-size="13" font-weight="700">动态渲染路径 (Dynamic Path)</text>
+
+  <rect x="610" y="185" width="290" height="34" rx="5" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+  <text x="755" y="207" text-anchor="middle" fill="#e0e0e0" font-size="11">FPrimitiveSceneProxy → GetDynamicMeshElements()</text>
+
+  <text x="755" y="241" text-anchor="middle" fill="#909090" font-size="10">&#8595; 每帧调用</text>
+
+  <rect x="610" y="252" width="290" height="48" rx="5" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+  <text x="755" y="270" text-anchor="middle" fill="#e0e0e0" font-size="11">FMeshElementCollector 收集</text>
+  <text x="755" y="288" text-anchor="middle" fill="#909090" font-size="10">粒子 / 骨骼动画 / 刚体运动 / 自定义几何</text>
+
+  <text x="755" y="320" text-anchor="middle" fill="#909090" font-size="10">&#8595; 新网格每帧重新构建</text>
+
+  <rect x="610" y="332" width="290" height="34" rx="5" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+  <text x="755" y="354" text-anchor="middle" fill="#e0e0e0" font-size="11">FMeshDrawCommand (动态版本)</text>
+
+  <text x="755" y="386" text-anchor="middle" fill="#909090" font-size="10">&#8595; 经 FMeshPassProcessor::AddMeshBatch() 处理</text>
+
+  <rect x="610" y="396" width="290" height="34" rx="5" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+  <text x="755" y="418" text-anchor="middle" fill="#e0e0e0" font-size="11">传统 GPU DrawCall</text>
+
+  <rect x="610" y="446" width="290" height="48" rx="5" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+  <text x="755" y="464" text-anchor="middle" fill="#e0e0e0" font-size="11">动态图元数据 (FGPUScenePrimitiveCollector)</text>
+  <text x="755" y="482" text-anchor="middle" fill="#909090" font-size="10">临时分配范围，帧末释放</text>
+
+  <!-- 底部汇合 -->
+  <rect x="300" y="540" width="360" height="36" rx="6" fill="#131318" stroke="#4FC3F7" stroke-width="1.5"/>
+  <text x="480" y="562" text-anchor="middle" fill="#4FC3F7" font-size="12" font-weight="600">Instance Culling → Mesh Pass Dispatch → GPU</text>
+
+  <line x1="205" y1="512" x2="420" y2="540" stroke="#66BB6A" stroke-width="1" marker-end="url(#arr)"/>
+  <line x1="755" y1="512" x2="540" y2="540" stroke="#FFA726" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- 标签 -->
+  <rect x="45" y="144" width="10" height="10" fill="#66BB6A" rx="2"/>
+  <text x="70" y="153" fill="#66BB6A" font-size="9">静态：缓存 MeshDrawCommand，仅可见性筛选后发往 GPU</text>
+  <rect x="45" y="160" width="10" height="10" fill="#FFA726" rx="2"/>
+  <text x="70" y="169" fill="#FFA726" font-size="9">动态：每帧收集新网格，经 PassProcessor 后转为 DrawCall</text>
+</svg>
+<div class="caption">图 1-1: 几何体到 DrawCall 的静态/动态双路径全景</div>
+</div>
+
+<p>
+  核心设计哲学：<strong>静态材质 = 预缓存 + 快速筛选</strong>，<strong>动态材质 = 按需构造 + 灵活性优先</strong>。
+  两条路径在 InstanceCulling 阶段汇合，统一发往 GPU。GPU Scene 提供统一的数据查询接口，让 Shader 侧无需区分静态/动态图元。
+</p>
+
+<!-- ============================================== -->
+<!-- SECTION 2: 顶层架构设计 -->
+<!-- ============================================== -->
+<h2 id="sec3">2. 顶层架构设计</h2>
+
+<h3 id="sec3_1">2.1 类层级 — FSceneRenderer 家族</h3>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 860 340" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr2" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#e0e0e0"/></marker>
+  </defs>
+  <rect x="0" y="0" width="860" height="340" fill="#0a0a0f" rx="8"/>
+
+  <!-- ISceneRenderer -->
+  <rect x="280" y="30" width="300" height="44" rx="6" fill="#1a1a28" stroke="#AB47BC" stroke-width="1.5"/>
+  <text x="430" y="50" text-anchor="middle" fill="#AB47BC" font-size="13" font-weight="600">&#171;interface&#187; ISceneRenderer</text>
+  <text x="430" y="66" text-anchor="middle" fill="#909090" font-size="10">GetScene() / GetSceneUniforms()</text>
+
+  <!-- FSceneRendererBase -->
+  <line x1="430" y1="74" x2="430" y2="96" stroke="#e0e0e0" stroke-width="1.2" marker-end="url(#arr2)"/>
+  <rect x="250" y="98" width="360" height="54" rx="6" fill="#1a1a28" stroke="#C792EA" stroke-width="1.2"/>
+  <text x="430" y="118" text-anchor="middle" fill="#C792EA" font-size="12" font-weight="600">FSceneRendererBase</text>
+  <text x="430" y="136" text-anchor="middle" fill="#909090" font-size="10">FScene* Scene / FSceneUniformBuffer SceneUniforms</text>
+
+  <!-- FSceneRenderer -->
+  <line x1="430" y1="152" x2="430" y2="174" stroke="#e0e0e0" stroke-width="1.2" marker-end="url(#arr2)"/>
+  <rect x="200" y="176" width="460" height="68" rx="6" fill="#131318" stroke="#82AAFF" stroke-width="1.5"/>
+  <text x="430" y="196" text-anchor="middle" fill="#82AAFF" font-size="13" font-weight="600">FSceneRenderer (abstract)</text>
+  <text x="430" y="214" text-anchor="middle" fill="#e0e0e0" font-size="10">FViewFamilyInfo ViewFamily / TArray&lt;FViewInfo&gt; Views</text>
+  <text x="430" y="232" text-anchor="middle" fill="#909090" font-size="10">virtual Render(FRDGBuilder&amp;, ...) = 0</text>
+
+  <!-- 两条分叉 -->
+  <line x1="330" y1="244" x2="190" y2="272" stroke="#e0e0e0" stroke-width="1.2" marker-end="url(#arr2)"/>
+  <line x1="530" y1="244" x2="670" y2="272" stroke="#e0e0e0" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+  <!-- FDeferredShadingSceneRenderer -->
+  <rect x="60" y="274" width="270" height="56" rx="6" fill="#1a1a28" stroke="#4FC3F7" stroke-width="1.5"/>
+  <text x="195" y="296" text-anchor="middle" fill="#4FC3F7" font-size="12" font-weight="600">FDeferredShadingSceneRenderer</text>
+  <text x="195" y="315" text-anchor="middle" fill="#909090" font-size="10">桌面/主机 — 延迟渲染管线</text>
+
+  <!-- FMobileSceneRenderer -->
+  <rect x="530" y="274" width="270" height="56" rx="6" fill="#1a1a28" stroke="#66BB6A" stroke-width="1.5"/>
+  <text x="665" y="296" text-anchor="middle" fill="#66BB6A" font-size="12" font-weight="600">FMobileSceneRenderer</text>
+  <text x="665" y="315" text-anchor="middle" fill="#909090" font-size="10">移动端 — 前向/移动延迟</text>
+</svg>
+<div class="caption">图 2-1: FSceneRenderer 类层级（UML 风格）</div>
+</div>
+
+<p>
+  <strong>源码位置：</strong>
+</p>
+<ul style="list-style:none;padding-left:0">
+  <li style="padding:3px 0"><code class="str">ISceneRenderer</code> — <span class="tag tag-stat">Engine/Source/Runtime/Renderer/Private/SceneRendererInterface.h</span></li>
+  <li style="padding:3px 0"><code class="str">FSceneRendererBase</code> — <span class="tag tag-stat">Private/SceneRendering.h:2153</span></li>
+  <li style="padding:3px 0"><code class="str">FSceneRenderer</code> — <span class="tag tag-stat">Private/SceneRendering.h:2218</span></li>
+  <li style="padding:3px 0"><code class="str">FDeferredShadingSceneRenderer</code> — <span class="tag tag-stat">Private/DeferredShadingRenderer.h:260</span></li>
+  <li style="padding:3px 0"><code class="str">FMobileSceneRenderer</code> — <span class="tag tag-stat">Private/MobileShadingRenderer.cpp</span></li>
+</ul>
+
+<h3 id="sec3_2">2.2 FPrimitiveSceneProxy — 代理模式</h3>
+
+<p>
+  FPrimitiveSceneProxy 是渲染线程侧对应游戏线程 UPrimitiveComponent 的"镜像"对象。
+  其核心设计动机：
+</p>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="card-title">线程安全</div>
+    <p>游戏线程 (GT) 可随时修改组件的属性。Proxy 在创建时<strong>快照</strong>所有渲染所需数据到渲染线程侧，二者此后独立。GT 修改通过 <code>ENQUEUE_RENDER_COMMAND</code> 异步通知 Proxy。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">接口统一</div>
+    <p>无论底层是静态网格、骨骼网格、粒子系统还是程序化几何，渲染管线只需操作 <code>FPrimitiveSceneProxy*</code>，通过虚函数获取 MeshBatch、统一参数等。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">生命周期解耦</div>
+    <p>Proxy 生命周期由渲染线程引用计数控制。GT 可以销毁 Component，而 Proxy 会等渲染线程完成最后一帧引用后才释放。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">GPU Scene 数据源</div>
+    <p>Proxy 是填充 <code>FPrimitiveUniformShaderParameters</code> 的权威来源，包含世界变换、包围盒、LOD 参数等 Shader 所需的核心数据。</p>
+  </div>
+</div>
+
+<div class="code-block">
+<div class="code-header"><span class="lang">C++</span><span class="path">Engine/Source/Runtime/Engine/Public/PrimitiveSceneProxy.h:291</span><button onclick="copyCode(this)">复制</button></div>
+<pre><code><span class="ln">291</span><span class="kw">class</span> <span class="ty">FPrimitiveSceneProxy</span>
+<span class="ln">292</span>{
+<span class="ln">293</span><span class="kw">public</span>:
+<span class="ln">296</span>    <span class="cm">/** 从 UPrimitiveComponent 初始化 */</span>
+<span class="ln">297</span>    ENGINE_API <span class="fn">FPrimitiveSceneProxy</span>(<span class="kw">const</span> <span class="ty">UPrimitiveComponent</span>* InComponent, <span class="ty">FName</span> ResourceName = <span class="id">NAME_None</span>);
+<span class="ln">298</span>
+<span class="ln">309</span>    <span class="cm">/** 类型 hash — 用于排序 */</span>
+<span class="ln">310</span>    <span class="kw">virtual</span> <span class="ty">SIZE_T</span> <span class="fn">GetTypeHash</span>() <span class="kw">const</span> = <span class="num">0</span>;
+<span class="ln">311</span>
+<span class="ln">312</span>    <span class="cm">/** 每帧收集动态网格——动态路径的核心入口 */</span>
+<span class="ln">313</span>    <span class="kw">virtual</span> <span class="kw">void</span> <span class="fn">GetDynamicMeshElements</span>(
+<span class="ln">314</span>        <span class="kw">const</span> <span class="ty">TArray</span>&lt;<span class="kw">const</span> <span class="ty">FSceneView</span>*&gt;&amp; Views,
+<span class="ln">315</span>        <span class="kw">const</span> <span class="ty">FSceneViewFamily</span>&amp; ViewFamily,
+<span class="ln">316</span>        <span class="ty">uint32</span> VisibilityMap,
+<span class="ln">317</span>        <span class="ty">FMeshElementCollector</span>&amp; Collector) <span class="kw">const</span>;
+<span class="ln">318</span>
+<span class="ln">319</span>    <span class="cm">/** 每个视口的视图相关性 */</span>
+<span class="ln">320</span>    <span class="kw">virtual</span> <span class="ty">FPrimitiveViewRelevance</span> <span class="fn">GetViewRelevance</span>(<span class="kw">const</span> <span class="ty">FSceneView</span>* View) <span class="kw">const</span>;
+<span class="ln">321</span>};</code></pre>
+</div>
+
+<h3 id="sec3_3">2.3 FMeshPassProcessor — Mesh Pass 处理器</h3>
+
+<p>
+  <code>FMeshPassProcessor</code> 是传统 Mesh 管线的核心抽象，负责将 <code>FMeshBatch</code> 转换为 <code>FMeshDrawCommand</code>。
+  关键设计要点：
+</p>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="card-title">FMeshBatch</div>
+    <p>表示一个网格的渲染批次，包含顶点工厂、材质、索引缓冲区、LOD 信息等。是所有 Pass 的通用输入。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">FGraphicsMinimalPipelineStateInitializer</div>
+    <p>管道状态最小集合（着色器绑定、混合、光栅化、深度模板），<strong>不含渲染目标格式</strong>。使 Pass 可以共享 PSO 缓存而无需关心 RT 配置变化。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">BuildMeshDrawCommands()</div>
+    <p>模板方法，组合 Pass 特定的 Shader 变体与 MeshBatch 数据，产出可执行的 <code>FMeshDrawCommand</code>，支持 PSO 预缓存。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">SortKey 机制</div>
+    <p>每个 FMeshDrawCommand 携带排序键（含深度、材质、顶点工厂等），GPU 侧按 SortKey 排序以最小化状态切换。</p>
+  </div>
+</div>
+
+<div class="code-block">
+<div class="code-header"><span class="lang">C++</span><span class="path">Public/MeshPassProcessor.h:2258</span><button onclick="copyCode(this)">复制</button></div>
+<pre><code><span class="ln">2258</span><span class="kw">class</span> <span class="ty">FMeshPassProcessor</span> : <span class="kw">public</span> <span class="ty">IPSOCollector</span>
+<span class="ln">2259</span>{
+<span class="ln">2260</span><span class="kw">public</span>:
+<span class="ln">2262</span>    <span class="ty">EMeshPass::Type</span> MeshPassType;   <span class="cm">// 归属的 Pass 枚举</span>
+<span class="ln">2263</span>    <span class="kw">const</span> <span class="ty">FScene</span>* RESTRICT Scene;
+<span class="ln">2264</span>    <span class="ty">ERHIFeatureLevel::Type</span> FeatureLevel;
+<span class="ln">2265</span>    <span class="kw">const</span> <span class="ty">FSceneView</span>* ViewIfDynamicMeshCommand;
+<span class="ln">2266</span>    <span class="ty">FMeshPassDrawListContext</span>* DrawListContext;
+<span class="ln">2267</span>
+<span class="ln">2284</span>    <span class="cm">/** 核心功能：将一个 FMeshBatch 加入此 Pass */</span>
+<span class="ln">2285</span>    <span class="kw">virtual</span> <span class="kw">void</span> <span class="fn">AddMeshBatch</span>(
+<span class="ln">2286</span>        <span class="kw">const</span> <span class="ty">FMeshBatch</span>&amp; RESTRICT MeshBatch,
+<span class="ln">2287</span>        <span class="ty">uint64</span> BatchElementMask,
+<span class="ln">2288</span>        <span class="kw">const</span> <span class="ty">FPrimitiveSceneProxy</span>* RESTRICT PrimitiveSceneProxy,
+<span class="ln">2289</span>        <span class="ty">int32</span> StaticMeshId = <span class="num">-1</span>) = <span class="num">0</span>;
+<span class="ln">2290</span>
+<span class="ln">2307</span>    <span class="kw">template</span>&lt;<span class="kw">typename</span> PassShadersType, <span class="kw">typename</span> ShaderElementDataType&gt;
+<span class="ln">2308</span>    <span class="kw">void</span> <span class="fn">BuildMeshDrawCommands</span>(<span class="cm">/* ... */</span>);
+<span class="ln">2309</span>};</code></pre>
+</div>
+
+<h3 id="sec3_4">2.4 EMeshPass::Type 完整枚举表</h3>
+
+<p>
+  定义在 <code>Public/MeshPassProcessor.h:56-110</code>，运行时共计 <strong>39 种 Pass</strong>（含 Editor 专属 4 种）。
+  所有 Pass 被 6 位编码 (<code>NumBits = 6</code>)，静态断言确保不超过 64 种。
+</p>
+
+<div class="table-container">
+<table>
+<thead>
+<tr><th>枚举值</th><th>名称</th><th>说明</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td><code>DepthPass</code></td><td>深度预通道（Early-Z），写入 SceneDepth</td></tr>
+<tr><td>1</td><td><code>SecondStageDepthPass</code></td><td>第二级深度通道（用于 Masked 材质）</td></tr>
+<tr><td>2</td><td><code>BasePass</code></td><td>基础通道，写入 G-Buffer (A/B/C)</td></tr>
+<tr><td>3</td><td><code>AnisotropyPass</code></td><td>各向异性通道</td></tr>
+<tr><td>4</td><td><code>SkyPass</code></td><td>天空渲染通道</td></tr>
+<tr><td>5</td><td><code>SingleLayerWaterPass</code></td><td>单层水体渲染</td></tr>
+<tr><td>6</td><td><code>SingleLayerWaterDepthPrepass</code></td><td>单层水体深度预通道</td></tr>
+<tr><td>7</td><td><code>CSMShadowDepth</code></td><td>级联阴影贴图 (Cascaded Shadow Maps)</td></tr>
+<tr><td>8</td><td><code>VSMShadowDepth</code></td><td>虚拟阴影贴图 (Virtual Shadow Maps)</td></tr>
+<tr><td>9</td><td><code>OnePassPointLightShadowDepth</code></td><td>单 Pass 点光源阴影（CubeMap 一次渲染）</td></tr>
+<tr><td>10</td><td><code>Distortion</code></td><td>折射/扭曲通道</td></tr>
+<tr><td>11</td><td><code>Velocity</code></td><td>运动矢量通道（TAA / Motion Blur）</td></tr>
+<tr><td>12</td><td><code>TranslucentVelocity</code></td><td>半透明运动矢量</td></tr>
+<tr><td>13</td><td><code>TranslucentVelocityClippedDepth</code></td><td>裁剪深度以下的半透明运动矢量</td></tr>
+<tr><td>14</td><td><code>TranslucencyStandard</code></td><td>标准半透明渲染</td></tr>
+<tr><td>15</td><td><code>TranslucencyStandardModulate</code></td><td>调制模式半透明</td></tr>
+<tr><td>16</td><td><code>TranslucencyAfterDOF</code></td><td>DOF 之后的半透明</td></tr>
+<tr><td>17</td><td><code>TranslucencyAfterDOFModulate</code></td><td>DOF 之后调制半透明</td></tr>
+<tr><td>18</td><td><code>TranslucencyAfterMotionBlur</code></td><td>运动模糊之后的半透明</td></tr>
+<tr><td>19</td><td><code>TranslucencyHoldout</code></td><td>半透明扣像（推断背景可见性）</td></tr>
+<tr><td>20</td><td><code>TranslucencyAll</code></td><td>所有半透明（用于 Tile 渲染等外部用途）</td></tr>
+<tr><td>21</td><td><code>LightmapDensity</code></td><td>光照贴图密度调试视图</td></tr>
+<tr><td>22</td><td><code>DebugViewMode</code></td><td>调试视图模式（Shader Complexity 等）</td></tr>
+<tr><td>23</td><td><code>CustomDepth</code></td><td>自定义深度通道</td></tr>
+<tr><td>24</td><td><code>MobileBasePassCSM</code></td><td>移动端 BasePass（含 CSM 着色）</td></tr>
+<tr><td>25</td><td><code>VirtualTexture</code></td><td>虚拟纹理通道</td></tr>
+<tr><td>26</td><td><code>LumenCardCapture</code></td><td>Lumen 卡片捕获（传统几何）</td></tr>
+<tr><td>27</td><td><code>LumenCardNanite</code></td><td>Lumen 卡片捕获（Nanite 几何）</td></tr>
+<tr><td>28</td><td><code>LumenTranslucencyRadianceCacheMark</code></td><td>Lumen 半透明辐射度缓存标记</td></tr>
+<tr><td>29</td><td><code>FrontLayerTranslucencyGBuffer</code></td><td>前层半透明 G-Buffer</td></tr>
+<tr><td>30</td><td><code>DitheredLODFadingOutMaskPass</code></td><td>Dithered LOD 消隐标记（迷你深度通道）</td></tr>
+<tr><td>31</td><td><code>NaniteMeshPass</code></td><td>Nanite 专用迷你深度通道</td></tr>
+<tr><td>32-35</td><td><code>MeshDecal_*</code></td><td>Mesh Decal 各种 RT 组合（4 种子 Pass）</td></tr>
+<tr><td>36-37</td><td><code>WaterInfoTexture*</code></td><td>水体信息纹理深度通道 + 渲染通道</td></tr>
+<tr><td>38-41</td><td><code>HitProxy / Editor*</code></td><td>Editor 专属（HitProxy、选择框、LevelInstance）</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  <strong>FMeshPassMask</strong> 使用 64 位掩码高效管理可见性状态，每个位对应一个 EMeshPass::Type。关键方法：<code>Set()</code> / <code>Get()</code> / <code>SkipEmpty()</code> / <code>AppendTo()</code>。
+</p>
+
+<h3 id="sec3_5">2.5 自定义 MeshPass 注册与执行流程</h3>
+
+<p>
+  以下展示在 UE5.8 中添加自定义 MeshPass（例如环境光遮蔽通道）的标准流程：
+</p>
+
+<div class="code-block">
+<div class="code-header"><span class="lang">C++</span><span class="path">CustomMeshPass 注册与执行</span><button onclick="copyCode(this)">复制</button></div>
+<pre><code><span class="cm">// ========== 步骤 1: 定义 Pass 类型 ==========</span>
+<span class="cm">// 在 MeshPassProcessor.h 的 EMeshPass::Type 枚举中添加新项</span>
+<span class="kw">namespace</span> EMeshPass {
+    <span class="kw">enum</span> <span class="ty">Type</span> : <span class="ty">uint8</span> {
+        <span class="cm">// ... 现有 Pass ...</span>
+        <span class="id">MyCustomAOPass</span>,  <span class="cm">// 新增</span>
+        <span class="id">Num</span>,
+    };
+}
+
+<span class="cm">// ========== 步骤 2: 实现 FMeshPassProcessor 派生类 ==========</span>
+<span class="kw">class</span> <span class="ty">FMyCustomAOMeshProcessor</span> : <span class="kw">public</span> <span class="ty">FMeshPassProcessor</span>
+{
+<span class="kw">public</span>:
+    <span class="fn">FMyCustomAOMeshProcessor</span>(<span class="kw">const</span> <span class="ty">FScene</span>* Scene, <span class="kw">const</span> <span class="ty">FSceneView</span>* InView,
+        <span class="ty">FMeshPassDrawListContext</span>* InDrawListContext)
+        : <span class="fn">FMeshPassProcessor</span>(<span class="ty">EMeshPass::MyCustomAOPass</span>,
+            Scene, <span class="id">ERHIFeatureLevel::SM6</span>, InView, InDrawListContext)
+    {}
+
+    <span class="kw">virtual</span> <span class="kw">void</span> <span class="fn">AddMeshBatch</span>(<span class="kw">const</span> <span class="ty">FMeshBatch</span>&amp; MeshBatch,
+        <span class="ty">uint64</span> BatchElementMask,
+        <span class="kw">const</span> <span class="ty">FPrimitiveSceneProxy</span>* PrimitiveSceneProxy,
+        <span class="ty">int32</span> StaticMeshId = <span class="num">-1</span>) <span class="kw">override</span>
+    {
+        <span class="cm">// 1. 判断材质是否支持此 Pass</span>
+        <span class="kw">const</span> <span class="ty">FMaterialRenderProxy</span>* MaterialProxy = MeshBatch.MaterialRenderProxy;
+        <span class="kw">const</span> <span class="ty">FMaterial</span>&amp; Material = MaterialProxy-&gt;GetMaterialWithFallback(
+            <span class="id">FeatureLevel</span>, MaterialProxy);
+
+        <span class="kw">if</span> (Material.GetShadingPath() == <span class="id">EShadingPath::Deferred</span>)
+        {
+            <span class="cm">// 2. 构建 Shader 绑定</span>
+            <span class="ty">FMyCustomAOShaders</span> Shaders;
+            <span class="kw">if</span> (!Material.TryGetShaders(<span class="id">MyCustomAOShaderType</span>,
+                MeshBatch.VertexFactory-&gt;GetType(), Shaders)) <span class="kw">return</span>;
+
+            <span class="cm">// 3. 调用模板方法构建 FMeshDrawCommand</span>
+            <span class="fn">BuildMeshDrawCommands</span>(
+                MeshBatch, BatchElementMask,
+                PrimitiveSceneProxy,
+                *MaterialProxy, Material,
+                <span class="id">PassDrawRenderState</span>, Shaders,
+                <span class="id">FM_Solid</span>, <span class="id">CM_CW</span>,
+                <span class="ty">FMeshDrawCommandSortKey::Default</span>,
+                <span class="id">EMeshPassFeatures::Default</span>,
+                ShaderElementData);
+        }
+    }
+};
+
+<span class="cm">// ========== 步骤 3: 注册 MeshPass 处理器 ==========</span>
+<span class="kw">extern</span> <span class="kw">void</span> <span class="fn">RegisterMyCustomAOPass</span>()
+{
+    <span class="ty">FPassProcessorManager</span>::<span class="fn">RegisterPass</span>(
+        <span class="ty">EMeshPass::MyCustomAOPass</span>,
+        <span class="id">EMeshPassFlags::MainView</span>,  <span class="cm">// 标志: 主视图 Pass</span>
+        [](<span class="kw">const</span> <span class="ty">FScene</span>* Scene, <span class="kw">const</span> <span class="ty">FSceneView</span>* View,
+           <span class="ty">FMeshPassDrawListContext</span>* Ctx) -&gt; <span class="ty">FMeshPassProcessor</span>* {
+            <span class="kw">return</span> <span class="kw">new</span> <span class="ty">FMyCustomAOMeshProcessor</span>(Scene, View, Ctx);
+        });
+}
+
+<span class="cm">// ========== 步骤 4: 在 SetupMeshPass 中执行 ==========</span>
+<span class="cm">// SceneRendering.cpp:5010 — FSceneRenderer::SetupMeshPass()</span>
+<span class="cm">// 遍历 EMeshPass::Num 个 Pass，对每个 Pass:</span>
+<span class="cm">//   1. 检查 PassFlags 匹配</span>
+<span class="cm">//   2. 创建对应的 MeshPassProcessor</span>
+<span class="cm">//   3. 遍历可见网格列表，调用 AddMeshBatch()</span>
+<span class="cm">//   4. 生成排序后的 MeshDrawCommand 数组</span></code></pre>
+</div>
+
+<!-- ============================================== -->
+<!-- SECTION 3: 执行流程 / 数据流 -->
+<!-- ============================================== -->
+<h2 id="sec4">3. 执行流程 / 数据流</h2>
+
+<h3 id="sec4_1">3.1 BeginInitViews — 可见性初始化</h3>
+
+<p>
+  整个渲染帧从 <code>FSceneRenderer::Render()</code> 开始，可见性计算是其第一道关卡。
+  在 <code>DeferredShadingRenderer.cpp</code> 的 <code>Render()</code> 中按照以下顺序调用：
+</p>
+
+<div class="code-block">
+<div class="code-header"><span class="lang">C++</span><span class="path">DeferredShadingRenderer.cpp — Render() 主流程</span><button onclick="copyCode(this)">复制</button></div>
+<pre><code><span class="cm">// 1. 确定管线最终状态（GI 方法、反射方法等）</span>
+<span class="fn">CommitFinalPipelineState</span>();
+
+<span class="cm">// 2. 初始化视图——这是可见性计算的核心阶段</span>
+<span class="fn">BeginInitViews</span>(GraphBuilder, ...);
+<span class="cm">// └── 内部调用 LaunchVisibilityTasks():</span>
+<span class="cm">//     ├── FrustumCull (视锥裁剪)</span>
+<span class="cm">//     ├── OcclusionCull (遮挡剔除: HZB 或硬件查询)</span>
+<span class="cm">//     ├── ComputeAndMarkRelevance() (计算视图相关性)</span>
+<span class="cm">//     └── GatherDynamicMeshElements() (收集动态网格)</span>
+<span class="fn">EndInitViews</span>();
+
+<span class="cm">// 3. 可见性完成，进入渲染</span>
+<span class="fn">RenderPrePass</span>(GraphBuilder, ...);
+<span class="fn">RenderBasePass</span>(GraphBuilder, ...);
+<span class="cm">// ...</span></code></pre>
+</div>
+
+<h3 id="sec4_2">3.2 可见性裁剪三板斧</h3>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="card-title"><span class="tag tag-cpu">CPU</span> 视锥裁剪 (Frustum Cull)</div>
+    <p>通过视锥 6 平面与包围盒相交测试，快速剔除视锥外物体。CVar: <code>r.Visibility.FrustumCull.Enabled</code>。
+    支持八叉树加速 (<code>UseOctree=1</code>) 和球体预测试 (<code>UseSphereTestFirst=1</code>) 优化。
+    可通过 <code>NumPrimitivesPerTask</code> 控制并行粒度。</p>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="tag tag-gpu">GPU</span> 遮挡剔除 (Occlusion Cull)</div>
+    <p>两套系统可选：HZB 遮挡 (<code>r.HZBOcclusion 1</code>) 使用上一帧深度缓冲做层次 Z 测试，
+    或硬件遮挡查询 (<code>0</code>) 用 GPU Query。HZB 默认模式更省 GPU/CPU。
+    支持 <code>r.AllowSubPrimitiveQueries</code> 对 HISM 子图元做精细化查询。</p>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="tag tag-cpu">CPU</span> 距离裁剪 (Distance Cull)</div>
+    <p>基于 <code>MinDrawDistance / MaxDrawDistance</code> 做距离筛选。与 <code>ViewDistanceScale</code> 联动。
+    支持平滑淡入淡出 (Time-based LOD Fade)，由 <code>r.LODFadeTime</code> 控制过渡时间。</p>
+  </div>
+</div>
+
+<p>
+  可见性任务调度由 <code>r.Visibility.TaskSchedule</code> 控制：<code>0</code> 为 RenderThread 主导 + 并行辅助，
+  <code>1</code> 为异步 Task Graph (默认，若平台支持)。
+</p>
+
+<h3 id="sec4_3">3.3 VisibleMeshCollect → MeshPassSetup → Dispatch</h3>
+
+<p>
+  可见性结果为每个 View 生成可见图元集合。接下来进入 Mesh Pass 分发链：
+</p>
+
+<ol style="padding-left:24px;line-height:2">
+  <li><strong>分配 ViewCommands</strong> — 为每个 View 创建 FViewCommands 结构，为每种 Pass 分配可见网格列表的存储空间。</li>
+  <li><strong>遍历 StaticMesh 可见列表</strong> — 对每个 EMeshPass::Type，将可见的静态网格 DrawCommand 插入对应 Pass 的队列。静态路径直接复用缓存，不需要重新构建 DrawCommand。</li>
+  <li><strong>调用 SetupMeshPass()</strong> (<code>SceneRendering.cpp:5010</code>) — 遍历 39 种 Pass，为标记了 <code>MainView</code> 标志的 Pass 创建对应的 <code>FMeshPassProcessor</code> 派生实例，传入动态网格的 <code>FMeshBatch</code> 调用 <code>AddMeshBatch()</code>。</li>
+  <li><strong>构建 InstanceCulling 上下文</strong> — 将 DrawCommand 数组传给 <code>FInstanceCullingContext</code>，在 GPU 侧做实例级可见性裁剪（ISMP/HISM）。</li>
+  <li><strong>Dispatch</strong> — 各 SubPass (DepthPass, BasePass, Velocity...) 通过 <code>SubmitMeshDrawCommands()</code> 或 <code>FParallelMeshDrawCommandPass</code> 向 GPU 提交。</li>
+</ol>
+
+<h3 id="sec4_4">3.4 完整时序图</h3>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 900 580" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="900" height="580" fill="#0a0a0f" rx="8"/>
+  <text x="450" y="28" text-anchor="middle" fill="#e0e0e0" font-size="14" font-weight="600">UE5.8 渲染帧可见性→MeshPass→Dispatch 时序流程</text>
+
+  <!-- 时间轴 -->
+  <line x1="100" y1="60" x2="100" y2="550" stroke="#4FC3F7" stroke-width="2" stroke-dasharray="4,3"/>
+
+  <!-- 阶段 1: Commit -->
+  <rect x="24" y="70" width="150" height="30" rx="5" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+  <text x="99" y="89" text-anchor="middle" fill="#909090" font-size="10">CommitFinalPipelineState</text>
+  <line x1="100" y1="70" x2="100" y2="100" stroke="none"/>
+
+  <!-- 阶段 2: BeginInitViews -->
+  <rect x="120" y="110" width="200" height="34" rx="5" fill="#131318" stroke="#4FC3F7" stroke-width="1.2"/>
+  <text x="220" y="132" text-anchor="middle" fill="#4FC3F7" font-size="11" font-weight="600">BeginInitViews (可见性)</text>
+
+  <!-- 子步骤 -->
+  <rect x="350" y="120" width="170" height="24" rx="4" fill="#1a1a28" stroke="#555" stroke-width="0.5"/>
+  <text x="435" y="136" text-anchor="middle" fill="#e0e0e0" font-size="10">FrustumCull (多线程任务)</text>
+  <line x1="320" y1="132" x2="350" y2="132" stroke="#909090" stroke-width="0.8" marker-end="url(#arr-gray)"/>
+
+  <rect x="550" y="120" width="200" height="24" rx="4" fill="#1a1a28" stroke="#555" stroke-width="0.5"/>
+  <text x="650" y="136" text-anchor="middle" fill="#e0e0e0" font-size="10">OcclusionCull (HZB/OcclusionQ)</text>
+  <line x1="520" y1="132" x2="550" y2="132" stroke="#909090" stroke-width="0.8" marker-end="url(#arr-gray)"/>
+
+  <rect x="350" y="154" width="170" height="24" rx="4" fill="#1a1a28" stroke="#555" stroke-width="0.5"/>
+  <text x="435" y="170" text-anchor="middle" fill="#FFA726" font-size="10">ComputeAndMarkRelevance</text>
+
+  <rect x="550" y="154" width="200" height="24" rx="4" fill="#1a1a28" stroke="#555" stroke-width="0.5"/>
+  <text x="650" y="170" text-anchor="middle" fill="#FFA726" font-size="10">GatherDynamicMeshElements</text>
+
+  <!-- EndInitViews -->
+  <rect x="120" y="196" width="200" height="30" rx="5" fill="#131318" stroke="#4FC3F7" stroke-width="1.2"/>
+  <text x="220" y="215" text-anchor="middle" fill="#4FC3F7" font-size="11" font-weight="600">EndInitViews</text>
+
+  <!-- VisibleMeshSetup -->
+  <rect x="350" y="210" width="200" height="24" rx="4" fill="#1a1a28" stroke="#555" stroke-width="0.5"/>
+  <text x="450" y="226" text-anchor="middle" fill="#e0e0e0" font-size="10">BuildVisibleMeshDrawCommands</text>
+  <line x1="320" y1="210" x2="350" y2="222" stroke="#909090" stroke-width="0.8" marker-end="url(#arr-gray)"/>
+
+  <!-- SetupMeshPass -->
+  <rect x="120" y="250" width="200" height="34" rx="5" fill="#131318" stroke="#66BB6A" stroke-width="1.2"/>
+  <text x="220" y="272" text-anchor="middle" fill="#66BB6A" font-size="11" font-weight="600">SetupMeshPass() — 遍历39种Pass</text>
+
+  <rect x="350" y="258" width="220" height="24" rx="4" fill="#1a1a28" stroke="#555" stroke-width="0.5"/>
+  <text x="460" y="274" text-anchor="middle" fill="#e0e0e0" font-size="10">静态路径: Skip (已有缓存DrawCommand)</text>
+
+  <rect x="600" y="258" width="240" height="24" rx="4" fill="#1a1a28" stroke="#555" stroke-width="0.5"/>
+  <text x="720" y="274" text-anchor="middle" fill="#FFA726" font-size="10">动态路径: AddMeshBatch → BuildDrawCmd</text>
+
+  <!-- InstanceCulling -->
+  <rect x="120" y="308" width="200" height="34" rx="5" fill="#131318" stroke="#EF5350" stroke-width="1.2"/>
+  <text x="220" y="330" text-anchor="middle" fill="#EF5350" font-size="11" font-weight="600">InstanceCulling Setup</text>
+
+  <rect x="350" y="316" width="300" height="24" rx="4" fill="#1a1a28" stroke="#555" stroke-width="0.5"/>
+  <text x="500" y="332" text-anchor="middle" fill="#e0e0e0" font-size="10">构建 FInstanceCullingDrawParams (GPU Buffer)</text>
+
+  <!-- GPU Dispatch -->
+  <rect x="120" y="368" width="200" height="34" rx="5" fill="#131318" stroke="#4FC3F7" stroke-width="1.2"/>
+  <text x="220" y="390" text-anchor="middle" fill="#4FC3F7" font-size="11" font-weight="600">GPU Dispatch</text>
+
+  <rect x="350" y="374" width="180" height="24" rx="4" fill="#1a1a28" stroke="#555" stroke-width="0.5"/>
+  <text x="440" y="389" text-anchor="middle" fill="#e0e0e0" font-size="10">DepthPass (Early-Z)</text>
+
+  <rect x="550" y="374" width="180" height="24" rx="4" fill="#1a1a28" stroke="#555" stroke-width="0.5"/>
+  <text x="640" y="389" text-anchor="middle" fill="#e0e0e0" font-size="10">BasePass (G-Buffer)</text>
+
+  <rect x="350" y="406" width="180" height="24" rx="4" fill="#1a1a28" stroke="#555" stroke-width="0.5"/>
+  <text x="440" y="421" text-anchor="middle" fill="#e0e0e0" font-size="10">Velocity Pass</text>
+
+  <rect x="550" y="406" width="180" height="24" rx="4" fill="#1a1a28" stroke="#555" stroke-width="0.5"/>
+  <text x="640" y="421" text-anchor="middle" fill="#e0e0e0" font-size="10">Translucency</text>
+
+  <!-- GPU Scene -->
+  <rect x="120" y="448" width="200" height="34" rx="5" fill="#131318" stroke="#AB47BC" stroke-width="1.2"/>
+  <text x="220" y="470" text-anchor="middle" fill="#AB47BC" font-size="11" font-weight="600">GPU Scene 贯穿全流程</text>
+
+  <rect x="350" y="454" width="480" height="24" rx="4" fill="#1a1a28" stroke="#555" stroke-width="0.5"/>
+  <text x="590" y="470" text-anchor="middle" fill="#909090" font-size="10">Shader 侧通过 PrimitiveId → GPUSceneInstanceSceneData → 世界矩阵/材质参数</text>
+
+  <!-- 底部 -->
+  <rect x="24" y="510" width="170" height="30" rx="5" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+  <text x="109" y="529" text-anchor="middle" fill="#909090" font-size="10">PostProcess / Fog / Finish</text>
+
+  <!-- 标注 -->
+  <text x="900" y="90" fill="#909090" font-size="9">&#8592; 各阶段数据流向</text>
+</svg>
+<div class="caption">图 3-1: BeginInitViews → MeshPassSetup → Dispatch 完整数据流时序</div>
+</div>
+
+<!-- ============================================== -->
+<!-- SECTION 4: 设计决策 & 权衡 -->
+<!-- ============================================== -->
+<h2 id="sec5">4. 设计决策 &amp; 权衡</h2>
+
+<h3 id="sec5_1">4.1 静态 vs 动态渲染路径分离</h3>
+
+<div class="card-grid">
+  <div class="compare-card">
+    <h4>为什么需要两条路径？</h4>
+    <p>UE5 场景中绝大多数是静态几何体（StaticMesh），它们的材质+顶点工厂组合在各帧间不会变化。动态物体（粒子、骨骼动画）每帧都不同。合并处理会让所有物体承担动态路径的开销，而分离后静态物体只需<strong>一次缓存 + 每帧筛选</strong>。</p>
+  </div>
+  <div class="compare-card">
+    <h4 class="pro">静态路径优势</h4>
+    <p>MeshDrawCommand 在注册时预构建并缓存，RHI 资源指针固定。每帧仅需从可见性列表中读取索引，跳过整个 <code>AddMeshBatch</code> 流程。排序键也缓存，减少 CPU 排序开销。对 ISM/HISM 特别有效——GPU 侧 InstanceCulling 可批量裁剪。</p>
+  </div>
+  <div class="compare-card">
+    <h4 class="con">静态路径局限</h4>
+    <p>MeshDrawCommand 对象占用内存（每 LOD 每 Section 一个）。当材质参数或顶点工厂配置变化时，需要重新缓存。对于频繁变化的场景（大量动态材质实例），收益递减。</p>
+  </div>
+</div>
+
+<h3 id="sec5_2">4.2 Proxy 模式的优劣</h3>
+
+<div class="card-grid">
+  <div class="compare-card">
+    <h4 class="pro">优势</h4>
+    <ul style="padding-left:18px;line-height:1.9">
+      <li><strong>线程安全</strong>：GT 和 RT 完全解耦，无锁并发</li>
+      <li><strong>多态统一</strong>：StaticMesh/SkeletalMesh/Particle/ISM 对渲染器都是 <code>FPrimitiveSceneProxy*</code></li>
+      <li><strong>数据快照</strong>：RenderState 创建时就确定了整个渲染帧的参数，避免竞态</li>
+      <li><strong>生命周期明确</strong>：引用计数管理，RenderState Dirty 标记触发重建</li>
+    </ul>
+  </div>
+  <div class="compare-card">
+    <h4 class="con">代价</h4>
+    <ul style="padding-left:18px;line-height:1.9">
+      <li><strong>内存双倍</strong>：每个组件在 GT (UPrimitiveComponent) 和 RT (FPrimitiveSceneProxy) 各存一份渲染相关数据</li>
+      <li><strong>同步延迟</strong>：GT 修改须通过 <code>ENQUEUE_RENDER_COMMAND</code>，至少一帧延迟</li>
+      <li><strong>虚函数开销</strong>：<code>GetDynamicMeshElements()</code> 等核心调用是虚函数，对每一可见图元调用一次</li>
+      <li><strong>复杂度</strong>：新增图元类型需要同时维护 Component + Proxy 两个类</li>
+    </ul>
+  </div>
+</div>
+
+<h3 id="sec5_3">4.3 MeshBatch 复用策略</h3>
+
+<div class="card-grid">
+  <div class="compare-card">
+    <h4>StaticMeshId 机制</h4>
+    <p>每个 StaticMesh 的 Section 有唯一的 <code>StaticMeshId</code>（在场景侧分配）。可见性系统通过 <code>FViewCommands</code> 维护每个 Pass 的可见 StaticMeshId 集合。Move 操作比 Copy 快数百倍——<code>FMeshDrawCommand</code> 可以直接指针引用缓存版本。</p>
+  </div>
+  <div class="compare-card">
+    <h4>动态分配器 (FMeshElementCollector)</h4>
+    <p>动态路径使用 <code>FMeshElementCollector</code>，基于帧分配器 (Frame Allocator) 快速分配 <code>FMeshBatch</code>。分配的内存随渲染器生命周期释放，无需逐对象 delete。但 <code>FMeshDrawCommand</code> 仍需每帧构建。</p>
+  </div>
+  <div class="compare-card">
+    <h4>SortKey 设计</h4>
+    <p><code>FMeshDrawCommandSortKey</code> 包含材质 ID、顶点工厂 ID、深度、Shader 绑定等。静态路径下 SortKey 与 DrawCommand 一同缓存。GPU 侧按 SortKey 排序可减少 PSO 切换——相邻 Draw 共享同一 Pipeline State。</p>
+  </div>
+</div>
+
+<h3 id="sec5_4">4.4 GPU Scene 的数据粒度选择</h3>
+
+<div class="card-grid">
+  <div class="compare-card">
+    <h4>为什么是 Primitive + Instance 两级？</h4>
+    <p>图元 (Primitive) 数据如包围盒、LOD 参数在各实例间共享（通常几十字节），实例 (Instance) 数据如世界变换、自定义数据（通常 128-256 字节）每实例独立。分离后 HISM 的 10000 实例只存一份图元数据。通过 <code>PrimitiveId</code> 从 Instance 索引反查 Primitive 数据。</p>
+  </div>
+  <div class="compare-card">
+    <h4>Buffer 布局</h4>
+    <p><code>GPUSceneInstanceSceneData</code> (StructuredBuffer float4) — 每实例 8 个 float4。<br>
+    <code>GPUSceneInstancePayloadData</code> (StructuredBuffer float4) — 可变额外数据。<br>
+    <code>GPUScenePrimitiveSceneData</code> (StructuredBuffer float4) — 每图元固定大小。<br>
+    <code>GPUSceneLightmapData</code> — Lightmap UV/索引。<br>
+    <code>GPUSceneLightData</code> (ByteAddressBuffer) — 光源数据。使用分块 (Tile) 策略，<code>r.GPUScene.InstanceDataTileSizeLog2</code> 默认 12 (4096 实例/块)。</p>
+  </div>
+  <div class="compare-card">
+    <h4>动态图元管理</h4>
+    <p><code>FGPUScenePrimitiveCollector</code> 通过 <code>Add()</code> 收集动态图元，<code>Commit()</code> 分配 GPU 空间并上传。空间使用 <code>FSpanAllocator</code> 管理，支持回缩 (<code>GrowOnly=0</code>，5.3+ 默认)。</p>
+  </div>
+</div>
+
+<!-- ============================================== -->
+<!-- SECTION 5: 底层实现关联 -->
+<!-- ============================================== -->
+<h2 id="sec6">5. 底层实现关联</h2>
+
+<h3 id="sec6_1">5.1 源码路径速查索引</h3>
+
+<table>
+<thead><tr><th>模块</th><th>文件</th><th>关键行号</th></tr></thead>
+<tbody>
+<tr>
+  <td>场景渲染器基类</td>
+  <td><code>Private/SceneRendering.h</code></td>
+  <td>2153 (FSceneRendererBase), 2218 (FSceneRenderer), 2340 (virtual Render)</td>
+</tr>
+<tr>
+  <td>延迟渲染器</td>
+  <td><code>Private/DeferredShadingRenderer.h</code></td>
+  <td>260 (class FDeferredShadingSceneRenderer), 269 (CommitFinalPipelineState)</td>
+</tr>
+<tr>
+  <td>场景渲染入口</td>
+  <td><code>Private/SceneRendering.cpp</code></td>
+  <td>5010 (SetupMeshPass — 遍历39种Pass)</td>
+</tr>
+<tr>
+  <td>MeshPass 枚举</td>
+  <td><code>Public/MeshPassProcessor.h</code></td>
+  <td>56-110 (EMeshPass::Type), 176 (FMeshPassMask), 392 (FGraphicsMinimalPipelineState)</td>
+</tr>
+<tr>
+  <td>MeshPass 处理器基类</td>
+  <td><code>Public/MeshPassProcessor.h</code></td>
+  <td>2258 (FMeshPassProcessor), 2284 (AddMeshBatch), 2307 (BuildMeshDrawCommands)</td>
+</tr>
+<tr>
+  <td>可见性计算</td>
+  <td><code>Private/SceneVisibility.cpp</code></td>
+  <td>68-326 (CVars), 466 (LaunchVisibilityTasks), 475 (IsDistanceCulled)</td>
+</tr>
+<tr>
+  <td>GPU Scene 数据</td>
+  <td><code>Private/GPUScene.h</code></td>
+  <td>47 (FGPUSceneCommonParameters), 56 (FGPUSceneResourceParameters), 81 (FGPUScenePrimitiveCollector), 218 (class FGPUScene)</td>
+</tr>
+<tr>
+  <td>GPU Scene 实现</td>
+  <td><code>Private/GPUScene.cpp</code></td>
+  <td>54 (ConstructDefault), 86-163 (CVars), 180 (PartitionUpdateRanges)</td>
+</tr>
+<tr>
+  <td>Primitive Scene Proxy</td>
+  <td><code>Engine/Public/PrimitiveSceneProxy.h</code></td>
+  <td>291 (class FPrimitiveSceneProxy), 296 (构造函数), 313 (GetDynamicMeshElements)</td>
+</tr>
+<tr>
+  <td>Deferred Shading Render</td>
+  <td><code>Private/DeferredShadingRenderer.cpp</code></td>
+  <td>1822 (Render() 主函数入口)</td>
+</tr>
+</tbody>
+</table>
+
+<h3 id="sec6_2">5.2 关键代码片段</h3>
+
+<div class="code-block">
+<div class="code-header"><span class="lang">C++</span><span class="path">GPUScene.h:56-63 — GPU Scene 资源参数结构</span><button onclick="copyCode(this)">复制</button></div>
+<pre><code><span class="cm">/** GPU Scene 提供给 Shader 的核心参数集合 */</span>
+<span class="kw">BEGIN_SHADER_PARAMETER_STRUCT</span>(<span class="ty">FGPUSceneResourceParameters</span>, RENDERER_API)
+    <span class="fn">SHADER_PARAMETER_STRUCT_INCLUDE</span>(<span class="ty">FGPUSceneCommonParameters</span>, CommonParameters)
+    <span class="fn">SHADER_PARAMETER_RDG_BUFFER_SRV</span>(<span class="ty">StructuredBuffer</span>&lt;<span class="ty">float4</span>&gt;, GPUSceneInstanceSceneData)
+    <span class="fn">SHADER_PARAMETER_RDG_BUFFER_SRV</span>(<span class="ty">StructuredBuffer</span>&lt;<span class="ty">float4</span>&gt;, GPUSceneInstancePayloadData)
+    <span class="fn">SHADER_PARAMETER_RDG_BUFFER_SRV</span>(<span class="ty">StructuredBuffer</span>&lt;<span class="ty">float4</span>&gt;, GPUScenePrimitiveSceneData)
+    <span class="fn">SHADER_PARAMETER_RDG_BUFFER_SRV</span>(<span class="ty">StructuredBuffer</span>&lt;<span class="ty">float4</span>&gt;, GPUSceneLightmapData)
+    <span class="fn">SHADER_PARAMETER_RDG_BUFFER_SRV</span>(<span class="ty">ByteAddressBuffer</span>, GPUSceneLightData)
+<span class="kw">END_SHADER_PARAMETER_STRUCT</span>()
+<span class="cm">// 通过 DECLARE_SCENE_UB_STRUCT 注册为 Scene Uniform Buffer 成员</span></code></pre>
+</div>
+
+<div class="code-block">
+<div class="code-header"><span class="lang">C++</span><span class="path">SceneRendering.cpp:5010-5020 — SetupMeshPass 核心循环</span><button onclick="copyCode(this)">复制</button></div>
+<pre><code><span class="kw">void</span> <span class="ty">FSceneRenderer</span>::<span class="fn">SetupMeshPass</span>(<span class="ty">FViewInfo</span>&amp; View,
+    <span class="ty">FExclusiveDepthStencil::Type</span> BasePassDepthStencilAccess,
+    <span class="ty">FViewCommands</span>&amp; ViewCommands,
+    <span class="ty">FInstanceCullingManager</span>&amp; InstanceCullingManager)
+{
+    <span class="kw">const</span> <span class="ty">EShadingPath</span> ShadingPath =
+        <span class="fn">GetFeatureLevelShadingPath</span>(Scene-&gt;<span class="fn">GetFeatureLevel</span>());
+
+    <span class="cm">// 遍历所有 39 种 MeshPass</span>
+    <span class="kw">for</span> (<span class="ty">int32</span> PassIndex = <span class="num">0</span>; PassIndex &lt; <span class="ty">EMeshPass::Num</span>; PassIndex++)
+    {
+        <span class="kw">const</span> <span class="ty">EMeshPass::Type</span> PassType = (<span class="ty">EMeshPass::Type</span>)PassIndex;
+
+        <span class="cm">// 仅处理 MainView 标志的 Pass</span>
+        <span class="kw">if</span> ((<span class="ty">FPassProcessorManager</span>::<span class="fn">GetPassFlags</span>(ShadingPath, PassType)
+            &amp; <span class="ty">EMeshPassFlags::MainView</span>) != <span class="ty">EMeshPassFlags::None</span>)
+        {
+            <span class="cm">// 特殊处理: Mobile BasePass 合并</span>
+            <span class="cm">// 创建对应的 FMeshPassProcessor，调用 AddMeshBatch()</span>
+        }
+    }
+}</code></pre>
+</div>
+
+<div class="code-block">
+<div class="code-header"><span class="lang">C++</span><span class="path">SceneVisibility.cpp:466-471 — 可见性任务启动入口</span><button onclick="copyCode(this)">复制</button></div>
+<pre><code><span class="ty">IVisibilityTaskData</span>* <span class="fn">LaunchVisibilityTasks</span>(
+    <span class="ty">FRHICommandListImmediate</span>&amp; RHICmdList,
+    <span class="ty">FSceneRenderer</span>&amp; SceneRenderer,
+    <span class="kw">const</span> <span class="ty">UE::Tasks::FTask</span>&amp; BeginInitVisibilityPrerequisites)
+{
+    <span class="ty">FVisibilityTaskData</span>* TaskData = SceneRenderer.Allocator
+        .<span class="ty">Create</span>&lt;<span class="ty">FVisibilityTaskData</span>&gt;(RHICmdList, SceneRenderer);
+    TaskData-&gt;<span class="fn">LaunchVisibilityTasks</span>(BeginInitVisibilityPrerequisites);
+    <span class="kw">return</span> TaskData;
+}
+<span class="cm">// FVisibilityTaskData 内部创建异步任务图:</span>
+<span class="cm">// FrustumCull → OcclusionCull → ComputeRelevance → GatherDynamicMesh</span></code></pre>
+</div>
+
+<div class="code-block">
+<div class="code-header"><span class="lang">C++</span><span class="path">GPUScene.cpp:86-163 — 关键 CVar 定义</span><button onclick="copyCode(this)">复制</button></div>
+<pre><code><span class="cm">// GPU Scene 每帧全上传 (调试用)</span>
+<span class="kw">static</span> <span class="ty">TAutoConsoleVariable</span>&lt;<span class="ty">int32</span>&gt; <span class="id">CVarGPUSceneUploadEveryFrame</span>(
+    <span class="str">TEXT("r.GPUScene.UploadEveryFrame")</span>, <span class="num">0</span>, ...);
+
+<span class="cm">// 并行更新阈值 (2048 items 默认)</span>
+<span class="kw">static</span> <span class="ty">TAutoConsoleVariable</span>&lt;<span class="ty">int32</span>&gt; <span class="id">CVarGPUSceneParallelUpdate</span>(
+    <span class="str">TEXT("r.GPUScene.ParallelUpdate")</span>, <span class="num">2048</span>, ...);
+
+<span class="cm">// 实例数据分块大小 (Log2): 默认 12 = 4096 实例/块</span>
+<span class="kw">static</span> <span class="ty">TAutoConsoleVariable</span>&lt;<span class="ty">int32</span>&gt; <span class="id">CVarGPUSceneInstanceDataTileSizeLog2</span>(
+    <span class="str">TEXT("r.GPUScene.InstanceDataTileSizeLog2")</span>, <span class="num">12</span>, ...);
+
+<span class="cm">// 是否使用 Reserved Resources (默认 true)</span>
+<span class="kw">static</span> <span class="ty">TAutoConsoleVariable</span>&lt;<span class="kw">bool</span>&gt; <span class="id">CVarGPUSceneUseReservedResources</span>(
+    <span class="str">TEXT("r.GPUScene.UseReservedResources")</span>, <span class="kw">true</span>, ...);</code></pre>
+</div>
+
+<!-- ============================================== -->
+<!-- SECTION 6: UE5.8 演进变化 -->
+<!-- ============================================== -->
+<h2 id="sec7">6. UE5.8 演进变化</h2>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="card-title">GPU Scene 增强</div>
+    <ul style="padding-left:18px;line-height:1.8">
+      <li><strong>Reserved Resources 默认启用</strong> (<code>r.GPUScene.UseReservedResources=true</code>) — 使用虚拟地址预留 + 物理页提交模式，减少 buffer 重建成本</li>
+      <li><strong>分块 (Tile) 策略成熟</strong> (<code>r.GPUScene.InstanceDataTileSizeLog2=12</code>) — 支持海量实例场景下的部分更新</li>
+      <li><strong>FGPUSceneWriterUniformParameters</strong> 引入单独 UAV 写入路径 — Compute Shader 可直接写 GPU Scene，用于 InstanceCulling Feedback 和 Post-Transform 缓存</li>
+      <li><strong>ViewDistanceScale 联动</strong> (<code>r.GPUScene.ViewDistanceScaleWorkaround=true</code>) — 缩放变化时自动全量重上传以保证数据一致性</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="card-title">Instance Culling 集成深化</div>
+    <ul style="padding-left:18px;line-height:1.8">
+      <li><strong>GPU 驱动裁剪</strong> — <code>FInstanceCullingContext</code> 在 GPU 侧执行实例级可见性，CPU 不再逐个检查实例</li>
+      <li><strong>Occlusion Feedback 集成</strong> — 渲染反馈回 InstanceCulling，实现闭环剔除 (<code>r.OcclusionFeedback.Enable</code>，当前仅移动端)</li>
+      <li><strong>Sub-Primitive Query</strong> — HISM 支持子图元级别的遮挡查询 (<code>r.AllowSubPrimitiveQueries=1</code>)</li>
+      <li><strong>ISM 间接绘制</strong> — <code>FInstanceCullingDrawParams</code> 生成 GPU Indirect Draw 参数，减少 CPU 提交次数</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="card-title">Nanite 可见性合并</div>
+    <ul style="padding-left:18px;line-height:1.8">
+      <li><strong>Scene Culling 统一入口</strong> — <code>FSceneCullingRenderer</code> 作为 Scene Extension，统一管理 Nanite 和传统几何的 GPU 裁剪</li>
+      <li><strong>Nanite Visibility 预处理</strong> — <code>FNaniteVisibility::BeginVisibilityQuery()</code> 在 CPU 端做预裁剪，结果合并到可见性流程</li>
+      <li><strong>NaniteMeshPass</strong> (EMeshPass #31) — 作为 Nanite 几何的迷你深度通道，与传统 MeshPass 并行处理</li>
+      <li><strong>Lumen Card 捕获双路径</strong> — <code>LumenCardCapture</code>(#26) 传统 + <code>LumenCardNanite</code>(#27) Nanite，统一外观</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="card-title">并发与性能优化</div>
+    <ul style="padding-left:18px;line-height:1.8">
+      <li><strong>SceneRenderingAllocator</strong> 全面使用 — 帧分配器替代传统 new/delete，减少分配开销</li>
+      <li><strong>UE::FMutex</strong> 替代 FCriticalSection — 用于 DispatchedShadowDepthPasses 等热路径的细粒度锁</li>
+      <li><strong>可见性任务图优化</strong> — <code>r.Visibility.TaskSchedule=1</code> 异步任务图成为默认（受平台支持时）</li>
+      <li><strong>DynamicMeshElements 并行化</strong> — <code>r.Visibility.DynamicMeshElements.NumMainViewTasks</code> 控制动态网格收集的并行任务数（默认 4）</li>
+      <li><strong>PSO 预缓存</strong> — <code>IPSOCollector</code> 接口与 <code>CollectPSOInitializers()</code> 结合，FMeshPassProcessor 继承此接口，实现材质加载期间的 PSO 预热</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============================================== -->
+<!-- CVar 速查表 -->
+<!-- ============================================== -->
+<h2 id="sec8">CVar 速查表</h2>
+
+<table class="cvar-table">
+<thead><tr><th>CVar</th><th>默认</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>r.Visibility.FrustumCull.Enabled</code></td><td>true</td><td>视锥裁剪开关</td></tr>
+<tr><td><code>r.Visibility.FrustumCull.UseOctree</code></td><td>false</td><td>使用八叉树加速视锥裁剪</td></tr>
+<tr><td><code>r.Visibility.FrustumCull.UseSphereTestFirst</code></td><td>false</td><td>先用球体做预测试</td></tr>
+<tr><td><code>r.Visibility.FrustumCull.NumPrimitivesPerTask</code></td><td>0 (自动)</td><td>每个裁剪任务的图元数</td></tr>
+<tr><td><code>r.Visibility.TaskSchedule</code></td><td>1</td><td>0=RenderThread, 1=异步TaskGraph</td></tr>
+<tr><td><code>r.Visibility.OcclusionCull.MaxQueriesPerTask</code></td><td>0 (自动)</td><td>每个遮挡查询任务的查询数</td></tr>
+<tr><td><code>r.Visibility.Relevance.NumPrimitivesPerPacket</code></td><td>0 (自动)</td><td>每个相关性数据包的大小</td></tr>
+<tr><td><code>r.Visibility.DynamicMeshElements.NumMainViewTasks</code></td><td>4</td><td>动态网格收集的并行任务数</td></tr>
+<tr><td><code>r.HZBOcclusion</code></td><td>1</td><td>0=硬件OcclusionQuery, 1=HZB, 2=强制HZB</td></tr>
+<tr><td><code>r.OcclusionFeedback.Enable</code></td><td>0</td><td>渲染反馈遮挡系统（当前仅移动端）</td></tr>
+<tr><td><code>r.AllowOcclusionQueries</code></td><td>true</td><td>启用硬件遮挡查询（HZB仍然需要此开关）</td></tr>
+<tr><td><code>r.AllowSubPrimitiveQueries</code></td><td>1</td><td>子图元查询（HISM 级别细化）</td></tr>
+<tr><td><code>r.DistanceCullToSphereEdge</code></td><td>true</td><td>距离裁剪用包围球边缘而非中心</td></tr>
+<tr><td><code>r.LODFadeTime</code></td><td>0.25</td><td>LOD 淡入淡出时间（秒）</td></tr>
+<tr><td><code>r.DistanceFadeMaxTravel</code></td><td>1000.0</td><td>淡出期间玩家最大移动距离</td></tr>
+<tr><td><code>r.StaticMeshLODDistanceScale</code></td><td>1.0</td><td>静态网格 LOD 距离缩放</td></tr>
+<tr><td><code>r.GPUScene.UploadEveryFrame</code></td><td>0</td><td>每帧全量上传 GPU Scene (调试)</td></tr>
+<tr><td><code>r.GPUScene.ParallelUpdate</code></td><td>2048</td><td>并行更新阈值（项数）</td></tr>
+<tr><td><code>r.GPUScene.InstanceDataTileSizeLog2</code></td><td>12</td><td>实例数据块大小 Log2 (4K实例/块)</td></tr>
+<tr><td><code>r.GPUScene.UseReservedResources</code></td><td>true</td><td>使用 reserved resources 分配</td></tr>
+<tr><td><code>r.GPUScene.ViewDistanceScaleWorkaround</code></td><td>true</td><td>视距缩放变化时重上传</td></tr>
+<tr><td><code>r.GPUScene.MaxPooledUploadBufferSize</code></td><td>256000</td><td>上传缓冲池最大字节数</td></tr>
+<tr><td><code>r.GPUScene.Lights.AsyncSetup</code></td><td>1</td><td>光源数据异步设置</td></tr>
+<tr><td><code>r.EarlyInitDynamicShadows</code></td><td>1</td><td>提前启动阴影裁剪任务</td></tr>
+<tr><td><code>r.MinScreenRadiusForLights</code></td><td>0.03</td><td>光源屏幕半径裁剪阈值</td></tr>
+<tr><td><code>r.MinScreenRadiusForDepthPrepass</code></td><td>0.03</td><td>深度预通道屏幕半径裁剪</td></tr>
+<tr><td><code>r.LightMaxDrawDistanceScale</code></td><td>1.0</td><td>光源最大绘制距离缩放</td></tr>
+</tbody>
+</table>
+
+<!-- ============================================== -->
+<!-- Bottom Navigation -->
+<!-- ============================================== -->
+<div class="bottom-nav">
+  <a href="../多线程机制/index.html" class="prev">
+    <span class="dir">&#8592; 上一章</span>
+    <span class="title">多线程机制</span>
+  </a>
+  <a href="../延迟渲染管线/index.html" class="next">
+    <span class="dir">下一章 &#8594;</span>
+    <span class="title">延迟渲染管线</span>
+  </a>
+</div>
+
+</div><!-- /.content -->
+</div><!-- /.main -->
+
+<!-- ===== JavaScript ===== -->
+<script>
+// 侧边栏滚动高亮
+(function(){
+  const nav=document.getElementById('sidebarNav');
+  const links=nav.querySelectorAll('a');
+  const sections=[];
+  links.forEach(a=>{
+    const id=a.getAttribute('href');
+    if(id&&id.startsWith('#')){
+      const el=document.getElementById(id.substring(1));
+      if(el)sections.push({el,link:a});
+    }
+  });
+  function update(){
+    let current=null;
+    const scrollY=window.scrollY+120;
+    for(let i=sections.length-1;i>=0;i--){
+      if(sections[i].el.offsetTop<=scrollY){current=sections[i];break;}
+    }
+    links.forEach(a=>a.classList.remove('active'));
+    if(current)current.link.classList.add('active');
+  }
+  window.addEventListener('scroll',update,{passive:true});
+  update();
+})();
+
+// 章节内搜索
+function doSearch(){
+  const q=document.getElementById('searchInput').value.trim().toLowerCase();
+  // 清除之前高亮
+  document.querySelectorAll('.search-hl').forEach(el=>{
+    el.outerHTML=el.innerHTML;
+  });
+  if(!q)return;
+
+  const main=document.getElementById('mainContent');
+  const walker=document.createTreeWalker(main,NodeFilter.SHOW_TEXT,null,false);
+  const textNodes=[];
+  while(walker.nextNode())textNodes.push(walker.currentNode);
+
+  let firstMatch=null;
+  textNodes.forEach(node=>{
+    const text=node.textContent.toLowerCase();
+    const idx=text.indexOf(q);
+    if(idx!==-1){
+      const span=document.createElement('span');
+      span.className='search-hl';
+      const range=document.createRange();
+      range.setStart(node,idx);
+      range.setEnd(node,idx+q.length);
+      range.surroundContents(span);
+      if(!firstMatch)firstMatch=span;
+    }
+  });
+  if(firstMatch)firstMatch.scrollIntoView({behavior:'smooth',block:'center'});
+}
+
+// 复制按钮
+function copyCode(btn){
+  const block=btn.closest('.code-block');
+  const code=block.querySelector('code').innerText;
+  navigator.clipboard.writeText(code).then(()=>{
+    const orig=btn.textContent;
+    btn.textContent='已复制!';
+    btn.style.color='var(--accent-green)';
+    setTimeout(()=>{btn.textContent=orig;btn.style.color='';},1500);
+  });
+}
+</script>
+
+</body>
+</html>

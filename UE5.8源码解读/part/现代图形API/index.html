@@ -1,0 +1,1629 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UE5.8.0 现代图形 API — DX12 / Vulkan / Metal 深度封装</title>
+<style>
+/* ===== CSS Reset & Base ===== */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;
+  --card:#131318;
+  --code-bg:#09090d;
+  --primary:#4FC3F7;
+  --primary-dim:rgba(79,195,247,0.15);
+  --text:#e0e0e0;
+  --text-dim:#909090;
+  --border:#1e1e28;
+  --accent-green:#66BB6A;
+  --accent-orange:#FFA726;
+  --accent-red:#EF5350;
+  --accent-yellow:#FFEE58;
+  --accent-purple:#AB47BC;
+  --sidebar-w:260px;
+  --header-h:52px;
+}
+html{scroll-behavior:smooth;font-size:15px}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  line-height:1.72;
+  display:flex;
+  min-height:100vh;
+}
+
+/* ===== Sidebar ===== */
+.sidebar{
+  position:fixed;top:0;left:0;
+  width:var(--sidebar-w);height:100vh;
+  background:var(--card);
+  border-right:1px solid var(--border);
+  overflow-y:auto;overflow-x:hidden;
+  z-index:100;
+  display:flex;flex-direction:column;
+}
+.sidebar-header{
+  padding:16px 18px;border-bottom:1px solid var(--border);
+  font-size:1rem;font-weight:700;color:var(--primary);
+  flex-shrink:0;
+}
+.sidebar-header .ver{font-size:.7rem;color:var(--text-dim);font-weight:400;margin-left:4px}
+.sidebar-search{
+  padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0;
+}
+.sidebar-search input{
+  width:100%;padding:7px 12px;border-radius:6px;border:1px solid var(--border);
+  background:var(--code-bg);color:var(--text);font-size:.82rem;outline:none;
+  transition:border-color .2s;
+}
+.sidebar-search input:focus{border-color:var(--primary)}
+.sidebar-nav{flex:1;overflow-y:auto;padding:8px 0}
+.sidebar-nav a{
+  display:block;padding:7px 18px;font-size:.82rem;color:var(--text-dim);
+  text-decoration:none;border-left:2px solid transparent;transition:all .15s;
+}
+.sidebar-nav a:hover,.sidebar-nav a.active{color:var(--text);background:var(--primary-dim);border-left-color:var(--primary)}
+.sidebar-nav a.l2{padding-left:34px;font-size:.78rem}
+
+/* ===== Main ===== */
+.main{margin-left:var(--sidebar-w);flex:1;min-width:0}
+.topbar{
+  position:sticky;top:0;z-index:50;
+  height:var(--header-h);background:var(--card);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 24px;gap:14px;
+}
+.breadcrumb{font-size:.78rem;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.breadcrumb a{color:var(--primary);text-decoration:none}
+.breadcrumb span{color:var(--text-dim)}
+.content{max-width:1100px;margin:0 auto;padding:32px 40px 60px}
+
+/* ===== Typography ===== */
+h1{font-size:2rem;font-weight:700;margin-bottom:6px;color:#fff}
+h1 .sub{font-size:1.05rem;font-weight:400;color:var(--text-dim);margin-left:10px}
+h2{
+  font-size:1.45rem;font-weight:700;color:var(--primary);
+  margin:52px 0 18px;padding-bottom:9px;border-bottom:1px solid var(--border);
+}
+h3{font-size:1.15rem;font-weight:600;color:#fff;margin:34px 0 14px}
+h4{font-size:1rem;font-weight:600;color:var(--text);margin:24px 0 10px}
+p{margin:10px 0;color:var(--text)}
+.lead{font-size:1.08rem;color:var(--text-dim);margin-bottom:28px}
+
+/* ===== Card ===== */
+.card{
+  background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:20px 24px;margin:16px 0;
+}
+.card-title{font-size:.95rem;font-weight:600;color:var(--primary);margin-bottom:10px}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:16px 0}
+
+/* ===== Code ===== */
+.code-block{
+  background:var(--code-bg);border:1px solid var(--border);border-radius:8px;
+  margin:14px 0;overflow:hidden;position:relative;
+}
+.code-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 14px;background:rgba(255,255,255,.03);border-bottom:1px solid var(--border);
+  font-size:.74rem;color:var(--text-dim);
+}
+.code-header .lang{color:var(--primary)}
+.code-header .path{font-family:"Cascadia Code","Fira Code",monospace;font-size:.7rem}
+.code-header button{
+  background:transparent;border:1px solid var(--border);color:var(--text-dim);
+  padding:3px 10px;border-radius:4px;cursor:pointer;font-size:.7rem;transition:all .15s;
+}
+.code-header button:hover{color:var(--primary);border-color:var(--primary)}
+.code-block pre{padding:14px 16px;overflow-x:auto;margin:0}
+.code-block code{
+  font-family:"Cascadia Code","Fira Code","JetBrains Mono",monospace;
+  font-size:.8rem;line-height:1.55;
+}
+.ln{color:#505060;user-select:none;margin-right:14px;display:inline-block;width:32px;text-align:right}
+.kw{color:#C792EA} .ty{color:#FFCB6B} .fn{color:#82AAFF}
+.str{color:#C3E88D} .num{color:#F78C6C} .cm{color:#546E7A}
+.mac{color:#FF5370} .op{color:#89DDFF} .id{color:#EEFFFF}
+.hl{background:rgba(79,195,247,.08);display:inline-block;width:100%}
+
+/* ===== Tables ===== */
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.85rem}
+thead th{
+  background:var(--primary-dim);color:var(--primary);font-weight:600;
+  padding:9px 14px;text-align:left;border-bottom:1px solid var(--border);
+  white-space:nowrap;
+}
+tbody td{padding:8px 14px;border-bottom:1px solid var(--border);color:var(--text)}
+tbody tr:hover{background:rgba(255,255,255,.02)}
+.tag{
+  display:inline-block;padding:2px 8px;border-radius:4px;font-size:.72rem;
+  font-weight:600;margin-right:3px;
+}
+.tag-cpu{background:rgba(255,167,38,.2);color:var(--accent-orange)}
+.tag-gpu{background:rgba(239,83,80,.2);color:var(--accent-red)}
+.tag-stat{background:rgba(102,187,106,.2);color:var(--accent-green)}
+.tag-dyn{background:rgba(171,71,188,.2);color:var(--accent-purple)}
+
+/* ===== Flow Diagram SVG ===== */
+.diagram-wrap{
+  text-align:center;margin:24px 0;
+  background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:24px 16px;overflow-x:auto;
+}
+.diagram-wrap svg{max-width:100%;height:auto}
+.diagram-wrap .caption{font-size:.78rem;color:var(--text-dim);margin-top:10px}
+
+/* ===== CVar Table ===== */
+.cvar-table th:nth-child(1){width:280px}
+.cvar-table th:nth-child(2){width:80px}
+.cvar-table th:nth-child(3){width:90px}
+.cvar-table td:first-child{font-family:"Cascadia Code","Fira Code",monospace;font-size:.8rem}
+.cvar-table td:first-child code{color:var(--primary)}
+
+/* ===== Search Highlight ===== */
+.search-hl{background:rgba(255,242,0,.25);border-radius:2px;padding:0 1px}
+
+/* ===== Bottom Nav ===== */
+.bottom-nav{
+  display:flex;justify-content:space-between;align-items:center;
+  margin-top:60px;padding-top:20px;border-top:1px solid var(--border);
+}
+.bottom-nav a{
+  display:flex;flex-direction:column;text-decoration:none;
+  padding:12px 18px;border-radius:8px;border:1px solid var(--border);
+  transition:all .2s;max-width:48%;
+}
+.bottom-nav a:hover{border-color:var(--primary);background:var(--primary-dim)}
+.bottom-nav .dir{font-size:.72rem;color:var(--text-dim);margin-bottom:2px}
+.bottom-nav .title{font-size:.9rem;color:var(--text);font-weight:600}
+.bottom-nav a.prev{align-items:flex-start}
+.bottom-nav a.next{align-items:flex-end;text-align:right}
+
+/* ===== Compare Cards ===== */
+.compare-card{
+  background:var(--card);border:1px solid var(--border);border-radius:8px;
+  padding:18px 20px;margin:10px 0;
+}
+.compare-card h4{color:var(--primary);margin-bottom:8px}
+.compare-card .pro{color:var(--accent-green)}
+.compare-card .con{color:var(--accent-orange)}
+
+/* ===== Inline ===== */
+code{
+  font-family:"Cascadia Code","Fira Code","JetBrains Mono",monospace;
+  font-size:.82rem;background:rgba(79,195,247,.1);
+  color:var(--primary);padding:1px 5px;border-radius:3px;
+}
+ul,ol{padding-left:22px;margin:8px 0;line-height:1.85}
+li{color:var(--text)}
+strong{color:#fff}
+a{color:var(--primary);text-decoration:none}
+a:hover{text-decoration:underline}
+.note{
+  background:var(--primary-dim);border-left:3px solid var(--primary);
+  padding:12px 16px;margin:14px 0;border-radius:0 6px 6px 0;font-size:.9rem;
+}
+
+/* ===== Responsive ===== */
+@media(max-width:860px){
+  .sidebar{display:none}
+  .main{margin-left:0}
+  .content{padding:20px 16px}
+  .card-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== Sidebar ===== -->
+<nav class="sidebar">
+  <div class="sidebar-header">
+    &#9881; UE5.8 现代图形 API <span class="ver">v5.8.0</span>
+  </div>
+  <div class="sidebar-search">
+    <input type="text" id="searchInput" placeholder="搜索章节内容..." oninput="doSearch()">
+  </div>
+  <div class="sidebar-nav" id="sidebarNav">
+    <a href="#sec1" class="active">1. 概述 &amp; 定位</a>
+    <a href="#sec1_1" class="l2">1.1 现代 API 共性概念</a>
+    <a href="#sec1_2" class="l2">1.2 UE 封装哲学</a>
+    <a href="#sec2">2. 顶层架构设计</a>
+    <a href="#sec2_1" class="l2">2.1 四大共性抽象</a>
+    <a href="#sec2_2" class="l2">2.2 RHI 分层架构</a>
+    <a href="#sec2_3" class="l2">2.3 特性对比表</a>
+    <a href="#sec2_4" class="l2">2.4 GPU 驱动间接绘制</a>
+    <a href="#sec2_5" class="l2">2.5 异步计算队列</a>
+    <a href="#sec3">3. 执行流程 / 数据流</a>
+    <a href="#sec3_1" class="l2">3.1 命令录制流程</a>
+    <a href="#sec3_2" class="l2">3.2 RHI 到 GPU 时序图</a>
+    <a href="#sec3_3" class="l2">3.3 同步机制</a>
+    <a href="#sec4">4. 设计决策 &amp; 权衡</a>
+    <a href="#sec4_1" class="l2">4.1 Bindless 资源模型</a>
+    <a href="#sec4_2" class="l2">4.2 PSO 缓存策略</a>
+    <a href="#sec4_3" class="l2">4.3 Upload Heap 管理</a>
+    <a href="#sec4_4" class="l2">4.4 光线追踪抽象</a>
+    <a href="#sec5">5. 底层实现关联</a>
+    <a href="#sec5_1" class="l2">5.1 D3D12 CommandList 管理</a>
+    <a href="#sec5_2" class="l2">5.2 Vulkan 描述符集分配</a>
+    <a href="#sec5_3" class="l2">5.3 D3D12 资源屏障</a>
+    <a href="#sec6">6. UE5.8 演进变化</a>
+    <a href="#sec6_1" class="l2">6.1 D3D12 Enhanced Barriers</a>
+    <a href="#sec6_2" class="l2">6.2 Vulkan Ray Tracing 完整支持</a>
+    <a href="#sec6_3" class="l2">6.3 Work Graph 前瞻</a>
+    <a href="#sec7">CVar 速查表</a>
+  </div>
+</nav>
+
+<!-- ===== Main Content ===== -->
+<div class="main">
+<div class="topbar">
+  <div class="breadcrumb">
+    <a href="../index.html">UE5.8 渲染文档</a> &rsaquo;
+    <span>现代图形 API</span>
+  </div>
+</div>
+
+<div class="content" id="mainContent">
+
+<!-- ===== Title ===== -->
+<h1>现代图形 API<span class="sub">DX12 / Vulkan / Metal 深度封装</span></h1>
+<p class="lead">
+  深入解读 UE5.8.0 对 DX12、Vulkan、Metal 等现代底层图形 API 的封装与抽象——Bindless 资源绑定、
+  GPU 驱动间接绘制、异步计算队列、显式资源屏障管理等核心特性，以及跨平台 RHI 层的架构设计。
+</p>
+
+<!-- ============================================== -->
+<!-- SECTION 1: 概述 & 定位 -->
+<!-- ============================================== -->
+<h2 id="sec1">1. 概述 &amp; 定位</h2>
+
+<h3 id="sec1_1">1.1 现代 API 共性概念</h3>
+
+<p>
+  DX12、Vulkan 与 Metal 三大现代图形 API 在设计哲学上高度趋同，均脱离了 DX11/OpenGL 时代的"驱动黑盒"模式，
+  将资源管理、同步、命令调度等责任从驱动转移给应用程序。下图展示了这些核心概念的对应关系：
+</p>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 1020 420" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#4FC3F7"/></marker>
+    <linearGradient id="gAPI" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#131318"/><stop offset="1" stop-color="#0a0a0f"/></linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1020" height="420" fill="#0a0a0f" rx="8"/>
+
+  <!-- 标题栏 -->
+  <text x="30" y="30" fill="#4FC3F7" font-size="14" font-weight="700">现代图形 API 共性概念映射</text>
+
+  <!-- 概念行 (Y=60) -->
+  <text x="30" y="82" fill="#909090" font-size="11">概念 / API</text>
+  <line x1="120" y1="68" x2="120" y2="390" stroke="#1e1e28" stroke-width="1"/>
+  <text x="140" y="82" fill="#4FC3F7" font-size="12" font-weight="600">DX12</text>
+  <line x1="380" y1="68" x2="380" y2="390" stroke="#1e1e28" stroke-width="1"/>
+  <text x="400" y="82" fill="#FFA726" font-size="12" font-weight="600">Vulkan</text>
+  <line x1="680" y1="68" x2="680" y2="390" stroke="#1e1e28" stroke-width="1"/>
+  <text x="700" y="82" fill="#66BB6A" font-size="12" font-weight="600">Metal</text>
+  <line x1="30" y1="92" x2="1010" y2="92" stroke="#1e1e28" stroke-width="1"/>
+
+  <!-- 行1: 命令列表 -->
+  <rect x="30" y="100" width="85" height="22" fill="rgba(79,195,247,0.1)" rx="3"/>
+  <text x="72" y="116" fill="#e0e0e0" font-size="11" text-anchor="middle">命令记录</text>
+  <text x="140" y="116" fill="#e0e0e0" font-size="12" font-family="monospace">ID3D12CommandList</text>
+  <text x="400" y="116" fill="#e0e0e0" font-size="12" font-family="monospace">VkCommandBuffer</text>
+  <text x="700" y="116" fill="#e0e0e0" font-size="12" font-family="monospace">MTLCommandBuffer</text>
+  <line x1="30" y1="128" x2="1010" y2="128" stroke="#1e1e28" stroke-width="0.5"/>
+
+  <!-- 行2: 描述符堆 -->
+  <rect x="30" y="138" width="85" height="22" fill="rgba(79,195,247,0.1)" rx="3"/>
+  <text x="72" y="154" fill="#e0e0e0" font-size="11" text-anchor="middle">资源绑定</text>
+  <text x="140" y="154" fill="#e0e0e0" font-size="12" font-family="monospace">Descriptor Heap (CBV/SRV/UAV)</text>
+  <text x="400" y="154" fill="#e0e0e0" font-size="12" font-family="monospace">VkDescriptorSet</text>
+  <text x="700" y="154" fill="#e0e0e0" font-size="12" font-family="monospace">MTLArgumentEncoder</text>
+  <line x1="30" y1="166" x2="1010" y2="166" stroke="#1e1e28" stroke-width="0.5"/>
+
+  <!-- 行3: PSO -->
+  <rect x="30" y="176" width="85" height="22" fill="rgba(79,195,247,0.1)" rx="3"/>
+  <text x="72" y="192" fill="#e0e0e0" font-size="11" text-anchor="middle">管线状态</text>
+  <text x="140" y="192" fill="#e0e0e0" font-size="12" font-family="monospace">ID3D12PipelineState</text>
+  <text x="400" y="192" fill="#e0e0e0" font-size="12" font-family="monospace">VkPipeline</text>
+  <text x="700" y="192" fill="#e0e0e0" font-size="12" font-family="monospace">MTLRenderPipelineState</text>
+  <line x1="30" y1="204" x2="1010" y2="204" stroke="#1e1e28" stroke-width="0.5"/>
+
+  <!-- 行4: 资源屏障 -->
+  <rect x="30" y="214" width="85" height="22" fill="rgba(79,195,247,0.1)" rx="3"/>
+  <text x="72" y="230" fill="#e0e0e0" font-size="11" text-anchor="middle">资源同步</text>
+  <text x="140" y="230" fill="#e0e0e0" font-size="12" font-family="monospace">Resource Barrier / Enhanced Barrier</text>
+  <text x="400" y="230" fill="#e0e0e0" font-size="12" font-family="monospace">VkMemoryBarrier / VkImageMemoryBarrier</text>
+  <text x="700" y="230" fill="#e0e0e0" font-size="12" font-family="monospace">MTLFence / MTLBarrier</text>
+  <line x1="30" y1="242" x2="1010" y2="242" stroke="#1e1e28" stroke-width="0.5"/>
+
+  <!-- 行5: 信号同步 -->
+  <rect x="30" y="252" width="85" height="22" fill="rgba(79,195,247,0.1)" rx="3"/>
+  <text x="72" y="268" fill="#e0e0e0" font-size="11" text-anchor="middle">GPU 同步</text>
+  <text x="140" y="268" fill="#e0e0e0" font-size="12" font-family="monospace">ID3D12Fence + Signal/Wait</text>
+  <text x="400" y="268" fill="#e0e0e0" font-size="12" font-family="monospace">VkSemaphore + VkFence</text>
+  <text x="700" y="268" fill="#e0e0e0" font-size="12" font-family="monospace">MTLEvent / MTLSharedEvent</text>
+  <line x1="30" y1="280" x2="1010" y2="280" stroke="#1e1e28" stroke-width="0.5"/>
+
+  <!-- 行6: 光线追踪 -->
+  <rect x="30" y="290" width="85" height="22" fill="rgba(79,195,247,0.1)" rx="3"/>
+  <text x="72" y="306" fill="#e0e0e0" font-size="11" text-anchor="middle">光线追踪</text>
+  <text x="140" y="306" fill="#e0e0e0" font-size="12" font-family="monospace">DXR (DispatchRays)</text>
+  <text x="400" y="306" fill="#e0e0e0" font-size="12" font-family="monospace">VK_KHR_ray_tracing_pipeline</text>
+  <text x="700" y="306" fill="#e0e0e0" font-size="12" font-family="monospace">MTLAccelerationStructure</text>
+  <line x1="30" y1="318" x2="1010" y2="318" stroke="#1e1e28" stroke-width="0.5"/>
+
+  <!-- 行7: 间接绘制 -->
+  <rect x="30" y="328" width="85" height="22" fill="rgba(79,195,247,0.1)" rx="3"/>
+  <text x="72" y="344" fill="#e0e0e0" font-size="11" text-anchor="middle">间接执行</text>
+  <text x="140" y="344" fill="#e0e0e0" font-size="12" font-family="monospace">ExecuteIndirect (CommandSignature)</text>
+  <text x="400" y="344" fill="#e0e0e0" font-size="12" font-family="monospace">vkCmdDrawIndirect / vkCmdDrawIndirectCount</text>
+  <text x="700" y="344" fill="#e0e0e0" font-size="12" font-family="monospace">MTLIndirectCommandBuffer</text>
+
+  <!-- 底部说明 -->
+  <text x="510" y="390" fill="#909090" font-size="10" text-anchor="middle">UE5 的 RHI 抽象层为每个概念提供了跨平台统一接口，后端实现负责映射到对应的原生 API 调用</text>
+</svg>
+<div class="caption">图 1: DX12 / Vulkan / Metal 核心概念映射关系</div>
+</div>
+
+<h3 id="sec1_2">1.2 UE 封装哲学：RHI 抽象层</h3>
+
+<p>
+  UE 通过 <strong>RHI（Rendering Hardware Interface）</strong> 层将底层图形 API 的差异隔离在实现层之下。
+  核心策略包括：
+</p>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="card-title">统一接口</div>
+    <p><code>FRHICommandList</code> 和 <code>IRHIComputeContext</code> 定义跨平台的渲染命令接口。
+    所有上层 Pass（BasePass、Shadow、Lumen）仅通过 RHI 接口与 GPU 交互，从不直接调用 D3D12/Vulkan API。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">平台适配</div>
+    <p>每种 RHI 后端实现相同的虚接口：
+    <code>FD3D12DynamicRHI</code>（DX12）、<code>FVulkanDynamicRHI</code>（Vulkan）、
+    <code>FMetalDynamicRHI</code>（Metal）。平台无关代码仅依赖头文件中的接口定义。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">条件编译</div>
+    <p>通过 <code>#if PLATFORM_SUPPORTS_BINDLESS_RENDERING</code>、<code>#if D3D12_RHI_RAYTRACING</code>
+    等宏开关，在编译期裁剪特定平台的代码路径，确保不支持的特性不产生运行时开销。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">延迟提交</div>
+    <p>RHI 命令不立即发送给 GPU，而是录制到 CommandList 中，由 <code>FlushPendingDeletes</code>、
+    <code>SubmitCommandsHint</code> 等时机批量提交，最小化 CPU-GPU 同步点。</p>
+  </div>
+</div>
+
+<div class="note">
+  <strong>设计原则：</strong> UE 不追求"最小公分母"抽象，而是为每种 API 单独优化代码路径。
+  DX12 可以享受 Enhanced Barriers 和 Work Graph 的优势，Vulkan 利用 Descriptor Buffer 和 Timeline Semaphore，
+  而 Metal 则利用 Argument Buffer 和 Tile Shading——同一套 RHI 接口内部实现可以完全不同。
+</div>
+
+<!-- ============================================== -->
+<!-- SECTION 2: 顶层架构设计 -->
+<!-- ============================================== -->
+<h2 id="sec2">2. 顶层架构设计</h2>
+
+<h3 id="sec2_1">2.1 四大共性抽象</h3>
+
+<p>现代图形 API 虽然在接口命名上各不相同，但都围绕以下四个核心概念构建：</p>
+
+<table>
+<thead><tr><th>共性概念</th><th>DX12 实现</th><th>Vulkan 实现</th><th>UE 封装类</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>显式资源状态管理</strong></td>
+  <td>D3D12_RESOURCE_STATES + Resource Barrier</td>
+  <td>VkImageLayout + VkPipelineStageFlags</td>
+  <td><code>ERHIAccess</code> + <code>RHITransitionInfo</code></td>
+</tr>
+<tr>
+  <td><strong>命令列表 / 队列</strong></td>
+  <td>ID3D12CommandList + ID3D12CommandQueue</td>
+  <td>VkCommandBuffer + VkQueue</td>
+  <td><code>FD3D12CommandList</code> / <code>FVulkanCommandBuffer</code></td>
+</tr>
+<tr>
+  <td><strong>描述符堆 / 绑定</strong></td>
+  <td>Descriptor Heap (CBV/SRV/UAV/Sampler)</td>
+  <td>VkDescriptorSet + VkDescriptorPool</td>
+  <td><code>FD3D12DescriptorCache</code> / <code>FVulkanDescriptorSetWriter</code></td>
+</tr>
+<tr>
+  <td><strong>管线状态对象 (PSO)</strong></td>
+  <td>ID3D12PipelineState</td>
+  <td>VkPipeline</td>
+  <td><code>FD3D12PipelineState</code> / <code>FVulkanGfxPipeline</code></td>
+</tr>
+</tbody>
+</table>
+
+<h3 id="sec2_2">2.2 RHI 分层架构</h3>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 960 520" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#909090"/></marker>
+    <marker id="arr3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4FC3F7"/></marker>
+  </defs>
+  <rect x="0" y="0" width="960" height="520" fill="#0a0a0f" rx="8"/>
+
+  <!-- 层0: 上层渲染 -->
+  <rect x="200" y="20" width="560" height="50" fill="#131318" stroke="#1e1e28" stroke-width="1" rx="6"/>
+  <text x="480" y="42" fill="#e0e0e0" font-size="12" font-weight="600" text-anchor="middle">上层渲染 Pass</text>
+  <text x="480" y="58" fill="#909090" font-size="10" text-anchor="middle">DeferredShadingRenderer / Nanite / Lumen / MegaLights / PostProcess</text>
+
+  <!-- 箭头 -->
+  <line x1="480" y1="70" x2="480" y2="90" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+  <!-- 层1: RHI 统一接口 -->
+  <rect x="200" y="92" width="560" height="50" fill="rgba(79,195,247,0.08)" stroke="#4FC3F7" stroke-width="1.5" rx="6"/>
+  <text x="480" y="114" fill="#4FC3F7" font-size="12" font-weight="700" text-anchor="middle">RHI 统一接口层</text>
+  <text x="480" y="130" fill="#909090" font-size="10" text-anchor="middle">FRHICommandList / IRHIComputeContext / FRHITexture / FRHIBuffer</text>
+
+  <!-- 三个箭头分叉 -->
+  <line x1="250" y1="142" x2="250" y2="170" stroke="#909090" stroke-width="1" marker-end="url(#arr2)"/>
+  <line x1="480" y1="142" x2="480" y2="170" stroke="#909090" stroke-width="1" marker-end="url(#arr2)"/>
+  <line x1="710" y1="142" x2="710" y2="170" stroke="#909090" stroke-width="1" marker-end="url(#arr2)"/>
+
+  <!-- 层2: 平台 RHI 实现 -->
+  <rect x="60" y="172" width="260" height="110" fill="#131318" stroke="#1e1e28" stroke-width="1" rx="6"/>
+  <text x="190" y="194" fill="#4FC3F7" font-size="11" font-weight="600" text-anchor="middle">D3D12 RHI</text>
+  <text x="190" y="212" fill="#909090" font-size="9" text-anchor="middle">FD3D12DynamicRHI</text>
+  <text x="190" y="228" fill="#909090" font-size="9" text-anchor="middle">FD3D12CommandContext</text>
+  <text x="190" y="244" fill="#909090" font-size="9" text-anchor="middle">FD3D12DescriptorCache</text>
+  <text x="190" y="260" fill="#909090" font-size="9" text-anchor="middle">FD3D12BindlessDescriptorManager</text>
+  <text x="190" y="276" fill="#909090" font-size="9" text-anchor="middle">FD3D12EnhancedBarriersBatcher</text>
+
+  <rect x="350" y="172" width="260" height="110" fill="#131318" stroke="#1e1e28" stroke-width="1" rx="6"/>
+  <text x="480" y="194" fill="#FFA726" font-size="11" font-weight="600" text-anchor="middle">Vulkan RHI</text>
+  <text x="480" y="212" fill="#909090" font-size="9" text-anchor="middle">FVulkanDynamicRHI</text>
+  <text x="480" y="228" fill="#909090" font-size="9" text-anchor="middle">FVulkanCommandBufferManager</text>
+  <text x="480" y="244" fill="#909090" font-size="9" text-anchor="middle">FVulkanBindlessDescriptorManager</text>
+  <text x="480" y="260" fill="#909090" font-size="9" text-anchor="middle">FVulkanDescriptorSetWriter</text>
+  <text x="480" y="276" fill="#909090" font-size="9" text-anchor="middle">VulkanChunkedPipelineCache</text>
+
+  <rect x="640" y="172" width="260" height="110" fill="#131318" stroke="#1e1e28" stroke-width="1" rx="6"/>
+  <text x="770" y="194" fill="#66BB6A" font-size="11" font-weight="600" text-anchor="middle">Metal RHI</text>
+  <text x="770" y="212" fill="#909090" font-size="9" text-anchor="middle">FMetalDynamicRHI</text>
+  <text x="770" y="228" fill="#909090" font-size="9" text-anchor="middle">FMetalCommandList</text>
+  <text x="770" y="244" fill="#909090" font-size="9" text-anchor="middle">FMetalStateCache</text>
+  <text x="770" y="260" fill="#909090" font-size="9" text-anchor="middle">FMetalArgumentEncoder</text>
+  <text x="770" y="276" fill="#909090" font-size="9" text-anchor="middle">FMetalRenderPass</text>
+
+  <!-- 箭头合并 -->
+  <line x1="250" y1="282" x2="250" y2="310" stroke="#909090" stroke-width="1" marker-end="url(#arr2)"/>
+  <line x1="480" y1="282" x2="480" y2="310" stroke="#909090" stroke-width="1" marker-end="url(#arr2)"/>
+  <line x1="710" y1="282" x2="710" y2="310" stroke="#909090" stroke-width="1" marker-end="url(#arr2)"/>
+
+  <!-- 层3: 原生 API -->
+  <rect x="200" y="312" width="560" height="30" fill="rgba(239,83,80,0.08)" stroke="#EF5350" stroke-width="1" rx="4"/>
+  <text x="480" y="333" fill="#EF5350" font-size="10" font-weight="600" text-anchor="middle">原生平台 API：DX12 / Vulkan / Metal 运行时</text>
+
+  <!-- 底部：硬件层 -->
+  <line x1="200" y1="342" x2="760" y2="342" stroke="#909090" stroke-width="1" marker-end="url(#arr2)"/>
+  <rect x="200" y="348" width="560" height="50" fill="#09090d" stroke="#1e1e28" stroke-width="1" rx="6"/>
+  <text x="480" y="370" fill="#e0e0e0" font-size="11" font-weight="600" text-anchor="middle">GPU 硬件 + 驱动</text>
+  <text x="480" y="386" fill="#909090" font-size="9" text-anchor="middle">NVIDIA / AMD / Intel / Apple Silicon / Qualcomm / ARM Mali</text>
+
+  <!-- 右侧注释 -->
+  <rect x="780" y="172" width="160" height="180" fill="transparent" stroke="#1e1e28" stroke-width="1" rx="6"/>
+  <text x="860" y="198" fill="#909090" font-size="9" text-anchor="middle">关键设计:</text>
+  <text x="860" y="220" fill="#e0e0e0" font-size="8" text-anchor="middle">1. 每平台独立实现</text>
+  <text x="860" y="240" fill="#e0e0e0" font-size="8" text-anchor="middle">2. 共享 RHI 类型系统</text>
+  <text x="860" y="260" fill="#e0e0e0" font-size="8" text-anchor="middle">3. 条件编译裁剪路径</text>
+  <text x="860" y="280" fill="#e0e0e0" font-size="8" text-anchor="middle">4. RDG 资源管理</text>
+  <text x="860" y="300" fill="#e0e0e0" font-size="8" text-anchor="middle">5. 延迟提交 + 批处理</text>
+  <text x="860" y="320" fill="#e0e0e0" font-size="8" text-anchor="middle">6. 跨队列 Fence 同步</text>
+  <text x="860" y="340" fill="#e0e0e0" font-size="8" text-anchor="middle">7. PSO 预热缓存</text>
+</svg>
+<div class="caption">图 2: RHI 分层架构——从上层渲染到 GPU 硬件的调用链路</div>
+</div>
+
+<h3 id="sec2_3">2.3 D3D12 vs Vulkan vs Metal 特性对比</h3>
+
+<table>
+<thead><tr><th>特性</th><th>DX12</th><th>Vulkan</th><th>Metal</th><th>UE5.8 支持</th></tr></thead>
+<tbody>
+<tr>
+  <td>Bindless 资源</td>
+  <td>Descriptor Heap v2 (GPU-Visible)</td>
+  <td>Descriptor Indexing / Descriptor Buffer</td>
+  <td>Argument Buffer Tier 2</td>
+  <td><span class="tag tag-stat">正式</span> 全平台统一</td>
+</tr>
+<tr>
+  <td>异步计算</td>
+  <td>Async Compute Queue</td>
+  <td>Separate Compute Queue Family</td>
+  <td>独立 Compute Encoder</td>
+  <td><span class="tag tag-stat">正式</span></td>
+</tr>
+<tr>
+  <td>间接绘制</td>
+  <td>ExecuteIndirect + CommandSignature</td>
+  <td>vkCmdDrawIndirect / DrawIndirectCount</td>
+  <td>MTLIndirectCommandBuffer</td>
+  <td><span class="tag tag-stat">正式</span> Nanite 核心依赖</td>
+</tr>
+<tr>
+  <td>资源屏障</td>
+  <td>Legacy + Enhanced Barriers</td>
+  <td>VkMemoryBarrier / VkImageMemoryBarrier</td>
+  <td>MTLFence + MTLBarrier</td>
+  <td><span class="tag tag-stat">正式</span> 5.8 新增 Enhanced</td>
+</tr>
+<tr>
+  <td>光线追踪</td>
+  <td>DXR 1.0 / 1.1 (Inline RT)</td>
+  <td>VK_KHR_ray_tracing_pipeline</td>
+  <td>Metal Ray Tracing (M3+)</td>
+  <td><span class="tag tag-stat">正式</span> 5.8 完整 Vulkan RT</td>
+</tr>
+<tr>
+  <td>可变速率着色</td>
+  <td>VRS Tier 1/2</td>
+  <td>VK_KHR_fragment_shading_rate</td>
+  <td>Apple Silicon VRS</td>
+  <td><span class="tag tag-stat">正式</span></td>
+</tr>
+<tr>
+  <td>Mesh Shader</td>
+  <td>SM6.6 Enhanced Meshlets</td>
+  <td>VK_EXT_mesh_shader</td>
+  <td>Mesh Shader (A17+/M3+)</td>
+  <td><span class="tag tag-dyn">实验</span> Nanite 未来路径</td>
+</tr>
+<tr>
+  <td>Work Graph</td>
+  <td>D3D12 Work Graphs</td>
+  <td>VK_AMDX_shader_enqueue (AMD)</td>
+  <td>不支持</td>
+  <td><span class="tag tag-dyn">前瞻</span> DX12 实验</td>
+</tr>
+<tr>
+  <td>采样器反馈</td>
+  <td>Sampler Feedback</td>
+  <td>VK_EXT_sampler_filter_minmax</td>
+  <td>不支持</td>
+  <td><span class="tag tag-gpu">部分</span></td>
+</tr>
+</tbody>
+</table>
+
+<h3 id="sec2_4">2.4 GPU 驱动间接绘制（GPU-Driven Indirect Draw）</h3>
+
+<p>
+  GPU 驱动间接绘制是 UE5 Nanite 系统的核心技术之一。传统渲染中，DrawCall 参数（顶点数、实例数等）
+  由 CPU 填充后提交给 GPU。而 GPU 驱动间接绘制允许 GPU 自己生成绘制参数，
+  从根源上消除了 CPU 读取 GPU 数据带来的 stall。以下是 UE5.8 中 D3D12 后端的完整实现流程：
+</p>
+
+<div class="code-block">
+<div class="code-header">
+  <span class="lang">C++</span>
+  <span class="path">Engine/Source/Runtime/D3D12RHI/Private/D3D12Commands.cpp</span>
+  <button onclick="copyCode(this)" data-target="code-indirect">复制代码</button>
+</div>
+<pre id="code-indirect"><code><span class="ln"> 1</span><span class="cm">// GPU 驱动间接计算调度 (D3D12RHI/Private/D3D12Commands.cpp:145)</span>
+<span class="ln"> 2</span><span class="kw">void</span> <span class="ty">FD3D12CommandContext</span>::<span class="fn">RHIDispatchIndirectComputeShader</span>(
+<span class="ln"> 3</span>    <span class="ty">FRHIBuffer</span>* ArgumentBufferRHI, <span class="kw">uint32</span> ArgumentOffset)
+<span class="ln"> 4</span>{
+<span class="ln"> 5</span>    <span class="fn">RHI_DISPATCH_CALL_INC</span>();
+<span class="ln"> 6</span>    <span class="fn">SetupDispatch</span>(<span class="num">1</span>, <span class="num">1</span>, <span class="num">1</span>);
+<span class="ln"> 7</span>
+<span class="ln"> 8</span>    <span class="cm">// 准备间接参数缓冲区，指向 GPU 生成的 dispatch 参数</span>
+<span class="ln"> 9</span>    <span class="ty">FD3D12ResourceLocation</span>& ArgumentBufferLocation =
+<span class="ln">10</span>        <span class="fn">SetupIndirectArgument</span>(ArgumentBufferRHI,
+<span class="ln">11</span>            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+<span class="ln">12</span>
+<span class="ln">13</span>    <span class="cm">// 根据队列类型选择正确的 CommandSignature</span>
+<span class="ln">14</span>    <span class="cm">// Async Compute 队列使用专用签名，Direct 队列使用 Graphics 签名</span>
+<span class="ln">15</span>    <span class="ty">FD3D12Adapter</span>* Adapter = <span class="fn">GetParentDevice</span>()-><span class="fn">GetParentAdapter</span>();
+<span class="ln">16</span>    <span class="ty">ID3D12CommandSignature</span>* CommandSignature = <span class="fn">IsAsyncComputeContext</span>()
+<span class="ln">17</span>        ? Adapter-><span class="fn">GetDispatchIndirectComputeCommandSignature</span>()
+<span class="ln">18</span>        : Adapter-><span class="fn">GetDispatchIndirectGraphicsCommandSignature</span>();
+<span class="ln">19</span>
+<span class="ln">20</span>    <span class="cm">// 提交间接执行——参数完全由 GPU 提供，无 CPU 读取</span>
+<span class="ln">21</span>    <span class="fn">GraphicsCommandList</span>()-><span class="fn">ExecuteIndirect</span>(
+<span class="ln">22</span>        CommandSignature,
+<span class="ln">23</span>        <span class="num">1</span>,                            <span class="cm">// 最多执行 1 个命令</span>
+<span class="ln">24</span>        ArgumentBufferLocation.<span class="fn">GetResource</span>()-><span class="fn">GetResource</span>(),
+<span class="ln">25</span>        ArgumentBufferLocation.<span class="fn">GetOffsetFromBaseOfResource</span>() + ArgumentOffset,
+<span class="ln">26</span>        <span class="kw">NULL</span>,                          <span class="cm">// 计数器缓冲区（可选）</span>
+<span class="ln">27</span>        <span class="num">0</span>                              <span class="cm">// 计数器偏移</span>
+<span class="ln">28</span>    );
+<span class="ln">29</span>
+<span class="ln">30</span>    <span class="fn">PostGpuEvent</span>();
+<span class="ln">31</span>}</code></pre>
+</div>
+
+<h4>Nanite 中 GPU-Driven 的关键阶段</h4>
+<p>GPU 驱动间接绘制在 Nanite 管线中的三个核心阶段：</p>
+
+<div class="compare-card">
+  <h4>阶段 1: Instance Culling —— GPU 决定哪些实例可见</h4>
+  <p>场景裁剪（Scene Culling）在 GPU 上执行，输出可见实例列表到 <code>FSceneCulling::Context</code> 缓冲区。
+  结果不读回 CPU，直接作为后续阶段的可变长度输入。</p>
+</div>
+
+<div class="compare-card">
+  <h4>阶段 2: Cluster Culling + HZB —— GPU 决定哪些 Cluster 光栅化</h4>
+  <p>BVH 节点遍历 + Cluster 可见性测试 + HZB 遮挡剔除均在 Compute Shader 中完成。
+  输出通过 <code>VisibleClustersSWHW</code> 缓冲区传递给光栅化阶段，
+  采用 <code>DispatchIndirect</code> 根据可见 Cluster 数量动态启动 Thread Group。</p>
+</div>
+
+<div class="compare-card">
+  <h4>阶段 3: Shade Binning + Dispatch —— GPU 按材质分组着色</h4>
+  <p>屏幕空间材质分桶（<code>FShadeBinning</code>）生成每个材质槽的 DrawCall 参数，
+  最终通过 <code>ExecuteIndirect</code> 按桶分发 Compute Shader，完全避免 CPU 干预。</p>
+</div>
+
+<h3 id="sec2_5">2.5 异步计算队列（AsyncCompute）</h3>
+
+<p>
+  异步计算允许 Compute Shader 工作与图形渲染并行执行，充分利用 GPU 的各单元。
+  UE5.8 中 AsyncCompute 被用于 MegaLights 采样降噪、Lumen 屏幕探针更新等任务。
+</p>
+
+<h4>D3D12 异步计算队列的创建</h4>
+
+<div class="code-block">
+<div class="code-header">
+  <span class="lang">C++</span>
+  <span class="path">Engine/Source/Runtime/D3D12RHI/Private/D3D12Device.cpp</span>
+  <button onclick="copyCode(this)" data-target="code-async-d3d12">复制代码</button>
+</div>
+<pre id="code-async-d3d12"><code><span class="ln"> 1</span><span class="cm">// D3D12 设备初始化时创建三种队列类型 (D3D12Device.cpp:43)</span>
+<span class="ln"> 2</span><span class="ty">FD3D12Queue</span>::<span class="fn">FD3D12Queue</span>(<span class="ty">FD3D12Device</span>* Device, <span class="ty">ED3D12QueueType</span> QueueType, ...)
+<span class="ln"> 3</span>    : <span class="fn">Device</span>(Device), <span class="fn">QueueType</span>(QueueType)
+<span class="ln"> 4</span>    , <span class="fn">Fence</span>(<span class="kw">this</span>)   <span class="cm">// 每个队列有自己的 Fence</span>
+<span class="ln"> 5</span>    , <span class="fn">ExecuteCommandListsFence</span>(<span class="kw">this</span>)
+<span class="ln"> 6</span>{
+<span class="ln"> 7</span>    <span class="ty">D3D12_COMMAND_QUEUE_DESC</span> CommandQueueDesc = {};
+<span class="ln"> 8</span>    CommandQueueDesc.<span class="id">Type</span> = <span class="fn">GetD3DCommandListType</span>(QueueType);
+<span class="ln"> 9</span>        <span class="cm">// Direct -> D3D12_COMMAND_LIST_TYPE_DIRECT</span>
+<span class="ln">10</span>        <span class="cm">// Async  -> D3D12_COMMAND_LIST_TYPE_COMPUTE</span>
+<span class="ln">11</span>        <span class="cm">// Copy   -> D3D12_COMMAND_LIST_TYPE_COPY</span>
+<span class="ln">12</span>
+<span class="ln">13</span>    <span class="cm">// 创建原生 D3D12 命令队列</span>
+<span class="ln">14</span>    <span class="ty">FD3D12DynamicRHI</span>::<span class="fn">GetD3DRHI</span>()-><span class="fn">CreateCommandQueue</span>(
+<span class="ln">15</span>        Device, CommandQueueDesc, D3DCommandQueue);
+<span class="ln">16</span>
+<span class="ln">17</span>    <span class="cm">// 为队列创建同步 Fence（GPU -> CPU 信号）</span>
+<span class="ln">18</span>    <span class="fn">VERIFYD3D12RESULT</span>(Device-><span class="fn">GetDevice</span>()-><span class="fn">CreateFence</span>(
+<span class="ln">19</span>        <span class="num">0</span>, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(Fence.D3DFence.GetInitReference())));
+<span class="ln">20</span>
+<span class="ln">21</span>    <span class="cm">// 为队列创建 ExecuteCommandLists 专用 Fence</span>
+<span class="ln">22</span>    <span class="fn">VERIFYD3D12RESULT</span>(Device-><span class="fn">GetDevice</span>()-><span class="fn">CreateFence</span>(
+<span class="ln">23</span>        <span class="num">0</span>, D3D12_FENCE_FLAG_NONE,
+<span class="ln">24</span>        IID_PPV_ARGS(ExecuteCommandListsFence.D3DFence.GetInitReference())));
+<span class="ln">25</span>}</code></pre>
+</div>
+
+<h4>Vulkan 中的异步计算队列选择</h4>
+
+<div class="code-block">
+<div class="code-header">
+  <span class="lang">C++</span>
+  <span class="path">Engine/Source/Runtime/VulkanRHI/Private/VulkanDevice.cpp</span>
+  <button onclick="copyCode(this)" data-target="code-async-vulkan">复制代码</button>
+</div>
+<pre id="code-async-vulkan"><code><span class="ln"> 1</span><span class="cm">// Vulkan 设备创建时的队列族选择 (VulkanDevice.cpp:356-375)</span>
+<span class="ln"> 2</span><span class="kw">if</span> (<span class="fn">VKHasAllFlags</span>(CurrProps.queueFlags, VK_QUEUE_COMPUTE_BIT))
+<span class="ln"> 3</span>{
+<span class="ln"> 4</span>    <span class="cm">// 同时满足以下条件才分配独立的异步计算队列:</span>
+<span class="ln"> 5</span>    <span class="cm">// 1. 尚未找到计算队列</span>
+<span class="ln"> 6</span>    <span class="cm">// 2. r.Vulkan.AllowAsyncCompute=1 或 ForceAsyncCompute 命令行</span>
+<span class="ln"> 7</span>    <span class="cm">// 3. 不在 DisableAsyncCompute 命令行模式</span>
+<span class="ln"> 8</span>    <span class="cm">// 4. 计算队列族与图形队列族不同（硬件在不同引擎上执行）</span>
+<span class="ln"> 9</span>    <span class="cm">// 5. 支持并行渲染 (Sync2)</span>
+<span class="ln">10</span>    <span class="cm">// 6. 支持 Maintenance9 扩展（允许多队列同步）</span>
+<span class="ln">11</span>    <span class="kw">if</span> ((ComputeQueueFamilyIndex == -<span class="num">1</span>) &&
+<span class="ln">12</span>        GRHIAllowAsyncComputeCvar.<span class="fn">GetValueOnAnyThread</span>() != <span class="num">0</span> &&
+<span class="ln">13</span>        !<span class="fn">FParse::Param</span>(<span class="fn">FCommandLine::Get</span>(), <span class="str">TEXT("DisableAsyncCompute")</span>) &&
+<span class="ln">14</span>        (GfxQueueFamilyIndex != FamilyIndex) &&
+<span class="ln">15</span>        <span class="fn">SupportsParallelRendering</span>() &&
+<span class="ln">16</span>        OptionalDeviceExtensions.HasKHRMaintenance9)
+<span class="ln">17</span>    {
+<span class="ln">18</span>        ComputeQueueFamilyIndex = FamilyIndex;
+<span class="ln">19</span>        bIsValidQueue = <span class="kw">true</span>;
+<span class="ln">20</span>    }
+<span class="ln">21</span>}</code></pre>
+</div>
+
+<h4>在渲染管线中使用 AsyncCompute</h4>
+
+<div class="code-block">
+<div class="code-header">
+  <span class="lang">C++</span>
+  <span class="path">Engine/Source/Runtime/D3D12RHI/Private/D3D12CommandContext.cpp</span>
+  <button onclick="copyCode(this)" data-target="code-async-use">复制代码</button>
+</div>
+<pre id="code-async-use"><code><span class="ln"> 1</span><span class="cm">// RHI 管线到 D3D12 队列的映射 (D3D12CommandContext.cpp:481-495)</span>
+<span class="ln"> 2</span><span class="ty">ERHIPipeline</span> <span class="ty">FD3D12ContextCommon</span>::<span class="fn">GetRHIPipeline</span>() <span class="kw">const</span>
+<span class="ln"> 3</span>{
+<span class="ln"> 4</span>    <span class="kw">switch</span> (QueueType)
+<span class="ln"> 5</span>    {
+<span class="ln"> 6</span>    <span class="kw">case</span> ED3D12QueueType::Direct:<span class="kw">return</span> ERHIPipeline::<span class="id">Graphics</span>;     <span class="cm">// 图形队列</span>
+<span class="ln"> 7</span>    <span class="kw">case</span> ED3D12QueueType::Async: <span class="kw">return</span> ERHIPipeline::<span class="id">AsyncCompute</span>; <span class="cm">// 异步计算</span>
+<span class="ln"> 8</span>    <span class="kw">default</span>: <span class="fn">checkNoEntry</span>(); <span class="kw">return</span> ERHIPipeline::<span class="id">None</span>;
+<span class="ln"> 9</span>    }
+<span class="ln">10</span>}
+<span class="ln">11</span>
+<span class="ln">12</span><span class="cm">// RDG Pass 可通过指定 ERHIPipeline::AsyncCompute 将工作调度到计算队列</span>
+<span class="ln">13</span><span class="cm">// 示例：MegaLights 降噪在异步计算队列上执行</span>
+<span class="ln">14</span><span class="cm">// GraphBuilder.AddPass(</span>
+<span class="ln">15</span><span class="cm">//     RDG_EVENT_NAME("MegaLights::Denoise"),</span>
+<span class="ln">16</span><span class="cm">//     ERDGPassFlags::Compute | ERDGPassFlags::AsyncCompute,</span>
+<span class="ln">17</span><span class="cm">//     ...);</span></code></pre>
+</div>
+
+<!-- ============================================== -->
+<!-- SECTION 3: 执行流程 / 数据流 -->
+<!-- ============================================== -->
+<h2 id="sec3">3. 执行流程 / 数据流</h2>
+
+<h3 id="sec3_1">3.1 命令录制完整流程</h3>
+
+<p>
+  UE 的命令从上层 RHI 调用到 GPU 物理执行经历了精心设计的多级管道。每个阶段对应不同的同步语义和生命周期：
+</p>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="card-title">1. RHI 接口调用</div>
+    <p>上层渲染代码通过 <code>FRHICommandList</code> 接口发出命令（<code>RHISetRenderTargets</code>、
+    <code>RHIDrawIndexedPrimitive</code>...）。命令被封装为 <code>FRHICommand</code> 派生类对象，
+    追加到 RHI 命令列表中等待执行。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">2. CommandContext 录制</div>
+    <p>RHI 命令被 Flush 到平台特定的 <code>FD3D12CommandContext</code> 或 <code>FVulkanCommandBufferManager</code>。
+    录制过程将 RHI 调用翻译为原生 D3D12/Vulkan API 调用，写入 <code>ID3D12GraphicsCommandList</code> 或 <code>VkCommandBuffer</code>。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">3. CommandList 关闭与提交</div>
+    <p>当命令积累到一定数量（<code>D3D12.MaxCommandsPerCommandList</code>，默认 10000）或遇到同步点时，
+    <code>CloseCommandList()</code> 关闭当前命令列表并将其加入 Payload 队列。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">4. ExecuteCommandLists</div>
+    <p><code>FD3D12Queue::ExecuteCommandLists()</code> 收集多个已关闭的命令列表，
+    一次性提交到 GPU 命令队列（<code>D3DCommandQueue->ExecuteCommandLists</code>）以最小化提交开销。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">5. GPU 执行</div>
+    <p>GPU 按提交顺序执行命令队列中的命令列表。期间 CPU 可以继续构建下一帧的渲染命令，
+    实现 CPU/GPU 并行。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">6. Fence 同步</div>
+    <p><code>ID3D12Fence::Signal</code> 告知 CPU 某批命令已完成。CPU 通过 <code>WaitForFence</code>
+    或轮询 <code>GetCompletedValue</code> 等待 GPU 完成特定工作，然后回收资源。</p>
+  </div>
+</div>
+
+<h3 id="sec3_2">3.2 RHI 到 GPU 完整时序图</h3>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 960 620" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrT" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4FC3F7"/></marker>
+    <marker id="arrT2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#909090"/></marker>
+    <marker id="arrTG" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#FFA726"/></marker>
+  </defs>
+
+  <rect x="0" y="0" width="960" height="620" fill="#0a0a0f" rx="8"/>
+
+  <text x="30" y="28" fill="#4FC3F7" font-size="13" font-weight="700">RHI 调用到 GPU 执行的时序图</text>
+
+  <!-- 三列标题 -->
+  <text x="130" y="58" fill="#e0e0e0" font-size="11" font-weight="600" text-anchor="middle">CPU: 渲染线程</text>
+  <text x="380" y="58" fill="#e0e0e0" font-size="11" font-weight="600" text-anchor="middle">CPU: RHI 线程</text>
+  <text x="780" y="58" fill="#FFA726" font-size="11" font-weight="600" text-anchor="middle">GPU</text>
+
+  <!-- 垂直生命线 -->
+  <line x1="130" y1="68" x2="130" y2="590" stroke="#4FC3F7" stroke-width="1" stroke-dasharray="4,4" opacity="0.3"/>
+  <line x1="380" y1="68" x2="380" y2="590" stroke="#4FC3F7" stroke-width="1" stroke-dasharray="4,4" opacity="0.3"/>
+  <line x1="780" y1="68" x2="780" y2="590" stroke="#FFA726" stroke-width="1" stroke-dasharray="4,4" opacity="0.3"/>
+
+  <!-- 时间向下的阶段划分 -->
+  <rect x="170" y="75" width="200" height="45" fill="rgba(79,195,247,0.06)" stroke="#1e1e28" rx="4"/>
+  <text x="270" y="105" fill="#909090" font-size="10" text-anchor="middle">RHI 接口调用</text>
+
+  <line x1="380" y1="75" x2="380" y2="145" stroke="#909090" stroke-width="1" opacity="0.3"/>
+
+  <!-- 箭头: Gfx -> RHI -->
+  <line x1="370" y1="92" x2="408" y2="92" stroke="#4FC3F7" stroke-width="1.2" marker-end="url(#arrT)"/>
+
+  <rect x="420" y="75" width="200" height="70" fill="rgba(79,195,247,0.06)" stroke="#1e1e28" rx="4"/>
+  <text x="520" y="95" fill="#909090" font-size="10" text-anchor="middle">OpenCommandList()</text>
+  <rect x="430" y="100" width="180" height="18" fill="#09090d" rx="2"/>
+  <text x="520" y="114" fill="#909090" font-size="8" text-anchor="middle">Device->ObtainCommandList()</text>
+  <text x="520" y="132" fill="#909090" font-size="10" text-anchor="middle">录制原生 D3D12 API 调用</text>
+
+  <line x1="380" y1="145" x2="380" y2="500" stroke="#909090" stroke-width="1" opacity="0.3"/>
+
+  <!-- RHI: 录制循环 -->
+  <rect x="420" y="150" width="200" height="180" fill="rgba(79,195,247,0.04)" stroke="#1e1e28" rx="4"/>
+  <text x="520" y="168" fill="#909090" font-size="10" text-anchor="middle">录制命令...</text>
+  <rect x="435" y="175" width="170" height="42" fill="#09090d" rx="2"/>
+  <text x="520" y="190" fill="#909090" font-size="8" text-anchor="middle">SetPipelineState / SetRootSignature</text>
+  <text x="520" y="204" fill="#909090" font-size="8" text-anchor="middle">SetVertexBuffers / DrawIndexed</text>
+  <rect x="435" y="222" width="170" height="42" fill="#09090d" rx="2"/>
+  <text x="520" y="237" fill="#909090" font-size="8" text-anchor="middle">SetComputeRootSignature / Dispatch</text>
+  <text x="520" y="251" fill="#909090" font-size="8" text-anchor="middle">ResourceBarrier / CopyResource</text>
+  <rect x="435" y="270" width="170" height="42" fill="#09090d" rx="2"/>
+  <text x="520" y="285" fill="#909090" font-size="8" text-anchor="middle">... 累计 ~10000 条 D3D12 命令</text>
+  <text x="520" y="299" fill="#909090" font-size="8" text-anchor="middle">达到 MaxCommandsPerCommandList</text>
+
+  <!-- 录制完成，关闭命令列表 -->
+  <line x1="380" y1="500" x2="380" y2="530" stroke="#909090" stroke-width="1" opacity="0.3"/>
+
+  <rect x="420" y="340" width="200" height="55" fill="rgba(79,195,247,0.08)" stroke="#4FC3F7" rx="4"/>
+  <text x="520" y="360" fill="#4FC3F7" font-size="10" font-weight="600" text-anchor="middle">CloseCommandList()</text>
+  <text x="520" y="378" fill="#909090" font-size="9" text-anchor="middle">FlushResourceBarriers()</text>
+  <text x="520" y="392" fill="#909090" font-size="9" text-anchor="middle">加入 Payload->CommandListsToExecute</text>
+
+  <!-- 提交 -->
+  <rect x="420" y="405" width="200" height="60" fill="rgba(255,167,38,0.08)" stroke="#FFA726" rx="4"/>
+  <text x="520" y="425" fill="#FFA726" font-size="10" font-weight="600" text-anchor="middle">ExecuteCommandLists()</text>
+  <text x="520" y="443" fill="#909090" font-size="9" text-anchor="middle">批量提交到 D3D 命令队列</text>
+  <text x="520" y="458" fill="#909090" font-size="9" text-anchor="middle">Queue->Signal(Fence, Value++)</text>
+
+  <!-- 箭头: RHI -> GPU -->
+  <line x1="620" y1="430" x2="770" y2="430" stroke="#FFA726" stroke-width="1.5" marker-end="url(#arrTG)"/>
+
+  <!-- GPU 执行 -->
+  <rect x="640" y="405" width="280" height="80" fill="rgba(255,167,38,0.06)" stroke="#FFA726" rx="4"/>
+  <text x="780" y="425" fill="#FFA726" font-size="12" font-weight="600" text-anchor="middle">GPU 执行</text>
+  <text x="780" y="445" fill="#909090" font-size="10" text-anchor="middle">按提交顺序处理命令队列</text>
+  <text x="780" y="463" fill="#909090" font-size="10" text-anchor="middle">PSO 切换 · 资源屏障 · Draw/Dispatch</text>
+
+  <!-- GPU 完成 -->
+  <line x1="780" y1="485" x2="780" y2="520" stroke="#FFA726" stroke-width="1" marker-end="url(#arrTG)"/>
+
+  <rect x="640" y="510" width="280" height="40" fill="rgba(102,187,106,0.08)" stroke="#66BB6A" rx="4"/>
+  <text x="780" y="535" fill="#66BB6A" font-size="10" font-weight="600" text-anchor="middle">Fence 信号: GetCompletedValue() 更新</text>
+
+  <!-- Fence 同步回 CPU -->
+  <line x1="640" y1="535" x2="420" y2="535" stroke="#909090" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrT2)"/>
+
+  <rect x="420" y="520" width="200" height="40" fill="rgba(102,187,106,0.06)" stroke="#66BB6A" rx="4"/>
+  <text x="520" y="545" fill="#66BB6A" font-size="10" font-weight="600" text-anchor="middle">WaitForFence() 解除阻塞</text>
+
+  <rect x="170" y="520" width="200" height="40" fill="rgba(102,187,106,0.06)" stroke="#66BB6A" rx="4"/>
+  <text x="270" y="545" fill="#66BB6A" font-size="10" font-weight="600" text-anchor="middle">回收资源 · 进入下一帧</text>
+
+  <!-- 底部图例 -->
+  <text x="270" y="590" fill="#909090" font-size="9" text-anchor="middle">CPU 控制流</text>
+  <rect x="320" y="582" width="14" height="14" fill="rgba(79,195,247,0.3)" stroke="#4FC3F7" stroke-width="1" rx="2"/>
+  <text x="560" y="590" fill="#909090" font-size="9" text-anchor="middle">RHI 录制流</text>
+  <rect x="620" y="582" width="14" height="14" fill="rgba(255,167,38,0.3)" stroke="#FFA726" stroke-width="1" rx="2"/>
+  <text x="810" y="590" fill="#909090" font-size="9" text-anchor="middle">GPU 执行 & 信号</text>
+  <rect x="870" y="582" width="14" height="14" fill="rgba(102,187,106,0.3)" stroke="#66BB6A" stroke-width="1" rx="2"/>
+</svg>
+<div class="caption">图 3: RHI 命令从 CPU 录制到 GPU 执行的完整时序图——展示 OpenCommandList -> 录制 -> CloseCommandList -> ExecuteCommandLists -> GPU 执行 -> Fence 同步的全链路</div>
+</div>
+
+<h3 id="sec3_3">3.3 同步机制</h3>
+
+<p>
+  UE5.8 的 RHI 同步系统包括三个层次，提供从粗粒度帧边界到细粒度管线切换的不同级别控制：
+</p>
+
+<table>
+<thead><tr><th>同步层级</th><th>机制</th><th>用途</th><th>开销</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>帧级同步</strong></td>
+  <td><code>FD3D12FrameFence</code> / <code>VkFence</code></td>
+  <td>确保帧 N 的 GPU 工作完成后才允许帧 N+2 重用其资源（双/三缓冲）</td>
+  <td><span class="tag tag-stat">低</span> 每帧一次</td>
+</tr>
+<tr>
+  <td><strong>跨队列同步</strong></td>
+  <td><code>FD3D12SyncPoint</code> (Signal/Wait) / <code>VkSemaphore</code></td>
+  <td>AsyncCompute 队列的结果在 Graphics 队列中使用前确保计算完成</td>
+  <td><span class="tag tag-gpu">中</span> 每 Pass 边界</td>
+</tr>
+<tr>
+  <td><strong>管线同步</strong></td>
+  <td><code>FD3D12ResourceBarrier</code> / <code>VkImageMemoryBarrier</code></td>
+  <td>资源从 UAV 写入切换到 SRV 读取、从 RenderTarget 切换到 ShaderResource 等</td>
+  <td><span class="tag tag-dyn">低~中</span> 按需插入</td>
+</tr>
+</tbody>
+</table>
+
+<div class="code-block">
+<div class="code-header">
+  <span class="lang">C++</span>
+  <span class="path">Engine/Source/Runtime/D3D12RHI/Private/D3D12CommandContext.cpp</span>
+  <button onclick="copyCode(this)" data-target="code-sync">复制代码</button>
+</div>
+<pre id="code-sync"><code><span class="ln"> 1</span><span class="cm">// 跨队列同步：WaitSyncPoint/SignalSyncPoint (D3D12CommandContext.cpp:239-263)</span>
+<span class="ln"> 2</span>
+<span class="ln"> 3</span><span class="cm">// Async Compute 完成光栅化后，Signal 到 Graphics 队列</span>
+<span class="ln"> 4</span><span class="kw">void</span> <span class="ty">FD3D12ContextCommon</span>::<span class="fn">SignalSyncPoint</span>(<span class="ty">FD3D12SyncPoint</span>* SyncPoint)
+<span class="ln"> 5</span>{
+<span class="ln"> 6</span>    <span class="kw">if</span> (<span class="fn">IsPendingCommands</span>())
+<span class="ln"> 7</span>        <span class="fn">CloseCommandList</span>();       <span class="cm">// 强制关闭当前列表</span>
+<span class="ln"> 8</span>
+<span class="ln"> 9</span>    <span class="ty">FD3D12Payload</span>* Payload = <span class="fn">GetPayload</span>(EPhase::Signal);
+<span class="ln">10</span>    Payload->SyncPointsToSignal.<span class="fn">Add</span>(SyncPoint);  <span class="cm">// 加入信号列表</span>
+<span class="ln">11</span>}
+<span class="ln">12</span>
+<span class="ln">13</span><span class="cm">// Graphics 队列在读取 Async Compute 结果前等待</span>
+<span class="ln">14</span><span class="kw">void</span> <span class="ty">FD3D12ContextCommon</span>::<span class="fn">WaitSyncPoint</span>(<span class="ty">FD3D12SyncPoint</span>* SyncPoint)
+<span class="ln">15</span>{
+<span class="ln">16</span>    <span class="kw">if</span> (<span class="fn">IsPendingCommands</span>())
+<span class="ln">17</span>        <span class="fn">CloseCommandList</span>();
+<span class="ln">18</span>
+<span class="ln">19</span>    <span class="ty">FD3D12Payload</span>* Payload = <span class="fn">GetPayload</span>(EPhase::Wait);
+<span class="ln">20</span>    Payload->SyncPointsToWait.<span class="fn">Add</span>(SyncPoint);
+<span class="ln">21</span>}
+<span class="ln">22</span>
+<span class="ln">23</span><span class="cm">// 手动 Fence 信号——用于跨设备 (MGPU) 同步</span>
+<span class="ln">24</span><span class="kw">void</span> <span class="ty">FD3D12ContextCommon</span>::<span class="fn">SignalManualFence</span>(
+<span class="ln">25</span>    <span class="ty">ID3D12Fence</span>* Fence, <span class="kw">uint64</span> Value)
+<span class="ln">26</span>{
+<span class="ln">27</span>    <span class="kw">if</span> (<span class="fn">IsPendingCommands</span>())
+<span class="ln">28</span>        <span class="fn">CloseCommandList</span>();
+<span class="ln">29</span>
+<span class="ln">30</span>    <span class="ty">FD3D12Payload</span>* Payload = <span class="fn">GetPayload</span>(EPhase::Signal);
+<span class="ln">31</span>    Payload->ManualFencesToSignal.<span class="fn">Emplace</span>(Fence, Value, <span class="kw">nullptr</span>);
+<span class="ln">32</span>}</code></pre>
+</div>
+
+<!-- ============================================== -->
+<!-- SECTION 4: 设计决策 & 权衡 -->
+<!-- ============================================== -->
+<h2 id="sec4">4. 设计决策 &amp; 权衡</h2>
+
+<h3 id="sec4_1">4.1 Bindless 资源模型：优势 vs 兼容性</h3>
+
+<p>
+  Bindless 资源是 UE5 渲染架构的核心革命。传统方式下，每个 DrawCall 需要绑定少量资源
+  （通常 8-16 个纹理 SRV），而 Bindless 允许 Shader 通过索引访问海量资源描述符，
+  极大减少了 CPU 端的状态切换开销。
+</p>
+
+<table>
+<thead><tr><th>维度</th><th>传统绑定 (DX11 风格)</th><th>Bindless (DX12/Vulkan)</th></tr></thead>
+<tbody>
+<tr>
+  <td>描述符数量</td>
+  <td>每 DrawCall 最多 200+ 个绑定（Root Signature 限制）</td>
+  <td>百万级描述符，Shader 内按需索引进阶访问</td>
+</tr>
+<tr>
+  <td>CPU 开销</td>
+  <td>每 DrawCall 都需要设置描述符表（SetDescriptorTable）</td>
+  <td>描述符预填充，Draw 期间零 CPU 操作</td>
+</tr>
+<tr>
+  <td>Shader 可见性</td>
+  <td>仅在绑定时可见的资源</td>
+  <td>整个描述符堆在 Shader 中可见，动态选择资源</td>
+</tr>
+<tr>
+  <td>材质系统</td>
+  <td>材质切换需要描述符写操作</td>
+  <td>材质参数只是一个描述符索引，切换成本极低</td>
+</tr>
+<tr>
+  <td>兼容性</td>
+  <td>所有 DX11+ 设备、所有 Vulkan 设备</td>
+  <td>需要 Bindless Tier 支持、Vulkan Descriptor Indexing</td>
+</tr>
+</tbody>
+</table>
+
+<div class="note">
+  <strong>UE5.8 实现要点：</strong>
+  <code>FD3D12BindlessDescriptorManager</code> 管理两种描述符类型：
+  <code>BindlessResourceManager</code>（SRV/UAV/CBV）和 <code>BindlessSamplerManager</code>（采样器）。
+  配置通过 <code>ERHIBindlessConfiguration</code> 决定：完全 Bindless、仅资源（AllResources）、仅采样器（AllSamplers）或禁用。
+  Vulkan 后端通过 <code>FVulkanBindlessDescriptorManager</code> 提供等效支持，额外支持 DescriptorBuffer 模式（VK_EXT_descriptor_buffer）。
+</div>
+
+<div class="compare-card">
+  <h4 class="pro">优势</h4>
+  <ul>
+    <li>CPU 描述符写入减少 90%+：所有资源在初始化时写入描述符堆，运行时仅更新脏项</li>
+    <li>DrawCall 状态切换成本接近零：Root Signature 只需一个 Bindless 描述符表</li>
+    <li>Shader 可自由访问任意资源：Nanite 材质着色根据 VisBuffer 中的 MaterialID 直接索引材质参数</li>
+    <li>支持 GPU-Driven 渲染：Shader 可在不通过 CPU 的情况下动态选择/分配资源</li>
+  </ul>
+</div>
+
+<div class="compare-card">
+  <h4 class="con">权衡</h4>
+  <ul>
+    <li>描述符堆内存消耗大：百万级描述符意味着数 GB 的 GPU 可寻址内存</li>
+    <li>部分硬件不支持：低端或旧硬件上需回退到传统绑定路径（<code>r.D3D12.Bindless</code> 控制）</li>
+    <li>调试困难：Shader 中的资源访问更难跟踪，GPU 崩溃后难以定位问题 Slot</li>
+    <li>D3D12 vs Vulkan 绑定方式差异大：一级抽象难以完全统一实现</li>
+  </ul>
+</div>
+
+<h3 id="sec4_2">4.2 PSO 缓存策略</h3>
+
+<p>管线状态对象 (PSO) 是现代图形 API 中开销最大的对象之一。UE5.8 采用分层缓存策略来管理 PSO 创建：</p>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="card-title">磁盘持久化缓存</div>
+    <p><code>VulkanChunkedPipelineCache</code> 和 D3D12 的 <code>FPipelineStateCache</code>
+    在磁盘上存储已编译的 PSO，跨运行复用。首次运行或驱动更新后失效，使用 Hash 验证一致性。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">预编译 (PSO Precaching)</div>
+    <p>材质加载阶段通过 <code>IPSOCollector::CollectPSOInitializers()</code>
+    接口预收集所有可能的 PSO 组合，异步编译。上线前通过 PSO 收集工具扫描关卡。
+    5.8 中 <code>FMeshPassProcessor</code> 继承此接口，支持所有 MeshPass 的 PSO 预热。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">运行时延迟创建</div>
+    <p>未预缓存的 PSO 在首次使用时同步创建，通过 <code>STAT_PSOGraphicsFindOrCreateTime</code>
+    和 <code>STAT_PSOComputeFindOrCreateTime</code> 统计追踪。使用完成后缓存以去除重复创建。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">Vulkan 分块缓存</div>
+    <p><code>FVulkanChunkedPipelineCache</code> 将管线缓存分割为多个块文件，
+    避免单一大文件导致的 I/O 瓶颈。支持增量的管线添加和 LRU 驱逐策略。</p>
+  </div>
+</div>
+
+<h3 id="sec4_3">4.3 Upload Heap 环形缓冲 vs 双重缓冲</h3>
+
+<p>CPU 向 GPU 上传数据（常量缓冲区、顶点数据等）需要 Upload Heap（D3D12_HEAP_TYPE_UPLOAD）。UE5.8 的 D3D12 后端提供了多种分配策略：</p>
+
+<table>
+<thead><tr><th>策略</th><th>实现</th><th>优势</th><th>劣势</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>DefaultBufferAllocator</strong></td>
+  <td>基于 GPUVA 的环形缓冲，Write-Combine 内存</td>
+  <td>低碎片、支持多 GPU 共享</td>
+  <td>需要 Fence 追踪写指针</td>
+</tr>
+<tr>
+  <td><strong>DefaultFastAllocator</strong></td>
+  <td>每帧分配的 Upload Heap 页（1024*1024*4 = 4MB 页）</td>
+  <td>延迟最低，适合临时数据</td>
+  <td>每帧需要新分配页</td>
+</tr>
+<tr>
+  <td><strong>TextureAllocator</strong></td>
+  <td>专用纹理资源分配器</td>
+  <td>纹理对齐和放置优化</td>
+  <td>仅用于纹理资源</td>
+</tr>
+</tbody>
+</table>
+
+<div class="code-block">
+<div class="code-header">
+  <span class="lang">C++</span>
+  <span class="path">Engine/Source/Runtime/D3D12RHI/Private/D3D12Device.cpp</span>
+  <button onclick="copyCode(this)" data-target="code-allocator">复制代码</button>
+</div>
+<pre id="code-allocator"><code><span class="ln"> 1</span><span class="cm">// FD3D12Device 构造中分配器的初始化 (D3D12Device.cpp:104)</span>
+<span class="ln"> 2</span><span class="ty">FD3D12Device</span>::<span class="fn">FD3D12Device</span>(...)
+<span class="ln"> 3</span>    : <span class="fn">DefaultBufferAllocator</span>(<span class="kw">this</span>, FRHIGPUMask::<span class="fn">All</span>())
+<span class="ln"> 4</span>    , <span class="fn">DefaultFastAllocator</span>(<span class="kw">this</span>, FRHIGPUMask::<span class="fn">All</span>(),
+<span class="ln"> 5</span>        D3D12_HEAP_TYPE_UPLOAD, <span class="num">1024 * 1024 * 4</span>)  <span class="cm">// 4MB 上传页</span>
+<span class="ln"> 6</span>    , <span class="fn">TextureAllocator</span>(<span class="kw">this</span>, FRHIGPUMask::<span class="fn">All</span>())
+<span class="ln"> 7</span>{
+<span class="ln"> 8</span>    <span class="cm">// ... 描述符管理器初始化 ...</span>
+<span class="ln"> 9</span>
+<span class="ln">10</span>    <span class="cm">// Bindless 完全启用时，全局描述符堆设为 0（不需要显式堆）</span>
+<span class="ln">11</span>    <span class="kw">const bool</span> bFullyBindless = <span class="fn">IsBindlessFullyEnabled</span>(Config);
+<span class="ln">12</span>    <span class="fn">DescriptorHeapManager</span>.<span class="fn">Init</span>(
+<span class="ln">13</span>        bFullyBindless ? <span class="num">0</span> : GGlobalResourceDescriptorHeapSize,
+<span class="ln">14</span>        bFullyBindless ? <span class="num">0</span> : GGlobalSamplerDescriptorHeapSize);
+<span class="ln">15</span>}</code></pre>
+</div>
+
+<h3 id="sec4_4">4.4 光线追踪抽象层次</h3>
+
+<p>UE5.8 的光线追踪在 DXR（DX12）和 VK_KHR_ray_tracing（Vulkan）之上建立了统一的抽象：</p>
+
+<table>
+<thead><tr><th>抽象层</th><th>DX12 DXR 实现</th><th>Vulkan RT 实现</th></tr></thead>
+<tbody>
+<tr>
+  <td>加速结构构建</td>
+  <td><code>ID3D12GraphicsCommandList4::BuildRaytracingAccelerationStructure</code></td>
+  <td><code>vkCmdBuildAccelerationStructuresKHR</code></td>
+</tr>
+<tr>
+  <td>着色器表 (SBT)</td>
+  <td><code>ID3D12StateObjectProperties::GetShaderIdentifier</code></td>
+  <td><code>vkGetRayTracingShaderGroupHandlesKHR</code></td>
+</tr>
+<tr>
+  <td>DispatchRays</td>
+  <td><code>D3D12_DISPATCH_RAYS_DESC</code> + <code>DispatchRays</code></td>
+  <td><code>VkStridedDeviceAddressRegionKHR</code> + <code>vkCmdTraceRaysKHR</code></td>
+</tr>
+<tr>
+  <td>内联光线追踪</td>
+  <td><code>RayQuery (DXR 1.1)</code></td>
+  <td><code>VK_KHR_ray_query</code></td>
+</tr>
+</tbody>
+</table>
+
+<div class="note">
+  <strong>UE 统一封装：</strong> 上层代码通过 <code>FRayTracingGeometry</code>、<code>FRayTracingScene</code>、
+  <code>FRayTracingPipelineState</code> 等跨平台类型操作。D3D12 后端中的 <code>FD3D12RayTracingPipelineState</code>
+  管理 RayGen/Miss/HitGroup 三种着色器库，Vulkan 后端等效封装这些概念。
+  DispatchRays 的参数缓冲区（<code>D3D12_DISPATCH_RAYS_DESC</code>）通过
+  <code>FD3D12Device::DispatchRaysDescBuffer</code> 以 Indirect Buffer 形式管理。
+</div>
+
+<!-- ============================================== -->
+<!-- SECTION 5: 底层实现关联 -->
+<!-- ============================================== -->
+<h2 id="sec5">5. 底层实现关联</h2>
+
+<h3 id="sec5_1">5.1 D3D12 CommandList 管理</h3>
+
+<p>
+  <code>FD3D12DynamicRHI</code> 对 <code>ID3D12GraphicsCommandList</code> 的管理
+  遵循"从池中获取 -> 录制 -> 提交 -> 回收"的生命周期模式。
+  本节基于 <code>D3D12Device.cpp</code> 和 <code>D3D12CommandContext.cpp</code> 源码说明其实现。
+</p>
+
+<h4>命令列表获取与录制</h4>
+
+<div class="code-block">
+<div class="code-header">
+  <span class="lang">C++</span>
+  <span class="path">Engine/Source/Runtime/D3D12RHI/Private/D3D12CommandContext.cpp</span>
+  <button onclick="copyCode(this)" data-target="code-cmdlist">复制代码</button>
+</div>
+<pre id="code-cmdlist"><code><span class="ln"> 1</span><span class="cm">// 打开命令列表——从池中获取或重新分配 (D3D12CommandContext.cpp:348-367)</span>
+<span class="ln"> 2</span><span class="kw">void</span> <span class="ty">FD3D12ContextCommon</span>::<span class="fn">OpenCommandList</span>()
+<span class="ln"> 3</span>{
+<span class="ln"> 4</span>    <span class="kw">if</span> (CommandAllocator == <span class="kw">nullptr</span>)
+<span class="ln"> 5</span>    {
+<span class="ln"> 6</span>        <span class="cm">// 从设备获取命令分配器（可复用或新建）</span>
+<span class="ln"> 7</span>        CommandAllocator = Device-><span class="fn">ObtainCommandAllocator</span>(QueueType);
+<span class="ln"> 8</span>    }
+<span class="ln"> 9</span>
+<span class="ln">10</span>    <span class="cm">// 获取命令列表，绑定分配器</span>
+<span class="ln">11</span>    CommandList = Device-><span class="fn">ObtainCommandList</span>(CommandAllocator,
+<span class="ln">12</span>        &TimestampQueries, &PipelineStatsQueries);
+<span class="ln">13</span>    <span class="ty">FD3D12Payload</span>* Payload = <span class="fn">GetPayload</span>(EPhase::Execute);
+<span class="ln">14</span>    Payload->CommandListsToExecute.<span class="fn">Add</span>(CommandList);
+<span class="ln">15</span>}
+<span class="ln">16</span>
+<span class="ln">17</span><span class="cm">// 关闭命令列表——刷新障碍并结束录制 (D3D12CommandContext.cpp:378-399)</span>
+<span class="ln">18</span><span class="kw">void</span> <span class="ty">FD3D12ContextCommon</span>::<span class="fn">CloseCommandList</span>()
+<span class="ln">19</span>{
+<span class="ln">20</span>    <span class="cm">// 确保所有资源屏障已刷新到命令列表中</span>
+<span class="ln">21</span>    <span class="fn">FlushResourceBarriers</span>();
+<span class="ln">22</span>
+<span class="ln">23</span>    <span class="ty">FD3D12Payload</span>* Payload = <span class="fn">GetPayload</span>(EPhase::Execute);
+<span class="ln">24</span>    CommandList-><span class="fn">Close</span>();
+<span class="ln">25</span>    CommandList = <span class="kw">nullptr</span>;
+<span class="ln">26</span>
+<span class="ln">27</span>    <span class="cm">// 关闭并重置查询分配器</span>
+<span class="ln">28</span>    TimestampQueries    .<span class="fn">CloseAndReset</span>(Payload->BatchedObjects.QueryRanges);
+<span class="ln">29</span>    OcclusionQueries    .<span class="fn">CloseAndReset</span>(Payload->BatchedObjects.QueryRanges);
+<span class="ln">30</span>    PipelineStatsQueries.<span class="fn">CloseAndReset</span>(Payload->BatchedObjects.QueryRanges);
+<span class="ln">31</span>}</code></pre>
+</div>
+
+<h4>Payload 提交模型</h4>
+
+<p>
+  D3D12 后端使用 <strong>Payload</strong> 模型来管理异步提交。
+  每个 Payload 对应一次 <code>ExecuteCommandLists</code> 调用，
+  可以包含一个或多个命令列表。Payload 在上下文 Finalize 时装配，
+  在 Queue::Execute() 时提交给 GPU：
+</p>
+
+<div class="code-block">
+<div class="code-header">
+  <span class="lang">C++</span>
+  <span class="path">Engine/Source/Runtime/D3D12RHI/Private/D3D12CommandContext.cpp</span>
+  <button onclick="copyCode(this)" data-target="code-payload">复制代码</button>
+</div>
+<pre id="code-payload"><code><span class="ln"> 1</span><span class="cm">// 上下文的 Finalize——将所有 Payload 移出并准备提交</span>
+<span class="ln"> 2</span><span class="kw">void</span> <span class="ty">FD3D12CommandContext</span>::<span class="fn">Finalize</span>(<span class="ty">TArray</span>&lt;<span class="ty">FD3D12Payload</span>*&gt;& OutPayloads)
+<span class="ln"> 3</span>{
+<span class="ln"> 4</span>    <span class="cm">// Finalize Bindless 管理器（刷新挂起的描述符更新）</span>
+<span class="ln"> 5</span>    <span class="fn">GetParentDevice</span>()-><span class="fn">GetBindlessDescriptorManager</span>()
+<span class="ln"> 6</span>        .<span class="fn">FinalizeContext</span>(*<span class="kw">this</span>);
+<span class="ln"> 7</span>
+<span class="ln"> 8</span>    <span class="cm">// 刷新 GPU 性能统计</span>
+<span class="ln"> 9</span>    <span class="fn">FlushProfilerStats</span>();
+<span class="ln">10</span>
+<span class="ln">11</span>    <span class="fn">FD3D12ContextCommon::Finalize</span>(OutPayloads);
+<span class="ln">12</span>}</code></pre>
+</div>
+
+<h3 id="sec5_2">5.2 Vulkan 描述符集分配策略</h3>
+
+<p>
+  Vulkan 的描述符集 (Descriptor Set) 管理比 D3D12 的 Descriptor Heap 更加细粒度。
+  UE5.8 的 Vulkan 后端采用了三层策略：
+</p>
+
+<table>
+<thead><tr><th>层</th><th>实现</th><th>说明</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>VkDescriptorPool</strong></td>
+  <td>每个 <code>FVulkanDescriptorPool</code> 预分配一批描述符集</td>
+  <td>池中获取描述符集避免频繁调用 vkAllocateDescriptorSets。池耗尽时创建新池。</td>
+</tr>
+<tr>
+  <td><strong>FVulkanDescriptorSetWriter</strong></td>
+  <td>封装 <code>VkWriteDescriptorSet</code> 数组写入</td>
+  <td>支持范围写入（部分更新）和脏标记追踪，避免完整重写描述符集。</td>
+</tr>
+<tr>
+  <td><strong>FVulkanBindlessDescriptorManager</strong></td>
+  <td>全局描述符堆 + Descriptor Buffer 双模式</td>
+  <td>Descriptor Heap 模式 (VK_EXT_descriptor_indexing) 或 Descriptor Buffer 模式 (VK_EXT_descriptor_buffer) 自适应选择。</td>
+</tr>
+</tbody>
+</table>
+
+<div class="note">
+  <strong>Vulkan 特有优势：</strong>
+  <ul>
+    <li><strong>Descriptor Buffer (5.8 新特性):</strong> 通过 <code>VK_EXT_descriptor_buffer</code> 绕过 VkDescriptorSet 模型，直接将描述符数据以 Buffer 形式上传，与 D3D12 的 GPU-Visible Descriptor Heap 有更多相似之处，简化跨 API 抽象。</li>
+    <li><strong>Push Descriptor:</strong> 对于少量资源的场景，使用 <code>vkCmdPushDescriptorSetKHR</code> 避免 VkDescriptorSet 分配开销。</li>
+    <li><strong>Pipeline Layout 兼容性:</strong> 通过共享兼容的 Pipeline Layout，多个 PSO 可以共享同一描述符集，避免切换 PSO 时需要重新绑定。</li>
+  </ul>
+</div>
+
+<h3 id="sec5_3">5.3 D3D12 资源屏障</h3>
+
+<p>
+  资源屏障是显式 GPU 资源管理中最复杂的部分。UE5.8 同时支持 Legacy Barriers 和新引入的 Enhanced Barriers：
+</p>
+
+<div class="code-block">
+<div class="code-header">
+  <span class="lang">C++</span>
+  <span class="path">Engine/Source/Runtime/D3D12RHI/Private/D3D12EnhancedBarriers.cpp</span>
+  <button onclick="copyCode(this)" data-target="code-barrier">复制代码</button>
+</div>
+<pre id="code-barrier"><code><span class="ln"> 1</span><span class="cm">// Enhanced Barriers 转换数据结构 (D3D12EnhancedBarriers.cpp:46-50)</span>
+<span class="ln"> 2</span><span class="kw">struct</span> <span class="ty">FD3D12EnhancedBarriersTransitionData</span>
+<span class="ln"> 3</span>{
+<span class="ln"> 4</span>    <span class="ty">ERHIPipeline</span> SrcPipelines, DstPipelines;  <span class="cm">// 源/目标管线</span>
+<span class="ln"> 5</span>    <span class="ty">ERHITransitionCreateFlags</span> CreateFlags;     <span class="cm">// 转换标志</span>
+<span class="ln"> 6</span>
+<span class="ln"> 7</span>    <span class="cm">// 5.8 Enhanced Barriers 平台兼容性工作区注释:</span>
+<span class="ln"> 8</span>    <span class="cm">// @TODO - EB 规范中存在漏洞: Async 和 Graphics 管线同时读取时</span>
+<span class="ln"> 9</span>    <span class="cm">//   没有有效的布局来表示包含 Graphics 专用访问位 (如 DEPTH_STENCIL_READ)</span>
+<span class="ln">10</span>    <span class="cm">//   的多管线读取。这使得 Async Compute 使用时的验证层不可用。</span>
+<span class="ln">11</span>    <span class="cm">//   See: PLATFORM_REQUIRES_ENHANCED_BARRIERS_GFX_ONLY_READ_BITS_HACK</span>
+<span class="ln">12</span>
+<span class="ln">13</span>    <span class="cm">// @TODO - EB 规范不一致: D3D12_BARRIER_ACCESS_RAYTRACING_AS_WRITE</span>
+<span class="ln">14</span>    <span class="cm">//   与 D3D12_BARRIER_SYNC_RAYTRACING 的兼容性在 Windows 验证层中报错</span>
+<span class="ln">15</span>    <span class="cm">//   See: PLATFORM_REQUIRES_SYNC_RAYTRACING_NOT_COMPATIBLE_WITH_ACCESS_AS_WRITE</span>
+<span class="ln">16</span>};</code></pre>
+</div>
+
+<h4>屏障批处理策略</h4>
+
+<p>
+  <code>FD3D12EnhancedBarriersBatcher</code> 是 5.8 中 Enhanced Barriers 的核心优化类。
+  它将多个资源转换合并到一次 API 调用中，支持三种屏障类型：
+</p>
+
+<ul>
+  <li><strong>GlobalBarriers</strong> — 全 GPU 范围的内存/缓存屏障（例如 UAV Barrier）</li>
+  <li><strong>TextureBarriers</strong> — 纹理布局转换（RenderTarget -> ShaderResource）</li>
+  <li><strong>BufferBarriers</strong> — 缓冲区状态转换（UAV -> SRV）</li>
+</ul>
+
+<!-- ============================================== -->
+<!-- SECTION 6: UE5.8 演进变化 -->
+<!-- ============================================== -->
+<h2 id="sec6">6. UE5.8 演进变化</h2>
+
+<h3 id="sec6_1">6.1 D3D12 Enhanced Barriers</h3>
+
+<p>
+  UE5.8 对 D3D12 Enhanced Barriers 的支持是 DX12 后端最显著的新变化。
+  这是 Microsoft 在 Agility SDK 1.610+ 中引入的新屏障 API，旨在替代
+  <code>ResourceBarrier</code> 旧模型。
+</p>
+
+<div class="code-block">
+<div class="code-header">
+  <span class="lang">C++</span>
+  <span class="path">Engine/Source/Runtime/D3D12RHI/Private/D3D12Adapter.cpp</span>
+  <button onclick="copyCode(this)" data-target="code-eb">复制代码</button>
+</div>
+<pre id="code-eb"><code><span class="ln"> 1</span><span class="cm">// 屏障实现类型选择 (D3D12Adapter.cpp:1236-1274)</span>
+<span class="ln"> 2</span><span class="kw">bool</span> bEnhancedBarriersSupported = <span class="kw">false</span>;
+<span class="ln"> 3</span><span class="mac">#if D3D12RHI_SUPPORTS_ENHANCED_BARRIERS</span>
+<span class="ln"> 4</span>{
+<span class="ln"> 5</span>    <span class="cm">// 查询 D3D12 选项 12——Enhanced Barriers 驱动支持</span>
+<span class="ln"> 6</span>    <span class="ty">D3D12_FEATURE_DATA_D3D12_OPTIONS12</span> options12 = {};
+<span class="ln"> 7</span>    <span class="kw">if</span> (<span class="fn">SUCCEEDED</span>(RootDevice-><span class="fn">CheckFeatureSupport</span>(
+<span class="ln"> 8</span>        D3D12_FEATURE_D3D12_OPTIONS12,
+<span class="ln"> 9</span>        &options12, <span class="kw">sizeof</span>(options12))))
+<span class="ln">10</span>    {
+<span class="ln">11</span>        bEnhancedBarriersSupported = options12.EnhancedBarriersSupported;
+<span class="ln">12</span>    }
+<span class="ln">13</span>}
+<span class="ln">14</span><span class="mac">#endif</span>
+<span class="ln">15</span>
+<span class="ln">16</span><span class="cm">// 自动选择最优实现——优先 Enhanced，回退到 Legacy</span>
+<span class="ln">17</span>PreferredBarrierImplType = [bEnhancedBarriersSupported]()
+<span class="ln">18</span>{
+<span class="ln">19</span>    ED3D12BarrierImplementationType CVarImplType =
+<span class="ln">20</span>        <span class="fn">GetImplementationTypeFromCVarValue</span>(GPreferredBarrierImplementation);
+<span class="ln">21</span>    <span class="kw">switch</span> (CVarImplType)
+<span class="ln">22</span>    {
+<span class="ln">23</span>    <span class="kw">case</span> ED3D12BarrierImplementationType::Invalid:
+<span class="ln">24</span>        <span class="kw">return</span> bEnhancedBarriersSupported ?
+<span class="ln">25</span>            ED3D12BarrierImplementationType::Enhanced :
+<span class="ln">26</span>            ED3D12BarrierImplementationType::Legacy;
+<span class="ln">27</span>    <span class="kw">default</span>: <span class="kw">return</span> CVarImplType;
+<span class="ln">28</span>    }
+<span class="ln">29</span>}();</code></pre>
+</div>
+
+<table>
+<thead><tr><th>变化维度</th><th>Legacy Barriers</th><th>Enhanced Barriers (5.8 新增)</th></tr></thead>
+<tbody>
+<tr>
+  <td>API</td>
+  <td><code>ID3D12GraphicsCommandList::ResourceBarrier</code></td>
+  <td><code>ID3D12GraphicsCommandList7::Barrier</code></td>
+</tr>
+<tr>
+  <td>语义</td>
+  <td>状态转换为主 (BEFORE_State -> AFTER_State)</td>
+  <td>同步 + 访问为主 (SYNC + ACCESS + LAYOUT)</td>
+</tr>
+<tr>
+  <td>纹理布局</td>
+  <td>隐式（合并到状态中）</td>
+  <td>显式 <code>D3D12_BARRIER_LAYOUT</code></td>
+</tr>
+<tr>
+  <td>队列所有权</td>
+  <td>通过状态隐含</td>
+  <td>显式 <code>D3D12_BARRIER_SYNC</code> 组和 <code>D3D12_BARRIER_ACCESS</code> 位</td>
+</tr>
+<tr>
+  <td>批处理</td>
+  <td>逐个数据项</td>
+  <td>批量 Barrier Group (<code>D3D12_BARRIER_GROUP</code>)</td>
+</tr>
+<tr>
+  <td>支持条件</td>
+  <td>所有 DX12 设备</td>
+  <td>需要 Agility SDK + 驱动支持</td>
+</tr>
+</tbody>
+</table>
+
+<div class="note">
+  <strong>影响范围：</strong>
+  Enhanced Barriers 对 VRS (Variable Rate Shading) 和 Ray Tracing 管线有特别优化。
+  旧的 Legacy Barriers 中，VRS 和 RT Acceleration Structure 的状态转换需要额外处理；
+  Enhanced Barriers 通过显式的 <code>SYNC</code>/<code>ACCESS</code>/<code>LAYOUT</code> 三参数模型，
+  消除了这些特殊处理。然而当前 Beta 版仍存在规范漏洞（如多管线同时读取的布局表示），
+  UE 代码中以 <code>PLATFORM_REQUIRES_ENHANCED_BARRIERS_GFX_ONLY_READ_BITS_HACK</code>
+  等平台工作区注释标记。
+</div>
+
+<h3 id="sec6_2">6.2 Vulkan Ray Tracing 完整支持</h3>
+
+<p>
+  UE5.8 对 Vulkan 光线追踪提供了完整的生产级支持，不再是实验性功能：
+</p>
+
+<ul>
+  <li><strong>完整 RT Pipeline 创建：</strong> 通过 <code>VK_KHR_ray_tracing_pipeline</code> 创建完整的光线追踪管线状态，
+    替代了早期的单独着色器绑定方式。</li>
+  <li><strong>加速结构优化：</strong> 支持 <code>VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR</code>
+    和 <code>VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR</code> 的自动选择。</li>
+  <li><strong>内联 RT：</strong> 通过 <code>VK_KHR_ray_query</code> 在已有的 Compute/Graphics 着色器中发起光线查询，
+    无需创建独立的 Ray Tracing Pipeline。</li>
+  <li><strong>Vulkan Ray Tracing 扩展检测：</strong> 在 <code>VulkanDevice.cpp</code> 的
+    <code>FVulkanDevice::CreateDevice()</code> 中通过 <code>FVulkanDeviceExtension</code> 数组自动发现和启用
+    所有可用的 RT 扩展。</li>
+</ul>
+
+<h3 id="sec6_3">6.3 Work Graph 前瞻</h3>
+
+<p>
+  D3D12 Work Graphs 是 Microsoft 在 Agility SDK 1.610+ 中引入的 GPU 自主调度系统。
+  它允许 GPU 在没有 CPU 参与的情况下决定"接下来执行什么工作"——类似于 GPU 端的动态任务图。
+</p>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="card-title">Work Graph 概念</div>
+    <p>传统模型中 CPU 指定绘制顺序和 Dispatch 参数。Work Graph 中，GPU 节点（Node）产生输出记录，
+    驱动下游节点的 Dispatch。节点可以链式连接形成有向无环图（DAG），实现 GPU 自驱动的管线。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">与 Nanite 的契合点</div>
+    <p>Nanite 的 GPU Culling -> Raster -> Shade Binning -> Dispatch 管线中，
+    目前阶段间仍需要 CPU 提交 <code>ExecuteIndirect</code>。Work Graph 可以让这些阶段完全连成 GPU 自驱动管道，
+    消除最后剩余的 CPU-GPU 同步点。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">UE5.8 中的状态</div>
+    <p>UE5.8 中 Work Graph 通过 <code>D3D12RHI_SUPPORTS_WORK_GRAPHS</code> 宏控制编译，
+    支持 D3D12 Work Graph 1.0 规范的实验性实现。当前 API 在 <code>D3D12WorkGraphs.h</code> 中定义。
+    Vulkan 侧有 <code>VK_AMDX_shader_enqueue</code> (AMD) 作为对应的扩展，
+    但由于仅为 AMD 厂商扩展，通用性有限。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">挑战</div>
+    <p>调试 GPU 自驱动工作流困难（无 CPU 切入点）、与现有 PSO 系统集成复杂、
+    需要驱动/硬件层面的节点调度支持。在 DX12 生态成熟前，
+    这仍是前瞻性技术而非生产功能。</p>
+  </div>
+</div>
+
+<!-- ============================================== -->
+<!-- CVar 速查表 -->
+<!-- ============================================== -->
+<h2 id="sec7">CVar 速查表</h2>
+
+<table class="cvar-table">
+<thead><tr><th>CVar</th><th>默认</th><th>平台</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>r.D3D12.GPUTimeout</code></td><td>1</td><td>DX12</td><td>0 = 禁用 GPU 超时（可能导致死机），1 = 启用超时</td></tr>
+<tr><td><code>r.D3D12.AllowAsyncCompute</code></td><td>1</td><td>DX12</td><td>0 = 禁用 Async Compute 队列，1 = 启用</td></tr>
+<tr><td><code>D3D12.MaxCommandsPerCommandList</code></td><td>10000</td><td>DX12</td><td>命令列表最大命令数，超过后自动 Flush</td></tr>
+<tr><td><code>r.D3D12.Bindless</code></td><td>自动</td><td>DX12</td><td>Bindless 配置：0=禁用, 1=AllResources, 2=AllSamplers, 3=完全</td></tr>
+<tr><td><code>r.D3D12.BarrierImplementation</code></td><td>自动</td><td>DX12</td><td>0=自动(Enhanced优先), 1=Legacy, 2=Enhanced</td></tr>
+<tr><td><code>d3d12.ReservedResourceHeapSizeMB</code></td><td>16</td><td>DX12</td><td>Reserved Resource 后备堆大小 (MB)</td></tr>
+<tr><td><code>D3D12.UnsafeCrossGPUTransfers</code></td><td>true</td><td>DX12</td><td>禁用跨 GPU 传输同步以保证性能（牺牲验证正确性）</td></tr>
+<tr><td><code>D3D12.EmitRgpFrameMarkers</code></td><td>0</td><td>DX12</td><td>为 AMD RGP 性能工具发出帧标记</td></tr>
+<tr><td><code>r.Vulkan.AllowAsyncCompute</code></td><td>1</td><td>Vulkan</td><td>0 = 禁用异步计算队列</td></tr>
+<tr><td><code>r.Vulkan.AllowTransferQueue</code></td><td>0</td><td>Vulkan</td><td>1 = 启用独立传输队列</td></tr>
+<tr><td><code>r.Vulkan.AllowPresentOnComputeQueue</code></td><td>0</td><td>Vulkan</td><td>1 = 允许在计算队列上呈现</td></tr>
+<tr><td><code>r.Vulkan.RobustBufferAccess</code></td><td>1</td><td>Vulkan</td><td>0 = 禁用稳健缓冲区访问</td></tr>
+<tr><td><code>r.Vulkan.Depth24Bit</code></td><td>0</td><td>Vulkan</td><td>1 = 使用 24-bit 定点深度（默认 32-bit 浮点）</td></tr>
+<tr><td><code>r.Vulkan.TempBlockSizeKB</code></td><td>4096</td><td>Vulkan</td><td>临时分配块大小 (KB)</td></tr>
+<tr><td><code>r.Vulkan.UseMinimalSubmits</code></td><td>0</td><td>Vulkan</td><td>1 = 在单队列环境中减少提交次数</td></tr>
+<tr><td><code>r.Vulkan.DelayAcquireBackBuffer</code></td><td>1</td><td>Vulkan</td><td>1 = 延迟获取后台缓冲（呈现前才获取）</td></tr>
+</tbody>
+</table>
+
+<!-- ============================================== -->
+<!-- Bottom Navigation -->
+<!-- ============================================== -->
+<div class="bottom-nav">
+  <a href="../光源和阴影/index.html" class="prev">
+    <span class="dir">&#8592; 上一章</span>
+    <span class="title">光源和阴影</span>
+  </a>
+  <a href="../Nanite和Lumen/index.html" class="next">
+    <span class="dir">下一章 &#8594;</span>
+    <span class="title">Nanite 和 Lumen</span>
+  </a>
+</div>
+
+</div><!-- /.content -->
+</div><!-- /.main -->
+
+<!-- ===== JavaScript ===== -->
+<script>
+// 侧边栏滚动高亮
+(function(){
+  const nav = document.getElementById('sidebarNav');
+  const links = nav.querySelectorAll('a');
+  const sections = [];
+  links.forEach(a => {
+    const id = a.getAttribute('href');
+    if (id && id.startsWith('#')) {
+      const el = document.getElementById(id.substring(1));
+      if (el) sections.push({ el, link: a });
+    }
+  });
+  function update() {
+    let current = null;
+    const scrollY = window.scrollY + 120;
+    for (let i = sections.length - 1; i >= 0; i--) {
+      if (sections[i].el.offsetTop <= scrollY) { current = sections[i]; break; }
+    }
+    links.forEach(a => a.classList.remove('active'));
+    if (current) current.link.classList.add('active');
+  }
+  window.addEventListener('scroll', update, { passive: true });
+  update();
+})();
+
+// 章节内搜索
+function doSearch() {
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  if (!q) { clearHighlights(); return; }
+
+  const content = document.getElementById('mainContent');
+  clearHighlights();
+
+  const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, null, false);
+  const textNodes = [];
+  while (walker.nextNode()) {
+    if (walker.currentNode.parentElement.closest('pre,code,.code-header,script,style,noscript')) continue;
+    textNodes.push(walker.currentNode);
+  }
+
+  let firstMatch = null;
+  textNodes.forEach(node => {
+    const text = node.textContent.toLowerCase();
+    const idx = text.indexOf(q);
+    if (idx !== -1) {
+      const range = document.createRange();
+      range.setStart(node, idx);
+      range.setEnd(node, idx + q.length);
+
+      const span = document.createElement('span');
+      span.className = 'search-hl';
+      range.surroundContents(span);
+
+      if (!firstMatch) firstMatch = span;
+    }
+  });
+
+  if (firstMatch) {
+    firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function clearHighlights() {
+  document.querySelectorAll('.search-hl').forEach(el => {
+    const parent = el.parentNode;
+    while (el.firstChild) {
+      parent.insertBefore(el.firstChild, el);
+    }
+    parent.removeChild(el);
+  });
+}
+
+// 代码复制按钮
+function copyCode(btn) {
+  const targetId = btn.getAttribute('data-target');
+  const codeBlock = document.getElementById(targetId);
+  if (!codeBlock) return;
+
+  const text = codeBlock.innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    const originalText = btn.textContent;
+    btn.textContent = '已复制!';
+    btn.style.color = '#66BB6A';
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.style.color = '';
+    }, 1500);
+  }).catch(() => {
+    btn.textContent = '复制失败';
+    setTimeout(() => { btn.textContent = '复制代码'; }, 1500);
+  });
+}
+</script>
+
+</body>
+</html>

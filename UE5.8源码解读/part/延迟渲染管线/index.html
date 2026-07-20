@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UE5.8.0 延迟渲染管线 — 从 PrePass 到 PostProcess 的完整帧内流程</title>
+<style>
+/* ========== 基础重置与变量 ========== */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--card:#131318;--code:#09090d;--accent:#4FC3F7;
+  --text:#e0e0e0;--sub:#909090;--border:#1e1e28;
+  --bg-hover:#1a1a24;--bg-active:#222230;
+  --ok:#66BB6A;--warn:#FFA726;--err:#EF5350;--info:#42A5F5;
+}
+html{font-size:15px;scroll-behavior:smooth}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);line-height:1.72;display:flex;min-height:100vh}
+/* ========== 左侧大纲导航 ========== */
+#sidebar{position:fixed;top:0;left:0;width:240px;height:100vh;background:var(--card);border-right:1px solid var(--border);overflow-y:auto;z-index:100;padding:20px 0;font-size:0.88rem}
+#sidebar h3{padding:0 20px 12px;color:var(--accent);font-size:1.05rem;font-weight:600}
+#sidebar nav{display:flex;flex-direction:column}
+#sidebar a{display:block;padding:6px 20px;color:var(--sub);text-decoration:none;border-left:3px solid transparent;transition:all .15s;font-size:0.82rem}
+#sidebar a:hover,#sidebar a.active{color:var(--text);background:var(--bg-hover);border-left-color:var(--accent)}
+#sidebar a.sub{padding-left:36px;font-size:0.78rem}
+/* ========== 主内容区 ========== */
+#content{margin-left:240px;flex:1;max-width:960px;padding:40px 48px 80px}
+h1{font-size:2rem;color:#fff;margin-bottom:6px;font-weight:700}
+h1 .ver{font-size:0.85rem;color:var(--sub);font-weight:400;margin-left:8px}
+h2{font-size:1.35rem;color:var(--accent);margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border);font-weight:600}
+h3{font-size:1.1rem;color:#c8c8d0;margin:28px 0 10px;font-weight:600}
+h4{font-size:0.95rem;color:var(--sub);margin:18px 0 8px;font-weight:500}
+p{margin:10px 0;color:var(--text)}
+/* ========== 面包屑 ========== */
+.breadcrumb{display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--sub);margin-bottom:12px}
+.breadcrumb a{color:var(--accent);text-decoration:none}
+.breadcrumb span{user-select:none}
+/* ========== 卡片 ========== */
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px 24px;margin:16px 0}
+.card h4{margin-top:0;color:var(--accent)}
+/* ========== 表格 ========== */
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:0.88rem}
+th,td{text-align:left;padding:9px 14px;border-bottom:1px solid var(--border)}
+th{color:var(--accent);font-weight:600;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.5px}
+tr:hover{background:var(--bg-hover)}
+td code{background:var(--code);padding:1px 6px;border-radius:3px;font-size:0.82rem;color:var(--accent)}
+/* ========== 代码块 ========== */
+.code-block{position:relative;margin:14px 0;background:var(--code);border-radius:8px;overflow:hidden;border:1px solid var(--border)}
+.code-block .head{display:flex;justify-content:space-between;align-items:center;padding:6px 14px;background:#0e0e14;border-bottom:1px solid var(--border)}
+.code-block .head .file{color:var(--sub);font-size:0.78rem}
+.code-block .head button{background:none;border:1px solid var(--border);color:var(--sub);padding:2px 10px;border-radius:4px;cursor:pointer;font-size:0.72rem;transition:all .15s}
+.code-block .head button:hover{color:#fff;border-color:var(--accent)}
+.code-block pre{margin:0;padding:12px 14px;overflow-x:auto}
+.code-block code{font-family:"Cascadia Code","Fira Code","JetBrains Mono",Consolas,monospace;font-size:0.82rem;line-height:1.55;color:#c8c8d0}
+/* 语法高亮 */
+.hl-kw{color:#C792EA}.hl-ty{color:#FFCB6B}.hl-str{color:#C3E88D}.hl-cm{color:#546E7A;font-style:italic}.hl-fn{color:#82AAFF}.hl-num{color:#F78C6C}.hl-mac{color:#89DDFF}.hl-op{color:#89DDFF}.hl-var{color:#EEFFFF}.hl-pp{color:#F07178}
+/* ========== CVar 速查表 ========== */
+.cvar-table td:first-child{font-family:monospace;font-size:0.84rem;color:var(--accent);white-space:nowrap}
+.cvar-table td:nth-child(2){color:#c8c8d0}
+.cvar-table td:last-child{color:var(--sub);font-size:0.82rem}
+/* ========== 底部导航 ========== */
+.bottom-nav{display:flex;justify-content:space-between;margin-top:56px;padding-top:20px;border-top:1px solid var(--border)}
+.bottom-nav a{color:var(--accent);text-decoration:none;font-size:0.92rem;display:flex;align-items:center;gap:8px}
+.bottom-nav a.next{margin-left:auto}
+.bottom-nav .label{display:block;font-size:0.72rem;color:var(--sub);text-transform:uppercase}
+/* ========== 搜索 ========== */
+.search-bar{position:sticky;top:0;background:var(--bg);z-index:10;padding:12px 0;margin-bottom:8px;display:flex;align-items:center;gap:10px}
+.search-bar input{flex:1;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:8px 14px;color:var(--text);font-size:0.88rem;outline:none}
+.search-bar input:focus{border-color:var(--accent)}
+.search-bar .count{color:var(--sub);font-size:0.8rem;white-space:nowrap}
+/* ========== SVG 区域 ========== */
+.diagram-container{text-align:center;margin:24px 0;padding:16px;background:var(--card);border-radius:8px;border:1px solid var(--border)}
+.diagram-container svg{max-width:100%;height:auto}
+.diagram-container .caption{color:var(--sub);font-size:0.8rem;margin-top:8px}
+/* ========== 对比卡片 ========== */
+.compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+.compare-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:18px 20px}
+.compare-card h5{color:var(--accent);margin-bottom:8px;font-size:0.92rem}
+.compare-card p{font-size:0.85rem;color:var(--sub);margin:4px 0}
+.pro{color:var(--ok)}.con{color:var(--err)}
+/* ========== 标记 ========== */
+mark.highlight{background:rgba(79,195,247,.15);color:var(--accent);padding:0 3px;border-radius:2px}
+.tag{display:inline-block;background:rgba(79,195,247,.12);color:var(--accent);padding:1px 8px;border-radius:10px;font-size:0.76rem;margin:0 2px}
+/* ========== 响应式 ========== */
+@media(max-width:1024px){#sidebar{display:none}#content{margin-left:0;padding:24px 20px}}
+</style>
+</head>
+<body>
+
+<!-- ==================== 左侧大纲 ==================== -->
+<aside id="sidebar">
+<h3>UE5.8 延迟渲染管线</h3>
+<nav>
+<a href="#s1">1. 概述 &amp; 定位</a>
+<a href="#s2">2. 顶层架构设计</a>
+<a href="#s2-1" class="sub">2.1 延迟 vs 前向</a>
+<a href="#s2-2" class="sub">2.2 G-Buffer 布局</a>
+<a href="#s2-3" class="sub">2.3 Clustered Deferred</a>
+<a href="#s2-4" class="sub">2.4 Pass 分类体系</a>
+<a href="#s3">3. 执行流程 / 数据流</a>
+<a href="#s3-1" class="sub">3.1 完整时序图</a>
+<a href="#s3-2" class="sub">3.2 逐阶段展开</a>
+<a href="#s4">4. 设计决策 &amp; 权衡</a>
+<a href="#s4-1" class="sub">4.1 GBuffer 带宽权衡</a>
+<a href="#s4-2" class="sub">4.2 Clustered vs Tiled</a>
+<a href="#s4-3" class="sub">4.3 Early-Z 收益成本</a>
+<a href="#s4-4" class="sub">4.4 半透明用 Forward</a>
+<a href="#s5">5. 底层实现关联</a>
+<a href="#s6">6. UE5.8 演进变化</a>
+<a href="#cvar">CVar 速查表</a>
+</nav>
+</aside>
+
+<!-- ==================== 主内容 ==================== -->
+<main id="content">
+
+<!-- 搜索栏 -->
+<div class="search-bar">
+<input type="text" id="search-box" placeholder="搜索章节内容..." oninput="doSearch()">
+<span class="count" id="search-count"></span>
+</div>
+
+<!-- 面包屑 -->
+<div class="breadcrumb">
+<a href="../index.html">文档首页</a><span>/</span><a href="../渲染机制/index.html">渲染机制</a><span>/</span><strong style="color:var(--accent)">延迟渲染管线</strong>
+</div>
+
+<h1>UE5.8.0 延迟渲染管线<span class="ver">v5.8.0</span></h1>
+<p style="color:var(--sub);font-size:0.92rem">一帧渲染的完整执行流程：20+ 个渲染 Pass 如何有序协作，FDeferredShadingSceneRenderer::Render() 全景解读</p>
+<p style="color:var(--sub);font-size:0.78rem">源码路径: <code>Engine/Source/Runtime/Renderer/Private/DeferredShadingRenderer.cpp:1822</code></p>
+
+<!-- ================================================================== -->
+<!-- 第1章：概述 & 定位 -->
+<!-- ================================================================== -->
+<section id="s1">
+<h2>1. 概述 &amp; 定位</h2>
+
+<div class="card">
+<h4>延迟渲染管线的核心思想</h4>
+<p>延迟渲染管线将<strong>几何体属性写入</strong>与<strong>光照计算</strong>解耦为两个阶段：首先在 BasePass 中把所有不透明物体的材质属性（法线、反照率、粗糙度等）写入一组 G-Buffer 纹理；随后在 Lighting Pass 中，基于 G-Buffer 和深度信息对每个像素独立完成光照计算。这种设计使得光照计算复杂度仅与屏幕分辨率相关，而非场景几何复杂度。</p>
+</div>
+
+<h3>Render() 主函数全景流程图</h3>
+
+<div class="diagram-container">
+<svg width="880" height="1520" viewBox="0 0 880 1520" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="gPass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4FC3F7" stop-opacity="0.15"/><stop offset="1" stop-color="#4FC3F7" stop-opacity="0.03"/></linearGradient>
+  <linearGradient id="gPhase" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFA726" stop-opacity="0.12"/><stop offset="1" stop-color="#FFA726" stop-opacity="0.02"/></linearGradient>
+  <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2,2 L8,5 L2,8 z" fill="#4FC3F7"/></marker>
+  <filter id="shadow"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-opacity="0.3"/></filter>
+</defs>
+
+<!-- 标题 -->
+<text x="440" y="26" text-anchor="middle" fill="#fff" font-size="15" font-weight="600">FDeferredShadingSceneRenderer::Render() — 一帧完整渲染流程</text>
+
+<!-- ===== Phase 1: 初始化 ===== -->
+<rect x="20" y="42" width="840" height="165" rx="6" fill="url(#gPhase)" stroke="#FFA726" stroke-opacity="0.3" stroke-width="1"/>
+<text x="32" y="64" fill="#FFA726" font-size="11" font-weight="600">阶段 1: 管线初始化与可见性</text>
+
+<rect x="40" y="78" width="240" height="34" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="48" y="95" fill="#c8c8d0" font-size="10">1 CommitFinalPipelineState()</text>
+<text x="48" y="107" fill="#909090" font-size="9">确定渲染管线最终状态 (1927)</text>
+
+<rect x="310" y="78" width="250" height="34" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="318" y="95" fill="#c8c8d0" font-size="10">2 BeginInitViews — 开始可见性计算</text>
+<text x="318" y="107" fill="#909090" font-size="9">Frustum/Occlusion/Nanite 预裁剪 (2123)</text>
+
+<rect x="590" y="78" width="250" height="34" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="598" y="95" fill="#c8c8d0" font-size="10">3 EndInitViews — 完成可见性计算</text>
+<text x="598" y="107" fill="#909090" font-size="9">提交所有 View 可见性结果 (2394)</text>
+
+<rect x="40" y="130" width="370" height="34" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="48" y="147" fill="#c8c8d0" font-size="10">4 GatherAndSortLights — 收集并分类所有光源</text>
+<text x="48" y="159" fill="#909090" font-size="9">生成 FSortedLightSetSceneInfo (2338)</text>
+
+<rect x="440" y="130" width="400" height="34" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="448" y="147" fill="#c8c8d0" font-size="10">5 PrepareForwardLightData — 前向光照数据准备</text>
+<text x="448" y="159" fill="#909090" font-size="9">注入聚簇光照网格 (2807)</text>
+
+<!-- 箭头 -->
+<line x1="160" y1="164" x2="160" y2="215" stroke="#4FC3F7" stroke-opacity="0.5" stroke-width="1" marker-end="url(#arrow)"/>
+
+<!-- ===== Phase 2: PrePass ===== -->
+<rect x="20" y="215" width="840" height="150" rx="6" fill="url(#gPhase)" stroke="#FFA726" stroke-opacity="0.3" stroke-width="1"/>
+<text x="32" y="237" fill="#FFA726" font-size="11" font-weight="600">阶段 2: 深度预通道 (PrePass)</text>
+
+<rect x="40" y="252" width="240" height="34" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="48" y="269" fill="#c8c8d0" font-size="10">6 RenderPrePass()</text>
+<text x="48" y="281" fill="#909090" font-size="9">深度预通道 D5/Z (2464)</text>
+
+<rect x="310" y="252" width="260" height="34" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="318" y="269" fill="#c8c8d0" font-size="10">7 RenderVelocities (可选)</text>
+<text x="318" y="281" fill="#909090" font-size="9">DDM_AllOpaqueNoVelocity 模式 (2476)</text>
+
+<rect x="600" y="252" width="240" height="34" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="608" y="269" fill="#c8c8d0" font-size="10">8 RenderNanite()</text>
+<text x="608" y="281" fill="#909090" font-size="9">VisBuffer 裁剪+光栅化 (2485)</text>
+
+<rect x="40" y="302" width="400" height="34" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="48" y="319" fill="#c8c8d0" font-size="10">9 RenderHZB — 生成 Hierarchical Z-Buffer</text>
+<text x="48" y="331" fill="#909090" font-size="9">用于后续 GPU 遮挡剔除和 Nanite HZB 裁剪 (2726+)</text>
+
+<line x1="160" y1="336" x2="160" y2="373" stroke="#4FC3F7" stroke-opacity="0.5" stroke-width="1" marker-end="url(#arrow)"/>
+
+<!-- ===== Phase 3: Shadow ===== -->
+<rect x="20" y="373" width="840" height="74" rx="6" fill="url(#gPhase)" stroke="#FFA726" stroke-opacity="0.3" stroke-width="1"/>
+<text x="32" y="395" fill="#FFA726" font-size="11" font-weight="600">阶段 3: 阴影渲染</text>
+
+<rect x="40" y="410" width="400" height="30" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="48" y="429" fill="#c8c8d0" font-size="10">10 RenderShadowDepthMaps / VirtualShadowMap Pages (3291)</text>
+
+<line x1="160" y1="440" x2="160" y2="460" stroke="#4FC3F7" stroke-opacity="0.5" stroke-width="1" marker-end="url(#arrow)"/>
+
+<!-- ===== Phase 4: BasePass ===== -->
+<rect x="20" y="460" width="840" height="150" rx="6" fill="url(#gPhase)" stroke="#FFA726" stroke-opacity="0.3" stroke-width="1"/>
+<text x="32" y="482" fill="#FFA726" font-size="11" font-weight="600">阶段 4: G-Buffer BasePass</text>
+
+<rect x="40" y="496" width="260" height="34" rx="5" fill="url(#4FC3F7)" stroke="#4FC3F7" stroke-opacity="0.5" fill-opacity="0.18" filter="url(#shadow)"/>
+<text x="48" y="513" fill="#fff" font-size="10" font-weight="600">核心: RenderBasePass()</text>
+<text x="48" y="525" fill="#909090" font-size="9">传统几何 PixelShader, Nanite ComputeShader (3059)</text>
+
+<rect x="330" y="496" width="260" height="34" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="338" y="513" fill="#c8c8d0" font-size="10">DBuffer Decals</text>
+<text x="338" y="525" fill="#909090" font-size="9">CompositionLighting (2961)</text>
+
+<rect x="620" y="496" width="220" height="34" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="628" y="513" fill="#c8c8d0" font-size="10">Lumen Scene Lighting</text>
+<text x="628" y="525" fill="#909090" font-size="9">场景直接光照 (3041)</text>
+
+<rect x="40" y="548" width="400" height="34" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="48" y="565" fill="#c8c8d0" font-size="10">Substrate Classify + DBuffer + SampleMaterial</text>
+<text x="48" y="577" fill="#909090" font-size="9">材质分类 / Substrate 后处理 (3168-3190)</text>
+
+<rect x="470" y="548" width="370" height="34" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="478" y="565" fill="#c8c8d0" font-size="10">CopyStencilToLightingChannelTexture (3216)</text>
+<text x="478" y="577" fill="#909090" font-size="9">提取光照通道遮罩</text>
+
+<line x1="160" y1="582" x2="160" y2="618" stroke="#4FC3F7" stroke-opacity="0.5" stroke-width="1" marker-end="url(#arrow)"/>
+
+<!-- ===== Phase 5: Lighting ===== -->
+<rect x="20" y="618" width="840" height="190" rx="6" fill="url(#gPhase)" stroke="#FFA726" stroke-opacity="0.3" stroke-width="1"/>
+<text x="32" y="640" fill="#FFA726" font-size="11" font-weight="600">阶段 5: 延迟光照 (Deferred Lighting)</text>
+
+<rect x="40" y="654" width="250" height="42" rx="5" fill="url(#4FC3F7)" stroke="#4FC3F7" stroke-opacity="0.5" fill-opacity="0.18" filter="url(#shadow)"/>
+<text x="48" y="671" fill="#fff" font-size="10" font-weight="600">核心: RenderLights()</text>
+<text x="48" y="683" fill="#909090" font-size="9">Clustered Deferred Shading</text>
+<text x="48" y="693" fill="#909090" font-size="9">逐光源叠加光照 (3467)</text>
+
+<rect x="310" y="654" width="250" height="42" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="318" y="671" fill="#c8c8d0" font-size="10">RenderDiffuseIndirectAndAO</text>
+<text x="318" y="683" fill="#909090" font-size="9">Lumen GI / AO 合成 (3429)</text>
+<text x="318" y="693" fill="#909090" font-size="9">DFAO / Capsule Shadows</text>
+
+<rect x="580" y="654" width="260" height="42" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="588" y="671" fill="#c8c8d0" font-size="10">RenderMegaLights (5.8)</text>
+<text x="588" y="683" fill="#909090" font-size="9">大量动态光源 (3470)</text>
+<text x="588" y="693" fill="#909090" font-size="9">Sample Shade Denoise</text>
+
+<rect x="40" y="712" width="250" height="42" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="48" y="729" fill="#c8c8d0" font-size="10">DeferredReflectionsAndSky</text>
+<text x="48" y="741" fill="#909090" font-size="9">SSR / Lumen 反射 / 天空光照</text>
+<text x="48" y="751" fill="#909090" font-size="9">Planar Reflection 合成 (3528)</text>
+
+<rect x="310" y="712" width="250" height="42" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="318" y="729" fill="#c8c8d0" font-size="10">TranslucencyLightingVolume</text>
+<text x="318" y="741" fill="#909090" font-size="9">半透明光照体积 (3478)</text>
+<text x="318" y="751" fill="#909090" font-size="9">3D 体积光照注入</text>
+
+<rect x="580" y="712" width="260" height="42" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="588" y="729" fill="#c8c8d0" font-size="10">Volumetric Fog (3663)</text>
+<text x="588" y="741" fill="#909090" font-size="9">Compute Volumetric Fog</text>
+<text x="588" y="751" fill="#909090" font-size="9">Local Fog Volume 体素化</text>
+
+<line x1="160" y1="770" x2="160" y2="816" stroke="#4FC3F7" stroke-opacity="0.5" stroke-width="1" marker-end="url(#arrow)"/>
+
+<!-- ===== Phase 6: Translucency ===== -->
+<rect x="20" y="816" width="840" height="150" rx="6" fill="url(#gPhase)" stroke="#FFA726" stroke-opacity="0.3" stroke-width="1"/>
+<text x="32" y="838" fill="#FFA726" font-size="11" font-weight="600">阶段 6: 半透明 &amp; 大气/雾效</text>
+
+<rect x="40" y="852" width="240" height="42" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="48" y="869" fill="#c8c8d0" font-size="10">FrontLayerTranslucency</text>
+<text x="48" y="881" fill="#909090" font-size="9">前层半透明 (3496)</text>
+<text x="48" y="894" fill="#909090" font-size="9">Lumen/MegaLights 预计算</text>
+
+<rect x="310" y="852" width="260" height="42" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="318" y="869" fill="#c8c8d0" font-size="10">SkyAtmosphere (3784)</text>
+<text x="318" y="881" fill="#909090" font-size="9">天空大气散射渲染</text>
+<text x="318" y="894" fill="#909090" font-size="9">Rayleigh / Mie 散射</text>
+
+<rect x="600" y="852" width="240" height="42" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="608" y="869" fill="#c8c8d0" font-size="10">RenderFog + LightShaft</text>
+<text x="608" y="881" fill="#909090" font-size="9">高度雾 / Light Shaft</text>
+<text x="608" y="894" fill="#909090" font-size="9">Separate Fog Composition (3787)</text>
+
+<rect x="40" y="910" width="800" height="42" rx="5" fill="url(#4FC3F7)" stroke="#4FC3F7" stroke-opacity="0.5" fill-opacity="0.18" filter="url(#shadow)"/>
+<text x="48" y="927" fill="#fff" font-size="10" font-weight="600">核心: RenderTranslucency() — 半透明 Forward 渲染</text>
+<text x="48" y="939" fill="#909090" font-size="9">Standard / Separate / Distortion / RayTracing / Velocity  SceneColor 混合 (4011)</text>
+
+<line x1="160" y1="952" x2="160" y2="974" stroke="#4FC3F7" stroke-opacity="0.5" stroke-width="1" marker-end="url(#arrow)"/>
+
+<!-- ===== Phase 7: PostProcess ===== -->
+<rect x="20" y="974" width="840" height="150" rx="6" fill="url(#gPhase)" stroke="#FFA726" stroke-opacity="0.3" stroke-width="1"/>
+<text x="32" y="996" fill="#FFA726" font-size="11" font-weight="600">阶段 7: 后处理 (PostProcessing)</text>
+
+<rect x="40" y="1010" width="320" height="42" rx="5" fill="url(#4FC3F7)" stroke="#4FC3F7" stroke-opacity="0.5" fill-opacity="0.18" filter="url(#shadow)"/>
+<text x="48" y="1027" fill="#fff" font-size="10" font-weight="600">核心: AddPostProcessingPasses()</text>
+<text x="48" y="1039" fill="#909090" font-size="9">TSR / TAA / DOF / MotionBlur / Bloom</text>
+<text x="48" y="1052" fill="#909090" font-size="9">Tonemap / Exposure / LUT / AA (4311)</text>
+
+<rect x="390" y="1010" width="230" height="42" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="398" y="1027" fill="#c8c8d0" font-size="10">Accumulation DOF (5.8)</text>
+<text x="398" y="1039" fill="#909090" font-size="9">累积景深 (5.8 新特性)</text>
+<text x="398" y="1052" fill="#909090" font-size="9">DiaphragmDOF 替代方案</text>
+
+<rect x="650" y="1010" width="190" height="42" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="658" y="1027" fill="#c8c8d0" font-size="10">PathTracing</text>
+<text x="658" y="1039" fill="#909090" font-size="9">路径追踪覆盖 (4117)</text>
+<text x="658" y="1052" fill="#909090" font-size="9">覆盖标准管线输出</text>
+
+<rect x="40" y="1070" width="400" height="34" rx="5" fill="url(#gPass)" stroke="#4FC3F7" stroke-opacity="0.3" filter="url(#shadow)"/>
+<text x="48" y="1087" fill="#c8c8d0" font-size="10">Visualizations / Debug / VRS / Hair Composition</text>
+<text x="48" y="1099" fill="#909090" font-size="9">可视化与调试 Pass (4141-4200)</text>
+
+<!-- 左侧时间轴 -->
+<text x="16" y="120" fill="#909090" font-size="9" transform="rotate(-90,16,120)">GPU 时间线 </text>
+</svg>
+<div class="caption">图 1: Render() 主函数全景流程 — 7 个阶段、20+ 子 Pass。括号内数字为源文件行号。</div>
+</div>
+
+<h3>总览数据</h3>
+<div class="compare-grid">
+<div class="compare-card">
+<h5>渲染阶段计数</h5>
+<p><span style="font-size:2rem;color:var(--accent);font-weight:700">7</span> 个主要阶段</p>
+<p style="font-size:0.82rem">初始化  PrePass  阴影  BasePass  光照  半透明  后处理</p>
+</div>
+<div class="compare-card">
+<h5>Render() 函数体量</h5>
+<p><span style="font-size:2rem;color:var(--accent);font-weight:700">~1500</span> 行</p>
+<p style="font-size:0.82rem">DeferredShadingRenderer.cpp:1822-4351</p>
+</div>
+<div class="compare-card">
+<h5>RDG Pass 数量</h5>
+<p><span style="font-size:2rem;color:var(--accent);font-weight:700">100+</span> per frame</p>
+<p style="font-size:0.82rem">含所有子 Pass (Nanite/Lumen/VSM/Substrate)</p>
+</div>
+<div class="compare-card">
+<h5>关键源文件</h5>
+<p style="font-size:0.82rem"><code>DeferredShadingRenderer.cpp</code> (1167 行头文件)</p>
+<p style="font-size:0.82rem"><code>LightRendering.cpp</code>, <code>BasePassRendering.cpp</code>, <code>PostProcess/PostProcessing.cpp</code></p>
+</div>
+</div>
+</section>
+
+<!-- ================================================================== -->
+<!-- 第2章：顶层架构设计 -->
+<!-- ================================================================== -->
+<section id="s2">
+<h2>2. 顶层架构设计</h2>
+
+<h3 id="s2-1">2.1 延迟渲染 vs 前向渲染</h3>
+
+<div class="diagram-container">
+<svg width="840" height="340" viewBox="0 0 840 340" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <marker id="arr2" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M2,2 L8,5 L2,8 z" fill="#909090"/></marker>
+</defs>
+
+<!-- Forward -->
+<rect x="10" y="10" width="400" height="320" rx="8" fill="#131318" stroke="#FFA726" stroke-opacity="0.3" stroke-width="1"/>
+<text x="20" y="34" fill="#FFA726" font-size="12" font-weight="600">前向渲染 (Forward Shading)</text>
+
+<rect x="30" y="52" width="140" height="36" rx="4" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+<text x="38" y="68" fill="#c8c8d0" font-size="10">几何体1 (材质A)</text>
+<text x="38" y="81" fill="#909090" font-size="9">光照计算内联</text>
+
+<rect x="240" y="52" width="140" height="36" rx="4" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+<text x="248" y="68" fill="#c8c8d0" font-size="10">几何体2 (材质B)</text>
+<text x="248" y="81" fill="#909090" font-size="9">光照计算内联</text>
+
+<rect x="30" y="120" width="350" height="36" rx="4" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+<text x="38" y="136" fill="#c8c8d0" font-size="10">几何体 N (遍历所有物体)</text>
+<text x="38" y="149" fill="#909090" font-size="9">Pixel Shader 内完成: 材质 + 光照 + 阴影</text>
+
+<rect x="30" y="186" width="350" height="36" rx="4" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+<text x="38" y="202" fill="#c8c8d0" font-size="10">半透明: Blended (排序)</text>
+<text x="38" y="215" fill="#909090" font-size="9">Overdraw 严重</text>
+
+<rect x="30" y="252" width="350" height="60" rx="4" fill="#1a1a28" stroke="#EF5350" stroke-opacity="0.4" stroke-width="0.5"/>
+<text x="38" y="268" fill="#EF5350" font-size="10">核心问题：光照复杂度 O(Obj x Lights)</text>
+<text x="38" y="281" fill="#909090" font-size="9">每个物体的 PS 都要遍历所有光源</text>
+<text x="38" y="294" fill="#909090" font-size="9">大量 Overdraw 导致重复计算</text>
+
+<!-- Deferred -->
+<rect x="430" y="10" width="400" height="320" rx="8" fill="#131318" stroke="#4FC3F7" stroke-opacity="0.3" stroke-width="1"/>
+<text x="440" y="34" fill="#4FC3F7" font-size="12" font-weight="600">延迟渲染 (Deferred Shading)</text>
+
+<rect x="450" y="52" width="350" height="36" rx="4" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+<text x="458" y="68" fill="#c8c8d0" font-size="10">BasePass: 所有不透明几何  G-Buffer</text>
+<text x="458" y="81" fill="#909090" font-size="9">材质属性一次性写入 (无光照)</text>
+
+<rect x="450" y="110" width="350" height="36" rx="4" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+<text x="458" y="126" fill="#c8c8d0" font-size="10">Lighting Pass: 全屏逐像素计算</text>
+<text x="458" y="139" fill="#909090" font-size="9">基于 G-Buffer 数据独立计算</text>
+
+<rect x="450" y="168" width="350" height="36" rx="4" fill="#1a1a28" stroke="#333" stroke-width="0.5"/>
+<text x="458" y="184" fill="#c8c8d0" font-size="10">半透明: Forward (独立 Pass)</text>
+<text x="458" y="197" fill="#909090" font-size="9">从后到前混合到 SceneColor</text>
+
+<rect x="450" y="226" width="350" height="96" rx="4" fill="#1a1a28" stroke="#66BB6A" stroke-opacity="0.4" stroke-width="0.5"/>
+<text x="458" y="242" fill="#66BB6A" font-size="10">核心优势：光照复杂度 O(Pixels x Lights)</text>
+<text x="458" y="255" fill="#909090" font-size="9">几何复杂度与光照解耦</text>
+<text x="458" y="268" fill="#909090" font-size="9">无 Overdraw 浪费 — 仅可见像素参与</text>
+<text x="458" y="281" fill="#909090" font-size="9">支持大量动态光源 (Clustered/Tiled)</text>
+<text x="458" y="294" fill="#909090" font-size="9">UE5.8 默认: SM5+ Desktop/主机</text>
+</svg>
+<div class="caption">图 2: 前向渲染与延迟渲染的核心差异对比</div>
+</div>
+
+<h3 id="s2-2">2.2 G-Buffer 布局</h3>
+
+<p>G-Buffer 是延迟渲染的核心数据结构。BasePass 将所有不透明物体的表面属性写入这组 RenderTarget，后续的 Lighting Pass 依据这些数据独立完成光照计算。</p>
+
+<div class="card">
+<table>
+<thead>
+<tr><th>Render Target</th><th>通道内容</th><th>格式</th><th>位深</th><th>说明</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>SceneDepth</strong></td><td>Depth (32-bit float)</td><td>R32_FLOAT (D32)</td><td>32 bits</td><td>深度缓冲，PrePass 写入、BasePass 只读（DDM_AllOpaque 模式下）</td></tr>
+<tr><td><strong>GBufferA</strong></td><td>WorldNormal.xyz + PerObjectGBufferData (AO)</td><td>R10G10B10A2</td><td>32 bits</td><td>世界空间法线（编码）+ 逐对象 AO 数据</td></tr>
+<tr><td><strong>GBufferB</strong></td><td>Metallic + Specular + Roughness + ShadingModelID</td><td>R8G8B8A8</td><td>32 bits</td><td>金属度 / 高光度 / 粗糙度 / 着色模型 ID</td></tr>
+<tr><td><strong>GBufferC</strong></td><td>BaseColor.rgb + IndirectIrradiance</td><td>R8G8B8A8</td><td>32 bits</td><td>基础颜色（反照率）+ 预计算间接辐照度</td></tr>
+<tr><td><strong>GBufferD</strong></td><td>CustomData (各种用途)</td><td>R8G8B8A8</td><td>32 bits</td><td>自定义数据通道（毛发、Subsurface、ClearCoat 等）</td></tr>
+<tr><td><strong>GBufferE</strong></td><td>PrecomputedShadowFactors</td><td>R8G8B8A8</td><td>32 bits</td><td>预计算阴影因子 + 静态光照</td></tr>
+<tr><td><strong>SceneVelocity</strong></td><td>MotionVectors.xy</td><td>R16G16_FLOAT</td><td>32 bits</td><td>运动矢量（可选写入 BasePass 或独立 Pass）</td></tr>
+<tr><td><strong>SceneStencil</strong></td><td>Stencil (8-bit)</td><td>D24S8</td><td>8 bits</td><td>光照通道标记、Distortion 标记、Subsurface 标记</td></tr>
+</tbody>
+</table>
+<p style="font-size:0.82rem;color:var(--sub);margin-top:8px">
+总 GBuffer 带宽: <span class="tag">Depth 4B</span> + <span class="tag">A 4B</span> + <span class="tag">B 4B</span> + <span class="tag">C 4B</span> + <span class="tag">D 4B</span> + <span class="tag">E 4B</span> + <span class="tag">Velocity 4B</span> + <span class="tag">Stencil 1B</span> = <strong>约 29 bytes/pixel</strong> (@ 1080p: ~60 MB; @ 4K: ~240 MB)
+</p>
+</div>
+
+<h3 id="s2-3">2.3 Clustered Deferred Shading — 聚簇划分策略</h3>
+
+<p>UE5 默认使用 <strong>Clustered Deferred Shading</strong>，通过将视锥体沿深度方向划分为 3D 网格（Froxel），实现高效的光源-像素匹配。</p>
+
+<div class="diagram-container">
+<svg width="840" height="420" viewBox="0 0 840 420" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="gFroxel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4FC3F7" stop-opacity="0.08"/><stop offset="1" stop-color="#4FC3F7" stop-opacity="0.02"/></linearGradient>
+</defs>
+
+<!-- 3D 视锥体 -->
+<text x="420" y="24" text-anchor="middle" fill="#c8c8d0" font-size="12" font-weight="600">Clustered Deferred Shading 聚簇划分策略</text>
+
+<!-- XY 平面 (前面) -->
+<polygon points="100,60 380,40 740,60 460,80" fill="url(#gFroxel)" stroke="#4FC3F7" stroke-opacity="0.4" stroke-width="1"/>
+<!-- XY 平面 (后面，缩小) -->
+<polygon points="160,260 340,270 680,260 500,280" fill="url(#gFroxel)" stroke="#4FC3F7" stroke-opacity="0.2" stroke-width="1"/>
+<!-- 连线 -->
+<line x1="100" y1="60" x2="160" y2="260" stroke="#4FC3F7" stroke-opacity="0.2" stroke-width="1"/>
+<line x1="380" y1="40" x2="340" y2="270" stroke="#4FC3F7" stroke-opacity="0.2" stroke-width="1"/>
+<line x1="740" y1="60" x2="680" y2="260" stroke="#4FC3F7" stroke-opacity="0.2" stroke-width="1"/>
+<line x1="460" y1="80" x2="500" y2="280" stroke="#4FC3F7" stroke-opacity="0.2" stroke-width="1"/>
+
+<!-- XY 网格线 -->
+<line x1="240" y1="48" x2="200" y2="265" stroke="#4FC3F7" stroke-opacity="0.1" stroke-width="0.5"/>
+<line x1="520" y1="52" x2="540" y2="268" stroke="#4FC3F7" stroke-opacity="0.1" stroke-width="0.5"/>
+<line x1="150" y1="62" x2="250" y2="262" stroke="#4FC3F7" stroke-opacity="0.1" stroke-width="0.5"/>
+<!-- Z 方向分层线 -->
+<line x1="130" y1="160" x2="500" y2="170" stroke="#4FC3F7" stroke-opacity="0.15" stroke-width="0.5"/>
+<line x1="145" y1="210" x2="600" y2="215" stroke="#4FC3F7" stroke-opacity="0.15" stroke-width="0.5"/>
+
+<!-- 标注 -->
+<text x="88" y="52" fill="#4FC3F7" font-size="9">X轴 (水平)</text>
+<text x="750" y="65" fill="#4FC3F7" font-size="9">Y轴 (垂直)</text>
+<text x="160" y="298" fill="#4FC3F7" font-size="9">Z轴 (深度方向: 指数划分)</text>
+<text x="420" y="108" fill="#909090" font-size="8">Near Plane</text>
+<text x="420" y="248" fill="#909090" font-size="8">Far Plane</text>
+
+<!-- 右侧说明 -->
+<rect x="580" y="310" width="240" height="100" rx="6" fill="#131318" stroke="#4FC3F7" stroke-opacity="0.3" stroke-width="1"/>
+<text x="598" y="330" fill="#4FC3F7" font-size="10" font-weight="600">Froxel 划分参数</text>
+<text x="598" y="350" fill="#c8c8d0" font-size="9">X 方向: ~32 个 Tile</text>
+<text x="598" y="366" fill="#c8c8d0" font-size="9">Y 方向: ~32 个 Tile</text>
+<text x="598" y="382" fill="#c8c8d0" font-size="9">Z 方向: ~64 个切片（指数分布）</text>
+<text x="598" y="398" fill="#909090" font-size="9">总计: 32x32x64  65K Froxels</text>
+
+<!-- 光源分配到 Froxel -->
+<text x="200" y="310" fill="#c8c8d0" font-size="10">光源 A  6 个 Froxels</text>
+<text x="200" y="330" fill="#c8c8d0" font-size="10">光源 B  12 个 Froxels</text>
+<text x="200" y="350" fill="#c8c8d0" font-size="10">光源 C  3 个 Froxels</text>
+</svg>
+<div class="caption">图 3: 3D 视锥体网格划分示意图 — Froxel 是 3D 空间中的最小聚簇单元</div>
+</div>
+
+<div class="card">
+<h4>聚簇策略对比</h4>
+<table>
+<thead><tr><th>策略</th><th>划分方式</th><th>内存开销</th><th>光源分配粒度</th><th>UE 选择</th></tr></thead>
+<tbody>
+<tr><td><strong>Tiled Shading</strong></td><td>屏幕空间 2D 瓦片 (如 16x16)</td><td>低</td><td>粗 — 深度范围不可知</td><td>已弃用</td></tr>
+<tr><td><strong>Clustered Shading</strong></td><td>3D 视锥体网格 (XY 空间 + Z 深度)</td><td>中</td><td>精细 — 指数 Z 划分适配近处精细度</td><td> 默认 (SM5+)</td></tr>
+<tr><td><strong>Tiled+Clustered</strong></td><td>2D 瓦片内进一步按深度分簇</td><td>高</td><td>最精细</td><td>不必要(Clustered 已足够)</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>UE5.8 的 Frustum Voxel (Froxel) 深度划分策略</strong>：Z 轴使用<strong>指数分布</strong>而非均匀分布。近裁剪面附近分配更多切片以匹配透视投影下的几何密度，远裁剪面附近减少切片数量。这使得在 <code>PrepareForwardLightData()</code> 中每个 Froxel 只需处理少数几个光源，极大降低逐像素光照的计算量。</p>
+
+<h3 id="s2-4">2.4 渲染 Pass 分类体系</h3>
+
+<p>UE5.8 的渲染 Pass 围绕 <span class="tag">EMeshPass::Type</span> 枚举分类，核心 Pass 如下：</p>
+
+<div class="card">
+<table>
+<thead><tr><th>Pass 类别</th><th>EMeshPass 枚举值</th><th>渲染目标</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><strong>Depth</strong></td><td>DepthPass</td><td>SceneDepth</td><td>Early-Z 深度预通道 (DDM_None/DDM_AllOpaque/DDM_AllOccluders)</td></tr>
+<tr><td><strong>BasePass</strong></td><td>BasePass</td><td>GBufferA/B/C/D/E + Velocity</td><td>G-Buffer 写入 (传统: PixelShader / Nanite: ComputeShader)</td></tr>
+<tr><td><strong>Lighting</strong></td><td>(全屏 Compute)</td><td>SceneColor</td><td>Clustered Deferred + MegaLights + Lumen GI</td></tr>
+<tr><td><strong>Translucency</strong></td><td>TranslucencyStandard</td><td>SceneColor(sRGB Blend)</td><td>Forward 渲染，从后到前混合</td></tr>
+<tr><td><strong>PostProcess</strong></td><td>(全屏 CS/PS)</td><td>Final Output</td><td>DOF/Bloom/Tonemap/TAA/TSR/MotionBlur</td></tr>
+<tr><td><strong>Velocity</strong></td><td>Velocity</td><td>SceneVelocity</td><td>运动矢量 (可选 BasePass 输出)</td></tr>
+<tr><td><strong>Nanite</strong></td><td>NaniteMeshPass</td><td>VisBuffer + Depth</td><td>Nanite 专用 GPU 裁剪+光栅化</td></tr>
+<tr><td><strong>Shadow</strong></td><td>CSMShadowDepth / VSMShadowDepth</td><td>Shadow Depth Atlas</td><td>级联 / 虚拟阴影贴图</td></tr>
+<tr><td><strong>DBuffer</strong></td><td>(Decal MeshPass)</td><td>DBufferA/B/C</td><td>延迟 Decal 写入</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<!-- ================================================================== -->
+<!-- 第3章：执行流程 / 数据流 -->
+<!-- ================================================================== -->
+<section id="s3">
+<h2>3. 执行流程 / 数据流</h2>
+
+<h3 id="s3-1">3.1 完整时序图（带资源依赖）</h3>
+
+<div class="diagram-container">
+<svg width="880" height="1280" viewBox="0 0 880 1280" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <marker id="arrRes" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M2,2 L8,5 L2,8 z" fill="#4FC3F7"/></marker>
+  <marker id="arrDep" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M2,2 L8,5 L2,8 z" fill="#FFA726"/></marker>
+</defs>
+
+<text x="440" y="22" text-anchor="middle" fill="#fff" font-size="14" font-weight="600">Render() 执行时序与 RDG 资源依赖关系</text>
+
+<!-- ===== 纵向 Pass 节点 ===== -->
+<!-- 1. PrePass -->
+<rect x="60" y="46" width="180" height="52" rx="6" fill="#131318" stroke="#4FC3F7" stroke-width="1.5" stroke-opacity="0.6"/>
+<text x="74" y="64" fill="#4FC3F7" font-size="10" font-weight="600">1. PrePass</text>
+<text x="74" y="80" fill="#909090" font-size="9">RenderPrePass + RenderNanite</text>
+<text x="74" y="93" fill="#909090" font-size="8">Source: DepthRendering.cpp</text>
+
+<!-- 2. ShadowDepth -->
+<rect x="60" y="130" width="180" height="52" rx="6" fill="#131318" stroke="#4FC3F7" stroke-width="1.5" stroke-opacity="0.6"/>
+<text x="74" y="148" fill="#4FC3F7" font-size="10" font-weight="600">2. ShadowDepth</text>
+<text x="74" y="164" fill="#909090" font-size="9">VSM + CSM + RT Shadows</text>
+<text x="74" y="177" fill="#909090" font-size="8">Source: ShadowDepthRendering.cpp</text>
+
+<!-- 3. Lumen Scene -->
+<rect x="60" y="214" width="180" height="52" rx="6" fill="#131318" stroke="#4FC3F7" stroke-width="1.5" stroke-opacity="0.6"/>
+<text x="74" y="232" fill="#4FC3F7" font-size="10" font-weight="600">3. Lumen Scene Lighting</text>
+<text x="74" y="248" fill="#909090" font-size="9">Scene  Card  Lighting</text>
+<text x="74" y="261" fill="#909090" font-size="8">Source: LumenSceneLighting.cpp</text>
+
+<!-- 4. BasePass -->
+<rect x="60" y="298" width="180" height="52" rx="6" fill="#131318" stroke="#4FC3F7" stroke-width="2" stroke-opacity="0.8"/>
+<text x="74" y="316" fill="#4FC3F7" font-size="10" font-weight="600">4. BasePass</text>
+<text x="74" y="332" fill="#909090" font-size="9">传统Mesh + Nanite CS</text>
+<text x="74" y="345" fill="#909090" font-size="8">Source: BasePassRendering.cpp</text>
+
+<!-- 5. Lighting -->
+<rect x="60" y="382" width="180" height="52" rx="6" fill="#131318" stroke="#4FC3F7" stroke-width="2" stroke-opacity="0.8"/>
+<text x="74" y="400" fill="#4FC3F7" font-size="10" font-weight="600">5. Lighting</text>
+<text x="74" y="416" fill="#909090" font-size="9">Clustered + MegaLights</text>
+<text x="74" y="429" fill="#909090" font-size="8">Source: LightRendering.cpp</text>
+
+<!-- 6. Lumen GI -->
+<rect x="60" y="466" width="180" height="52" rx="6" fill="#131318" stroke="#4FC3F7" stroke-width="1.5" stroke-opacity="0.6"/>
+<text x="74" y="484" fill="#4FC3F7" font-size="10" font-weight="600">6. Lumen GI / AO</text>
+<text x="74" y="500" fill="#909090" font-size="9">Screen Probe + ReSTIR</text>
+<text x="74" y="513" fill="#909090" font-size="8">Source: LumenScreenProbeGather.cpp</text>
+
+<!-- 7. Reflections -->
+<rect x="60" y="550" width="180" height="52" rx="6" fill="#131318" stroke="#4FC3F7" stroke-width="1.5" stroke-opacity="0.6"/>
+<text x="74" y="568" fill="#4FC3F7" font-size="10" font-weight="600">7. Reflections + Sky</text>
+<text x="74" y="584" fill="#909090" font-size="9">DeferredReflections + SS Sky</text>
+<text x="74" y="597" fill="#909090" font-size="8">Source: DeferredShadingRenderer.cpp</text>
+
+<!-- 8. Subsurface -->
+<rect x="60" y="634" width="180" height="52" rx="6" fill="#131318" stroke="#4FC3F7" stroke-width="1.5" stroke-opacity="0.6"/>
+<text x="74" y="652" fill="#4FC3F7" font-size="10" font-weight="600">8. Subsurface / Hair</text>
+<text x="74" y="668" fill="#909090" font-size="9">SSS Pass + Hair Scatter</text>
+<text x="74" y="681" fill="#909090" font-size="8">Source: PostProcessSubsurface.cpp</text>
+
+<!-- 9. VolumetricFog -->
+<rect x="60" y="718" width="180" height="52" rx="6" fill="#131318" stroke="#4FC3F7" stroke-width="1.5" stroke-opacity="0.6"/>
+<text x="74" y="736" fill="#4FC3F7" font-size="10" font-weight="600">9. Volumetric Fog</text>
+<text x="74" y="752" fill="#909090" font-size="9">Froxel-based scattering</text>
+<text x="74" y="765" fill="#909090" font-size="8">Source: VolumetricFog.cpp</text>
+
+<!-- 10. Sky Fog Cloud -->
+<rect x="60" y="802" width="180" height="52" rx="6" fill="#131318" stroke="#4FC3F7" stroke-width="1.5" stroke-opacity="0.6"/>
+<text x="74" y="820" fill="#4FC3F7" font-size="10" font-weight="600">10. Sky + Fog + Cloud</text>
+<text x="74" y="836" fill="#909090" font-size="9">Vol.Cloud / LightShaft</text>
+<text x="74" y="849" fill="#909090" font-size="8">Source: SkyAtmosphere / Fog / VolumetricCloud</text>
+
+<!-- 11. Translucency -->
+<rect x="60" y="886" width="180" height="52" rx="6" fill="#131318" stroke="#4FC3F7" stroke-width="2" stroke-opacity="0.8"/>
+<text x="74" y="904" fill="#4FC3F7" font-size="10" font-weight="600">11. Translucency</text>
+<text x="74" y="920" fill="#909090" font-size="9">Forward + Distortion</text>
+<text x="74" y="933" fill="#909090" font-size="8">Source: TranslucentRendering.cpp</text>
+
+<!-- 12. PostProcess -->
+<rect x="60" y="970" width="180" height="52" rx="6" fill="#131318" stroke="#4FC3F7" stroke-width="2" stroke-opacity="0.8"/>
+<text x="74" y="988" fill="#4FC3F7" font-size="10" font-weight="600">12. PostProcessing</text>
+<text x="74" y="1004" fill="#909090" font-size="9">TSR  DOF  Bloom  Tone</text>
+<text x="74" y="1017" fill="#909090" font-size="8">Source: PostProcessing.cpp</text>
+
+<!-- ===== 右侧资源列 ===== -->
+<text x="420" y="44" fill="#909090" font-size="9">RDG 输出资源</text>
+<line x1="410" y1="48" x2="410" y2="1030" stroke="#333" stroke-width="1"/>
+
+<text x="430" y="70" fill="#c8c8d0" font-size="9" font-family="monospace"> SceneDepth (D32)</text>
+<text x="430" y="85" fill="#c8c8d0" font-size="9" font-family="monospace"> VisBuffer64 (Nanite)</text>
+<text x="430" y="100" fill="#c8c8d0" font-size="9" font-family="monospace"> HZBTexture</text>
+
+<text x="430" y="155" fill="#c8c8d0" font-size="9" font-family="monospace"> ShadowDepthAtlas</text>
+<text x="430" y="170" fill="#c8c8d0" font-size="9" font-family="monospace"> VSM Page Table</text>
+
+<text x="430" y="238" fill="#c8c8d0" font-size="9" font-family="monospace"> LumenSceneLightingBuf</text>
+
+<text x="430" y="322" fill="#c8c8d0" font-size="9" font-family="monospace"> GBufferA (Normal+AO)</text>
+<text x="430" y="337" fill="#c8c8d0" font-size="9" font-family="monospace"> GBufferB (Metallic)</text>
+<text x="430" y="352" fill="#c8c8d0" font-size="9" font-family="monospace"> GBufferC (BaseColor)</text>
+<text x="430" y="367" fill="#c8c8d0" font-size="9" font-family="monospace"> SceneVelocity (MVec)</text>
+
+<text x="430" y="406" fill="#c8c8d0" font-size="9" font-family="monospace"> (读: G-Buffer A~E)</text>
+<text x="430" y="421" fill="#c8c8d0" font-size="9" font-family="monospace"> SceneColor (累加光照)</text>
+
+<text x="430" y="490" fill="#c8c8d0" font-size="9" font-family="monospace"> LumenDiffuseTexture</text>
+<text x="430" y="505" fill="#c8c8d0" font-size="9" font-family="monospace"> ScreenBentNormal</text>
+
+<text x="430" y="574" fill="#c8c8d0" font-size="9" font-family="monospace"> ReflectionTexture</text>
+<text x="430" y="589" fill="#c8c8d0" font-size="9" font-family="monospace"> SkyLightTexture</text>
+
+<text x="430" y="658" fill="#c8c8d0" font-size="9" font-family="monospace"> SubsurfaceScatterTex</text>
+
+<text x="430" y="742" fill="#c8c8d0" font-size="9" font-family="monospace"> VolFogScatteringTex</text>
+
+<text x="430" y="826" fill="#c8c8d0" font-size="9" font-family="monospace"> SeparateFogTex0/1</text>
+<text x="430" y="841" fill="#c8c8d0" font-size="9" font-family="monospace"> VolCloudRenderTarget</text>
+
+<text x="430" y="910" fill="#c8c8d0" font-size="9" font-family="monospace"> (读: SceneDepth/Color)</text>
+<text x="430" y="925" fill="#c8c8d0" font-size="9" font-family="monospace"> TranslucencyColor</text>
+
+<text x="430" y="994" fill="#c8c8d0" font-size="9" font-family="monospace"> (读: SceneColor/Depth/Velocity</text>
+<text x="430" y="1009" fill="#c8c8d0" font-size="9" font-family="monospace">   TranslucencyColor)</text>
+<text x="430" y="1024" fill="#c8c8d0" font-size="9" font-family="monospace"> Final SceneColor</text>
+
+<!-- ===== 左侧连线 (依赖关系) ===== -->
+<line x1="240" y1="98" x2="410" y2="70" stroke="#FFA726" stroke-opacity="0.4" stroke-width="1" marker-end="url(#arrDep)"/>
+<line x1="240" y1="182" x2="410" y2="155" stroke="#FFA726" stroke-opacity="0.4" stroke-width="1" marker-end="url(#arrDep)"/>
+<line x1="240" y1="266" x2="410" y2="238" stroke="#FFA726" stroke-opacity="0.4" stroke-width="1" marker-end="url(#arrDep)"/>
+<line x1="240" y1="350" x2="410" y2="322" stroke="#FFA726" stroke-opacity="0.4" stroke-width="1" marker-end="url(#arrDep)"/>
+<line x1="240" y1="434" x2="410" y2="406" stroke="#FFA726" stroke-opacity="0.4" stroke-width="1" marker-end="url(#arrDep)"/>
+<line x1="240" y1="518" x2="410" y2="490" stroke="#FFA726" stroke-opacity="0.4" stroke-width="1" marker-end="url(#arrDep)"/>
+<line x1="240" y1="602" x2="410" y2="574" stroke="#FFA726" stroke-opacity="0.4" stroke-width="1" marker-end="url(#arrDep)"/>
+<line x1="240" y1="686" x2="410" y2="658" stroke="#FFA726" stroke-opacity="0.4" stroke-width="1" marker-end="url(#arrDep)"/>
+<line x1="240" y1="770" x2="410" y2="742" stroke="#FFA726" stroke-opacity="0.4" stroke-width="1" marker-end="url(#arrDep)"/>
+<line x1="240" y1="854" x2="410" y2="826" stroke="#FFA726" stroke-opacity="0.4" stroke-width="1" marker-end="url(#arrDep)"/>
+<line x1="240" y1="938" x2="410" y2="910" stroke="#FFA726" stroke-opacity="0.4" stroke-width="1" marker-end="url(#arrDep)"/>
+
+<!-- 图例 -->
+<rect x="640" y="1050" width="220" height="80" rx="6" fill="#131318" stroke="#333" stroke-width="1"/>
+<text x="660" y="1070" fill="#909090" font-size="9" font-weight="600">图例</text>
+<line x1="660" y1="1085" x2="700" y2="1085" stroke="#FFA726" stroke-width="1" stroke-opacity="0.5"/>
+<text x="708" y="1089" fill="#909090" font-size="9"> 资源依赖（生产 消费）</text>
+<rect x="660" y="1100" width="16" height="12" rx="3" fill="#131318" stroke="#4FC3F7" stroke-width="2" stroke-opacity="0.8"/>
+<text x="688" y="1111" fill="#909090" font-size="9">核心 Pass</text>
+</svg>
+<div class="caption">图 4: 12 个主要 Pass 的时序与 RDG 资源生产-消费链。橙色箭头标注资源依赖关系。</div>
+</div>
+
+<h3 id="s3-2">3.2 逐阶段展开</h3>
+
+<div class="card">
+<h4>阶段 1: PrePass + Nanite — 深度预通道</h4>
+<p><span class="tag">入口: RenderPrePass()</span> <code>DeferredShadingRenderer.cpp:2464</code></p>
+<ul style="padding-left:20px;color:var(--sub)">
+<li><strong>DDM_None</strong>: 不执行 PrePass，BasePass 直接写深度</li>
+<li><strong>DDM_AllOpaque</strong>: 所有不透明几何  Depth-Only Pass，BasePass 只读深度</li>
+<li><strong>DDM_AllOpaqueNoVelocity</strong>: 同上，Velocity 独立 Pass 写深度（减少 BasePass 带宽）</li>
+<li><strong>Nanite</strong>: GPU 裁剪  VisBuffer 光栅化  EmitDepthTargets 解析深度</li>
+</ul>
+<p><strong>输出资源</strong>: <code>SceneDepth.Z (D32)</code>, <code>VisBuffer64</code>, <code>HZBTexture</code>, <code>PartialDepth</code></p>
+</div>
+
+<div class="card">
+<h4>阶段 2: ShadowDepth — 阴影深度渲染</h4>
+<p><span class="tag">入口: RenderShadowDepthMaps()</span> <code>DeferredShadingRenderer.cpp:3291</code></p>
+<ul style="padding-left:20px;color:var(--sub)">
+<li><strong>VSM (Virtual Shadow Maps)</strong>: 页面化 128x128 虚拟阴影贴图，Nanite 几何单 Pass 覆盖所有光源</li>
+<li><strong>CSM (Cascaded Shadow Maps)</strong>: 方向光级联阴影（传统路径）</li>
+<li><strong>RT Shadows</strong>: 光线追踪阴影（可选，<code>r.RayTracing.Shadows</code>）</li>
+</ul>
+<p><strong>输出资源</strong>: <code>ShadowDepthAtlas</code>, <code>VSM Physical Page Pool</code>, <code>VSM Page Table</code></p>
+</div>
+
+<div class="card">
+<h4>阶段 3: BasePass — G-Buffer 写入</h4>
+<p><span class="tag">入口: RenderBasePass()</span> <code>BasePassRendering.cpp (static 方法)</code> <code>DeferredShadingRenderer.cpp:3059</code></p>
+<ul style="padding-left:20px;color:var(--sub)">
+<li><strong>传统几何</strong>: FMeshDrawCommand  硬件光栅化  Pixel Shader 写 G-Buffer (GBufferA~E + Velocity)</li>
+<li><strong>Nanite 几何</strong>: ShadeBinning  DispatchBasePass (Compute Shader) 材质着色 写 G-Buffer</li>
+<li><strong>DBuffer Decal</strong>: 延迟 Decal 写入 DBufferA/B/C（在 BasePass 之前读取）</li>
+</ul>
+<p><strong>输出资源</strong>: <code>GBufferA (Normal+AO)</code>, <code>GBufferB (Metallic/Roughness)</code>, <code>GBufferC (BaseColor/Indirect)</code>, <code>GBufferD (CustomData)</code>, <code>GBufferE (PreShadow)</code>, <code>SceneVelocity</code>, <code>SceneStencil (LightChannels+Tags)</code></p>
+</div>
+
+<div class="card">
+<h4>阶段 4: Deferred Lighting — 延迟光照计算</h4>
+<p><span class="tag">入口: RenderLights()</span> <code>LightRendering.cpp</code>  <code>DeferredShadingRenderer.cpp:3467</code></p>
+<ul style="padding-left:20px;color:var(--sub)">
+<li><strong>RenderDiffuseIndirectAndAO</strong>: Lumen GI Screen Probe / ReSTIR Gather + DFAO</li>
+<li><strong>RenderLights</strong>: Clustered Deferred Shading — 对每个 Froxel 累加其关联光源的贡献</li>
+<li><strong>RenderMegaLights (5.8)</strong>: 大量动态光源 (Sample Shade Denoise Resolve)</li>
+<li><strong>RenderDeferredReflectionsAndSkyLighting</strong>: SSR / Lumen Reflection / Planar / SkyLight</li>
+<li><strong>RenderTranslucencyLightingVolume</strong>: 3D 体积光照注入（供半透明采样）</li>
+</ul>
+<p><strong>关键数据流</strong>: G-Buffer (读)  LightGrid (读)  SceneColor (写，累加结果)</p>
+</div>
+
+<div class="card">
+<h4>阶段 5: Atmospheric — 大气/雾/体积云</h4>
+<p><span class="tag">入口: RenderLightShaftSkyFogAndCloud()</span> <code>DeferredShadingRenderer.cpp:3723</code></p>
+<ul style="padding-left:20px;color:var(--sub)">
+<li><strong>SkyAtmosphere</strong>: Rayleigh/Mie 散射  天空光照 LUT  合成到 SceneColor</li>
+<li><strong>HeightFog + LocalFogVolume</strong>: 高度雾 + 局部雾体积  Separate Fog Composition 或直接合成</li>
+<li><strong>VolumetricCloud</strong>: 体积云渲染（Async Compute 可选）</li>
+<li><strong>LightShaft</strong>: 光束遮挡/泛光效果</li>
+</ul>
+</div>
+
+<div class="card">
+<h4>阶段 6: Translucency — 半透明 Forward 渲染</h4>
+<p><span class="tag">入口: RenderTranslucency()</span> <code>TranslucentRendering.cpp</code>  <code>DeferredShadingRenderer.cpp:4011</code></p>
+<ul style="padding-left:20px;color:var(--sub)">
+<li><strong>FrontLayerTranslucency</strong>: 前层半透明（Lumen/MegaLights 预处理）</li>
+<li><strong>Standard Translucency</strong>: Forward 渲染，从后到前混合到 SceneColor</li>
+<li><strong>Separate Translucency</strong>: 低分辨率独立渲染（后处理阶段 Upsample 合成）</li>
+<li><strong>Distortion</strong>: 折射/变形效果（屏幕空间 UV 偏移）</li>
+<li><strong>OIT (Order Independent Transparency)</strong>: 排序无关半透明（三角形排序 + 累积）</li>
+</ul>
+</div>
+
+<div class="card">
+<h4>阶段 7: PostProcessing — 最终图像处理</h4>
+<p><span class="tag">入口: AddPostProcessingPasses()</span> <code>PostProcess/PostProcessing.cpp</code>  <code>DeferredShadingRenderer.cpp:4311</code></p>
+<ul style="padding-left:20px;color:var(--sub)">
+<li><strong>TSR (Temporal Super Resolution)</strong>: 时序超采样（默认反走样+超分辨率方案）</li>
+<li><strong>TAA</strong>: 时序反走样（TSR 降级方案）</li>
+<li><strong>DOF (Depth of Field)</strong>: Accumulation DOF (5.8 新增) / Diaphragm DOF</li>
+<li><strong>MotionBlur</strong>: 运动模糊</li>
+<li><strong>Bloom</strong>: 泛光效果（FFT 加速可选）</li>
+<li><strong>Tonemap</strong>: 色调映射 (ACES / Filmic) + 曝光 (Auto-Exposure Histogram)</li>
+<li><strong>EyeAdaptation</strong>: 自动曝光 (Histogram + 曲线 LUT)</li>
+<li><strong>ColorGrading</strong>: LUT 颜色分级</li>
+<li><strong>LensFlares</strong>: 镜头光晕</li>
+<li><strong>Final Output</strong>: 输出到 ViewFamilyTexture RenderTarget</li>
+</ul>
+</div>
+</section>
+
+<!-- ================================================================== -->
+<!-- 第4章：设计决策 & 权衡 -->
+<!-- ================================================================== -->
+<section id="s4">
+<h2>4. 设计决策 &amp; 权衡</h2>
+
+<h3 id="s4-1">4.1 G-Buffer 带宽 vs Pixel Shader 复杂度</h3>
+<div class="compare-grid">
+<div class="compare-card">
+<h5>大量 G-Buffer 的好处</h5>
+<p class="pro">更丰富的材质数据，减少 PS 后续计算</p>
+<p class="pro">支持复杂光照模型（直接读取预计算值）</p>
+<p class="pro">减少光照 Pass 中的纹理采样和指令数</p>
+</div>
+<div class="compare-card">
+<h5>大量 G-Buffer 的代价</h5>
+<p class="con">显存带宽压力大：~29 bytes/pixel x 8M pixels (4K)  232 MB 单帧写入</p>
+<p class="con">BasePass 填充率瓶颈（ROP 压力）</p>
+<p class="con">非 Nanite 几何的 Overdraw 浪费（传统路径多次写同一像素）</p>
+</div>
+</div>
+<p>UE5.8 的策略: <strong>BasePass 可选输出 Velocity</strong> (<code>bBasePassCanOutputVelocity</code>)，在 DDM_AllOpaque 模式下 BasePass 可以输出运动矢量，避免额外的 Velocity Pass。同时 <code>r.SelectiveBasePassOutputs</code> 允许着色器只写到相关 RT，减少不必要带宽。</p>
+
+<h3 id="s4-2">4.2 Clustered vs Tiled Deferred — 为什么选 Clustered</h3>
+<div class="compare-grid">
+<div class="compare-card" style="border-left:3px solid var(--err)">
+<h5>Tiled Shading 的局限</h5>
+<p class="con">只能按 2D 屏幕空间划分 Tile，无法区分深度</p>
+<p class="con">一个 Tile 可能覆盖从近到远的所有光源</p>
+<p class="con">光源列表过大，每像素需遍历过多光源</p>
+</div>
+<div class="compare-card" style="border-left:3px solid var(--accent)">
+<h5>Clustered Shading 的优势</h5>
+<p class="pro">Z 轴指数划分：近处更多切片匹配透视投影</p>
+<p class="pro">每个 Froxel 仅关联影响范围内的光源</p>
+<p class="pro">遮挡剔除(HZB)可进一步减少 Froxel 光照数量</p>
+<p class="pro">支持 MegaLights 大量光源（每个 Froxel 高效采样）</p>
+</div>
+</div>
+<p>UE5.8 控制: <code>r.UseClusteredDeferredShading 1</code> (默认启用)，实现位于 <code>LightRendering.cpp:1684</code> 和 <code>Froxel/Froxel.h</code>。</p>
+
+<h3 id="s4-3">4.3 Early-Z Pass 的收益与成本</h3>
+<div class="card">
+<table>
+<thead><tr><th>EarlyZPassMode</th><th>行为</th><th>GPU 时间</th><th>带宽</th><th>适用场景</th></tr></thead>
+<tbody>
+<tr><td><strong>DDM_None</strong></td><td>无 PrePass，BasePass 独立写深度</td><td>最短</td><td>最低</td><td>移动端、简单场景</td></tr>
+<tr><td><strong>DDM_AllOccluders</strong></td><td>仅遮罩体写入深度</td><td>较短</td><td>较低</td><td>有大量遮罩体的场景</td></tr>
+<tr><td><strong>DDM_AllOpaque</strong></td><td>全部不透明几何写入深度，BasePass 只读深度 + 无 depth test 开销</td><td>适中</td><td>较高</td><td> UE5 默认 (Nanite 强制)</td></tr>
+<tr><td><strong>DDM_AllOpaqueNoVelocity</strong></td><td>同 DDM_AllOpaque + 独立 Velocity Pass 补全深度写</td><td>较长</td><td>最高</td><td>需精确运动矢量的场景</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>关键权衡</strong>: DDM_AllOpaque 在 BasePass 中可跳过 depth test，节省 Pixel Shader 的<code>SV_Depth</code>输出带宽。但由于 PrePass 的额外 DrawCall 和 ROP 写，在小三角形或低 Overdraw 场景下可能比 DDM_None 更慢。UE5 因 <strong>Nanite</strong> 必然输出深度（VisBuffer EmitDepth），所以 <code>check(!UseNanite(ShaderPlatform) || bNeedsPrePass)</code> 确保 Nanite 场景强制走 PrePass。</p>
+
+<h3 id="s4-4">4.4 为什么半透明用 Forward 而非 Deferred</h3>
+<div class="compare-grid">
+<div class="compare-card" style="border-left:3px solid var(--err)">
+<h5>如果半透明用 Deferred...</h5>
+<p class="con">每个半透明对象需独立的 G-Buffer Pass</p>
+<p class="con">G-Buffer 仅能存单层表面数据（不能存多层）</p>
+<p class="con">Blending 需要多次 Sample、计算、写回——违背 G-Buffer 设计初衷</p>
+</div>
+<div class="compare-card" style="border-left:3px solid var(--ok)">
+<h5>Forward Translucency 的优势</h5>
+<p class="pro">直接通过 Alpha Blending 按排序混合到 SceneColor</p>
+<p class="pro">支持 OIT (Order Independent Transparency) 降低排序成本</p>
+<p class="pro">通过 TranslucencyLightingVolume 采样 3D 光照信息</p>
+<p class="pro">Separate Translucency 可低分辨率渲染后 Upsample</p>
+</div>
+</div>
+<p>UE5.8 的半透明分类: <code>ETranslucencyPass::Type</code> 包括 <code>TPT_StandardTranslucency</code>、<code>TPT_TranslucencyAfterDOF</code>、<code>TPT_TranslucencyAfterMotionBlur</code> 等，支持在不同后处理阶段合成。</p>
+</section>
+
+<!-- ================================================================== -->
+<!-- 第5章：底层实现关联 -->
+<!-- ================================================================== -->
+<section id="s5">
+<h2>5. 底层实现关联</h2>
+
+<h3>5.1 各 Pass 入口函数与源文件映射</h3>
+
+<div class="card">
+<table>
+<thead><tr><th>Pass</th><th>入口函数</th><th>源文件:行号</th><th>RDG Pass 类别</th></tr></thead>
+<tbody>
+<tr><td>Commit Pipeline</td><td><code>CommitFinalPipelineState()</code></td><td>DeferredShadingRenderer.cpp:1927</td><td>CPU 端状态确定</td></tr>
+<tr><td>Begin Visibility</td><td><code>BeginInitViews()</code></td><td>DeferredShadingRenderer.cpp:2123</td><td>CPU 可见性</td></tr>
+<tr><td>End Visibility</td><td><code>EndInitViews()</code></td><td>DeferredShadingRenderer.cpp:2394</td><td>CPU 可见性</td></tr>
+<tr><td>Depth Clear</td><td><code>AddClearDepthStencilPass()</code></td><td>DeferredShadingRenderer.cpp:2459</td><td>Graphics</td></tr>
+<tr><td>PrePass</td><td><code>RenderPrePass()</code></td><td>DeferredShadingRenderer.cpp:2464</td><td>Graphics</td></tr>
+<tr><td>Velocity (Opaque)</td><td><code>RenderVelocities()</code></td><td>VelocityRendering.cpp</td><td>Graphics</td></tr>
+<tr><td>Nanite</td><td><code>RenderNanite()</code></td><td>DeferredShadingRenderer.cpp:2485 ( NaniteCullRaster.cpp)</td><td>Compute+Graphics</td></tr>
+<tr><td>Nanite Shading Cmds</td><td><code>Nanite::BuildShadingCommands()</code></td><td>DeferredShadingRenderer.cpp:2697</td><td>CPU 预处理</td></tr>
+<tr><td>HZB Build</td><td><code>RenderHzb()</code></td><td>DeferredShadingRenderer.cpp:2726</td><td>Compute</td></tr>
+<tr><td>Light Data</td><td><code>PrepareForwardLightData()</code></td><td>DeferredShadingRenderer.cpp:2807</td><td>Compute</td></tr>
+<tr><td>Lumen Update</td><td><code>UpdateLumenScene()</code></td><td>DeferredShadingRenderer.cpp:2894</td><td>Compute</td></tr>
+<tr><td>Shadow Depth</td><td><code>RenderShadowDepthMaps()</code></td><td>DeferredShadingRenderer.cpp:3291</td><td>Graphics+Compute</td></tr>
+<tr><td>DBuffer Pass</td><td><code>CompositionLighting::ProcessBeforeBasePass()</code></td><td>DeferredShadingRenderer.cpp:2961</td><td>Graphics</td></tr>
+<tr><td>Lumen Scene Light</td><td><code>RenderLumenSceneLighting()</code></td><td>DeferredShadingRenderer.cpp:3041</td><td>Compute</td></tr>
+<tr><td>BasePass</td><td><code>RenderBasePass()</code></td><td>DeferredShadingRenderer.cpp:3059 ( BasePassRendering.cpp)</td><td>Graphics+Compute</td></tr>
+<tr><td>Substrate Classify</td><td><code>Substrate::AddSubstrateMaterialClassificationPass()</code></td><td>DeferredShadingRenderer.cpp:3184</td><td>Compute</td></tr>
+<tr><td>Decals</td><td><code>CompositionLighting::ProcessAfterBasePass()</code></td><td>DeferredShadingRenderer.cpp:3391</td><td>Graphics</td></tr>
+<tr><td>SSAO</td><td><code>CompositionLighting::ProcessAfterBasePass()</code></td><td>(同上)</td><td>Compute</td></tr>
+<tr><td>Copy LightChannel</td><td><code>CopyStencilToLightingChannelTexture()</code></td><td>DeferredShadingRenderer.cpp:3216</td><td>Compute/Graphics</td></tr>
+<tr><td>MegaLights Sample</td><td><code>GenerateMegaLightsSamples()</code></td><td>DeferredShadingRenderer.cpp:3229-3286</td><td>Compute</td></tr>
+<tr><td>Deferred Lighting</td><td><code>RenderLights()</code></td><td>LightRendering.cpp  DSR.cpp:3467</td><td>Graphics+Compute</td></tr>
+<tr><td>MegaLights Render</td><td><code>RenderMegaLights()</code></td><td>DeferredShadingRenderer.cpp:3470</td><td>Compute</td></tr>
+<tr><td>Diffuse Indirect</td><td><code>RenderDiffuseIndirectAndAmbientOcclusion()</code></td><td>DeferredShadingRenderer.cpp:3429</td><td>Compute</td></tr>
+<tr><td>DFAO Shadowing</td><td><code>RenderDFAOAsIndirectShadowing()</code></td><td>DeferredShadingRenderer.cpp:3444</td><td>Compute</td></tr>
+<tr><td>Reflections+Sky</td><td><code>RenderDeferredReflectionsAndSkyLighting()</code></td><td>DeferredShadingRenderer.cpp:3528</td><td>Compute+Graphics</td></tr>
+<tr><td>Subsurface</td><td><code>AddSubsurfacePass()</code></td><td>DeferredShadingRenderer.cpp:3535</td><td>Compute</td></tr>
+<tr><td>Volumetric Fog</td><td><code>ComputeVolumetricFog()</code></td><td>DeferredShadingRenderer.cpp:3663</td><td>Compute</td></tr>
+<tr><td>Sky Atmosphere</td><td><code>RenderSkyAtmosphere()</code></td><td>DeferredShadingRenderer.cpp:3784</td><td>Graphics</td></tr>
+<tr><td>Height Fog</td><td><code>RenderFog()</code></td><td>DeferredShadingRenderer.cpp:3822</td><td>Graphics</td></tr>
+<tr><td>Volumetric Cloud</td><td><code>RenderVolumetricCloud()</code></td><td>DeferredShadingRenderer.cpp:3685</td><td>Compute+Graphics</td></tr>
+<tr><td>Translucency</td><td><code>RenderTranslucency()</code></td><td>TranslucentRendering.cpp  DSR.cpp:4011</td><td>Graphics</td></tr>
+<tr><td>Distortion</td><td><code>RenderDistortion()</code></td><td>DeferredShadingRenderer.cpp:4025</td><td>Graphics</td></tr>
+<tr><td>PostProcessing</td><td><code>AddPostProcessingPasses()</code></td><td>PostProcess/PostProcessing.cpp  DSR.cpp:4311</td><td>Graphics+Compute</td></tr>
+<tr><td>Path Tracer</td><td><code>RenderPathTracing()</code></td><td>DeferredShadingRenderer.cpp:4117</td><td>RT Compute</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>5.2 核心 RDG 资源依赖链</h3>
+
+<div class="card">
+<h4>关键 Texture/Buffer 的生产-消费关系</h4>
+
+<div class="code-block">
+<div class="head"><span class="file">SceneDepth — 深度数据流</span></div>
+<pre><code>RenderPrePass()                     SceneDepth.Target (D32, 深度写入)
+RenderNanite()                      VisBuffer64  EmitDepthTargets  SceneDepth.Target
+RenderHzb()                         (读 SceneDepth)  HZBTexture (MIP 链)
+AddResolveSceneDepthPass()          SceneDepth.Resolve (供后续 Pass 采样)
+所有后续 Pass (BasePass Read-Only)   (读 SceneDepth.Z)
+半透明 / PostProcess                (读 SceneDepth.Resolve)
+</code></pre>
+</div>
+
+<div class="code-block">
+<div class="head"><span class="file">SceneColor — 颜色数据流</span></div>
+<pre><code>BasePass (间接光照)                 GBufferC (BaseColor.rgb + IndirectIrradiance)
+RenderDiffuseIndirectAndAO          (读 GBufferC)  SceneColor.Target (初始间接光照)
+RenderLights() (Clustered)          (读 G-Buffer)  SceneColor.Target (Additive Blend)
+RenderMegaLights()                  (读 G-Buffer)  SceneColor.Target (Additive Blend)
+RenderDeferredReflections           (读 SceneColor)  ReflectionTexture  SceneColor (合成)
+Sky Atmosphere / Fog / Cloud        (读 SceneDepth)  SceneColor.Target (Blend)
+RenderTranslucency()                (读 SceneColor)  SceneColor (Alpha Blend)
+AddResolveSceneColorPass()          SceneColor.Resolve (MSAA 解析)
+PostProcessing                      (读 SceneColor.Resolve)  Final Output
+</code></pre>
+</div>
+
+<div class="code-block">
+<div class="head"><span class="file">LightGrid — 光源分配数据流</span></div>
+<pre><code>GatherAndSortLights (CPU)           FSortedLightSetSceneInfo (按类型排序)
+PrepareForwardLightData (Compute)   (读 SortedLightSet)  LightGrid (3D Froxel Buffer)
+RenderLights() (Clustered)          (读 LightGrid)  每个 Froxel 的关联光源列表
+</code></pre>
+</div>
+</div>
+</section>
+
+<!-- ================================================================== -->
+<!-- 第6章：UE5.8 演进变化 -->
+<!-- ================================================================== -->
+<section id="s6">
+<h2>6. UE5.8 演进变化</h2>
+
+<h3>6.1 Lumen 如何改写传统 Lighting Pass</h3>
+
+<div class="compare-grid">
+<div class="compare-card" style="border-left:3px solid #546E7A">
+<h5>传统 UE4 延迟光照</h5>
+<p style="font-size:0.85rem;color:var(--sub)">BasePass  直接光照 (Clustered)  SSR  SkyLight  带 Lightmap 的静态 GI</p>
+<p style="font-size:0.82rem"><span class="tag">GI 方式</span> Lightmap 烘焙 (静态) 或 DFAO (动态但简陋)</p>
+</div>
+<div class="compare-card" style="border-left:3px solid var(--accent)">
+<h5>UE5.8 Lumen 集成</h5>
+<p style="font-size:0.85rem;color:var(--sub)">UpdateLumenScene  LumenSceneLighting  DispatchAsyncLumenIndirectWork  RenderDiffuseIndirectAndAO  RenderLights  Reflection</p>
+<p style="font-size:0.82rem"><span class="tag">GI 方式</span> Lumen GI (Screen Probe / ReSTIR / HWRT) — 实时动态</p>
+</div>
+</div>
+
+<p><strong>Lumen 在 Render() 中的插入点</strong>:</p>
+<ul style="padding-left:20px;color:var(--sub)">
+<li><strong>BeginUpdateLumenSceneTasks</strong> (1966): 启动 Lumen 场景更新（异步 Task）</li>
+<li><strong>RenderLumenSceneLighting</strong> (3041): 计算 Lumen 场景的直接光照（异步 Compute 可选）</li>
+<li><strong>DispatchAsyncLumenIndirectLightingWork</strong> (3248): 异步分发 Lumen GI 计算</li>
+<li><strong>RenderDiffuseIndirectAndAmbientOcclusion</strong> (3429): 合成 Lumen GI 到 SceneColor</li>
+<li><strong>RenderLumenMiscVisualizations</strong> (4164): 调试可视化</li>
+</ul>
+
+<h3>6.2 MegaLights 的管线集成点</h3>
+
+<p>MegaLights 是 UE5.8 正式可用的大量动态光源系统，其管线集成完全在现有延迟光照流程中：</p>
+
+<div class="card">
+<h4>MegaLights 四阶段工作流</h4>
+<ol style="padding-left:20px;color:var(--sub)">
+<li><strong>CreateMegaLightsFrameTemporaries</strong> (3025): 创建帧临时资源（光源列表、Volume 纹理、采样缓冲区）</li>
+<li><strong>DispatchAsyncMegaLightsVolumePasses</strong> (3053): 异步分发 Volume 穿透/光源注入 Pass</li>
+<li><strong>GenerateMegaLightsSamples</strong> (3229/3279): 生成屏幕空间采样点（Async Compute 可选）</li>
+<li><strong>RenderMegaLights</strong> (3470): 最终着色输出  ShadeBinning + Denoise + Resolve  SceneColor</li>
+</ol>
+<p><strong>集成特点</strong>: MegaLights 采样在 VSM 页面标记之前（可基于采样结果定制 VSM 分配），在 RenderLights() 之后渲染（避免重复计算标准 Clustered 光源）。</p>
+</div>
+
+<h3>6.3 Accumulation DOF — 后处理的变化</h3>
+
+<p>UE5.8 引入了 <strong>Accumulation DOF</strong> (累积景深) 作为传统 Diaphragm DOF 的替代方案：</p>
+<ul style="padding-left:20px;color:var(--sub)">
+<li>通过<strong>多帧累积</strong>实现高质量散景效果，而非单帧高频采样</li>
+<li>减少 DOF Pass 的单帧 GPU 成本，将计算分摊到多帧</li>
+<li>集成在 <code>AddPostProcessingPasses()</code> (PostProcessing.cpp:4311) 中，替换/增强原有 DiaphragmDOF 路径</li>
+<li>与 TSR 的时序超采样协同工作，共享运动矢量数据</li>
+</ul>
+
+<h3>6.4 其他 UE5.8 管线变化</h3>
+<div class="card">
+<table>
+<thead><tr><th>变化项</th><th>5.7 行为</th><th>5.8 行为</th></tr></thead>
+<tbody>
+<tr><td>Lumen Lite</td><td>不存在</td><td>轻量版 Lumen，降低最低配置要求</td></tr>
+<tr><td>Movie Render Graph</td><td>传统 Sequencer 渲染</td><td>新的可编程渲染图系统</td></tr>
+<tr><td>Substrate</td><td>实验性</td><td>正式可用，材质分类集成到管线</td></tr>
+<tr><td>OIT</td><td>测试阶段</td><td>正式可用 (Sorted Triangles)</td></tr>
+<tr><td>Heterogeneous Volumes</td><td>预览</td><td>正式可用 + Async Compute</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<!-- ================================================================== -->
+<!-- CVar 速查表 -->
+<!-- ================================================================== -->
+<section id="cvar">
+<h2>CVar 速查表</h2>
+
+<div class="card">
+<table class="cvar-table">
+<thead><tr><th>Console Variable</th><th>默认值</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>r.EarlyZPass</code></td><td>(project)</td><td>深度预通道模式 (DDM_None/DDM_AllOpaque/DDM_AllOccluders)</td></tr>
+<tr><td><code>r.UseClusteredDeferredShading</code></td><td>1</td><td>聚簇延迟着色开关 (SM5+ 默认启用)</td></tr>
+<tr><td><code>r.AllowDepthBoundsTest</code></td><td>1</td><td>延迟光照使用深度边界测试优化</td></tr>
+<tr><td><code>r.ParallelBasePass</code></td><td>1</td><td>并行 BasePass 渲染</td></tr>
+<tr><td><code>r.SelectiveBasePassOutputs</code></td><td>0</td><td>着色器仅输出到相关 RenderTarget (减少带宽)</td></tr>
+<tr><td><code>r.ClearGBufferDBeforeBasePass</code></td><td>1</td><td>BasePass 前清除 GBufferD</td></tr>
+<tr><td><code>r.Nanite</code></td><td>1</td><td>Nanite 虚拟几何系统主开关</td></tr>
+<tr><td><code>r.Nanite.ComputeRasterization</code></td><td>1</td><td>Nanite 软件光栅化</td></tr>
+<tr><td><code>r.Nanite.AsyncRasterization</code></td><td>0</td><td>异步计算光栅化 (可选优化)</td></tr>
+<tr><td><code>r.Shadow.Virtual.Enable</code></td><td>1</td><td>虚拟阴影贴图 (VSM) 开关</td></tr>
+<tr><td><code>r.Lumen.DiffuseIndirect.Allow</code></td><td>1</td><td>Lumen 漫反射间接光开关</td></tr>
+<tr><td><code>r.Lumen.Reflections.Allow</code></td><td>1</td><td>Lumen 反射开关</td></tr>
+<tr><td><code>r.MegaLights.Allow</code></td><td>1</td><td>MegaLights 大量动态光源开关 (5.8)</td></tr>
+<tr><td><code>r.MegaLights.Denoise</code></td><td>1</td><td>MegaLights 降噪 (5.8)</td></tr>
+<tr><td><code>r.SceneDepthHZBAsyncCompute</code></td><td>0</td><td>HZB 生成使用异步计算 (0=禁用,1=Async,2=Async+LightGrid依赖)</td></tr>
+<tr><td><code>r.SeparateTranslucencyScreenPercentage</code></td><td>100</td><td>独立半透明渲染分辨率百分比</td></tr>
+<tr><td><code>r.Translucency.ScreenPercentage.Basis</code></td><td>0</td><td>半透明屏幕百分比基准 (0=主视图, 1=固定)</td></tr>
+<tr><td><code>r.Nanite.PrimeHZB</code></td><td>0</td><td>Nanite 需要时提前渲染 HZB (0=禁用)</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<!-- ================================================================== -->
+<!-- 底部导航 -->
+<!-- ================================================================== -->
+<div class="bottom-nav">
+<div>
+<span class="label">上一章</span>
+<a href="../渲染机制/index.html">&#8592; 渲染机制</a>
+</div>
+<div style="text-align:right">
+<span class="label">下一章</span>
+<a href="../RHI/index.html" class="next">RHI 抽象层 &#8594;</a>
+</div>
+</div>
+
+</main>
+
+<!-- ==================== 脚本 ==================== -->
+<script>
+// ===== 侧栏高亮 =====
+(function(){
+  const links = document.querySelectorAll('#sidebar a');
+  const sections = [];
+  links.forEach(a => {
+    const id = a.getAttribute('href')?.replace('#','');
+    if (id) {
+      const el = document.getElementById(id);
+      if (el) sections.push({id, a, el});
+    }
+  });
+  function updateActive(){
+    let current = '';
+    sections.forEach(s => {
+      const top = s.el.getBoundingClientRect().top;
+      if (top < 120) current = s.id;
+    });
+    links.forEach(a => {
+      a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+    });
+  }
+  window.addEventListener('scroll', updateActive, {passive:true});
+  updateActive();
+})();
+
+// ===== 章节内搜索 =====
+function doSearch(){
+  const q = document.getElementById('search-box').value.toLowerCase().trim();
+  const countEl = document.getElementById('search-count');
+  // 清除旧高亮
+  document.querySelectorAll('mark.search-hit').forEach(m => {
+    const p = m.parentNode;
+    p.replaceChild(document.createTextNode(m.textContent), m);
+    p.normalize();
+  });
+  if (!q) { countEl.textContent = ''; return; }
+  let hits = 0;
+  const walker = document.createTreeWalker(document.getElementById('content'), NodeFilter.SHOW_TEXT, null, false);
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+  textNodes.forEach(node => {
+    if (node.parentNode.closest('script,style,svg,code')) return;
+    const text = node.textContent;
+    const lower = text.toLowerCase();
+    let idx = lower.indexOf(q);
+    if (idx === -1) return;
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    while (idx !== -1) {
+      hits++;
+      if (idx > last) frag.appendChild(document.createTextNode(text.slice(last, idx)));
+      const mark = document.createElement('mark');
+      mark.className = 'search-hit';
+      mark.textContent = text.slice(idx, idx + q.length);
+      frag.appendChild(mark);
+      last = idx + q.length;
+      idx = lower.indexOf(q, last);
+    }
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    node.parentNode.replaceChild(frag, node);
+  });
+  countEl.textContent = hits ? `${hits} 处匹配` : '无匹配';
+}
+
+// ===== 代码块复制 =====
+document.querySelectorAll('.code-block').forEach(block => {
+  const pre = block.querySelector('pre');
+  if (!pre) return;
+  const btn = document.createElement('button');
+  btn.textContent = '复制';
+  btn.addEventListener('click', () => {
+    navigator.clipboard.writeText(pre.textContent || '').then(() => {
+      btn.textContent = '已复制!';
+      setTimeout(() => { btn.textContent = '复制'; }, 1500);
+    });
+  });
+  const head = block.querySelector('.head');
+  if (head) head.appendChild(btn);
+});
+
+console.log('UE5.8.0 延迟渲染管线文档加载完成');
+</script>
+</body>
+</html>

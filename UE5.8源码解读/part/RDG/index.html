@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UE5.8 RDG 渲染依赖图系统 — 深入解读</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --card-bg: #131318;
+  --code-bg: #09090d;
+  --primary: #4FC3F7;
+  --text: #e0e0e0;
+  --muted: #909090;
+  --border: #1e1e2a;
+  --hover: #1a1a24;
+  --accent: #80CBC4;
+  --warn: #FFB74D;
+  --err: #EF5350;
+  --inline-code-bg: #1a1a26;
+  --nav-width: 260px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: -apple-system, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg); color: var(--text); line-height: 1.7;
+  display: flex; min-height: 100vh;
+}
+
+/* 左侧导航 */
+nav#sidebar {
+  position: fixed; top: 0; left: 0; width: var(--nav-width); height: 100vh;
+  background: #0d0d14; border-right: 1px solid var(--border);
+  overflow-y: auto; z-index: 100; padding: 20px 0;
+}
+nav#sidebar .nav-title {
+  font-size: 15px; font-weight: 700; color: var(--primary); padding: 0 20px 16px;
+  letter-spacing: 0.5px; border-bottom: 1px solid var(--border); margin-bottom: 12px;
+}
+nav#sidebar ol { list-style: none; padding: 0 16px; }
+nav#sidebar ol li { margin: 2px 0; }
+nav#sidebar ol li a {
+  display: block; padding: 6px 12px; color: var(--muted); text-decoration: none;
+  font-size: 13px; border-radius: 6px; transition: all 0.15s;
+}
+nav#sidebar ol li a:hover, nav#sidebar ol li a.active {
+  color: var(--text); background: var(--hover);
+}
+nav#sidebar ol li a.sub { padding-left: 28px; font-size: 12px; }
+
+/* 主内容区 */
+main {
+  margin-left: var(--nav-width); flex: 1; max-width: 960px; padding: 40px 48px 80px;
+}
+
+/* 面包屑 */
+.breadcrumb {
+  font-size: 12px; color: var(--muted); margin-bottom: 24px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.breadcrumb a { color: var(--primary); text-decoration: none; }
+.breadcrumb a:hover { text-decoration: underline; }
+.breadcrumb .sep { color: #444; }
+
+/* 搜索 */
+.search-bar {
+  position: relative; margin-bottom: 28px;
+}
+.search-bar input {
+  width: 100%; padding: 10px 16px; background: var(--card-bg); border: 1px solid var(--border);
+  color: var(--text); border-radius: 8px; font-size: 14px; outline: none;
+}
+.search-bar input:focus { border-color: var(--primary); }
+.search-bar input::placeholder { color: #555; }
+.search-results {
+  display: none; position: absolute; top: 44px; left: 0; right: 0;
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px;
+  max-height: 240px; overflow-y: auto; z-index: 10;
+}
+.search-results a {
+  display: block; padding: 8px 16px; color: var(--text); text-decoration: none; font-size: 13px;
+}
+.search-results a:hover { background: var(--hover); }
+mark { background: rgba(79,195,247,0.25); color: var(--primary); border-radius: 2px; padding: 0 2px; }
+
+h1 { font-size: 28px; color: var(--primary); margin-bottom: 8px; letter-spacing: 0.3px; }
+h1 + p { font-size: 14px; color: var(--muted); margin-bottom: 36px; }
+h2 {
+  font-size: 20px; color: var(--text); margin: 48px 0 16px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--border); letter-spacing: 0.3px;
+}
+h3 { font-size: 16px; color: var(--accent); margin: 28px 0 10px; }
+h4 { font-size: 14px; color: var(--text); margin: 20px 0 8px; }
+p { margin: 12px 0; font-size: 14px; color: var(--muted); }
+strong { color: var(--text); }
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* 源码面包屑 */
+.src-path {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-family: "Cascadia Code","Fira Code",monospace;
+  color: var(--muted); background: var(--inline-code-bg); padding: 3px 10px; border-radius: 4px;
+  margin: 0 0 20px;
+}
+.src-path .icon { color: var(--primary); }
+
+/* 概念卡片 */
+.concept-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px; margin: 20px 0;
+}
+.concept-card {
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 20px; transition: border-color 0.2s;
+}
+.concept-card:hover { border-color: var(--primary); }
+.concept-card h4 { margin: 0 0 8px; font-size: 14px; color: var(--primary); }
+.concept-card p { font-size: 13px; margin: 0; }
+
+/* 代码块容器 */
+.code-block {
+  position: relative; margin: 16px 0; border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--border);
+}
+.code-block .header {
+  display: flex; justify-content: space-between; align-items: center;
+  background: #0f0f17; padding: 8px 14px; border-bottom: 1px solid var(--border);
+}
+.code-block .header .lang { font-size: 11px; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; }
+.code-block .header .copy-btn {
+  font-size: 11px; color: var(--muted); background: none; border: 1px solid #333;
+  padding: 2px 10px; border-radius: 4px; cursor: pointer; transition: all 0.15s;
+}
+.code-block .header .copy-btn:hover { color: var(--primary); border-color: var(--primary); }
+.code-block .header .copy-btn.copied { color: #69F0AE; border-color: #69F0AE; }
+.code-block pre {
+  margin: 0; padding: 0; overflow-x: auto; counter-reset: line;
+}
+.code-block pre code {
+  display: block; padding: 14px 0; font-family: "Cascadia Code","Fira Code","JetBrains Mono",monospace;
+  font-size: 13px; line-height: 1.55; color: #d4d4d4;
+}
+.code-block pre code .line {
+  display: block; padding: 0 16px 0 56px; position: relative; white-space: pre;
+  min-height: 1.3em;
+}
+.code-block pre code .line::before {
+  counter-increment: line; content: counter(line);
+  position: absolute; left: 0; width: 40px; text-align: right;
+  color: #555; font-size: 11px; user-select: none;
+}
+.code-block pre code .line:hover { background: rgba(255,255,255,0.03); }
+
+/* 语法高亮 */
+.kw  { color: #C792EA; } /* 关键字 */
+.type { color: #FFCB6B; } /* 类型 */
+.fn  { color: #82AAFF; } /* 函数 */
+.str { color: #C3E88D; } /* 字符串 */
+.num { color: #F78C6C; } /* 数字 */
+.cmt { color: #546E7A; font-style: italic; } /* 注释 */
+.mcr { color: #89DDFF; } /* 宏 */
+.attr { color: #FFB74D; } /* 属性 */
+.op  { color: #89DDFF; } /* 操作符 */
+
+/* 内联代码 */
+:not(pre) > code {
+  background: var(--inline-code-bg); color: var(--primary); padding: 1px 6px;
+  border-radius: 3px; font-family: "Cascadia Code","Fira Code",monospace; font-size: 12.5px;
+}
+
+/* CVar 表 */
+.cvar-table {
+  width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px;
+}
+.cvar-table th {
+  text-align: left; padding: 10px 14px; background: #0f0f17;
+  color: var(--primary); font-weight: 600; border-bottom: 1px solid var(--border);
+}
+.cvar-table td {
+  padding: 10px 14px; border-bottom: 1px solid var(--border); color: var(--muted);
+}
+.cvar-table tr:hover td { background: var(--hover); }
+.cvar-table td:first-child {
+  color: var(--text); font-family: "Cascadia Code","Fira Code",monospace; font-size: 12px;
+}
+
+/* 序列表 */
+.timeline {
+  position: relative; margin: 24px 0; padding-left: 24px; border-left: 2px solid var(--border);
+}
+.timeline .step {
+  position: relative; margin: 0 0 20px; padding-left: 28px;
+}
+.timeline .step::before {
+  content: ""; position: absolute; left: -29px; top: 6px;
+  width: 10px; height: 10px; border-radius: 50%; background: var(--primary);
+}
+.timeline .step h4 { margin: 0 0 4px; font-size: 14px; color: var(--primary); }
+.timeline .step p { margin: 0; font-size: 13px; }
+
+/* 提示框 */
+.callout {
+  padding: 14px 18px; border-radius: 8px; margin: 16px 0; font-size: 13px;
+  border-left: 3px solid;
+}
+.callout.info  { background: rgba(79,195,247,0.08);  border-color: var(--primary); color: var(--text); }
+.callout.warn  { background: rgba(255,183,77,0.08);  border-color: var(--warn); }
+.callout.tip   { background: rgba(128,203,196,0.08); border-color: var(--accent); }
+
+/* 对比表 */
+.compare-table {
+  width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px;
+}
+.compare-table th {
+  text-align: left; padding: 10px 14px; background: #0f0f17; border-bottom: 1px solid var(--border);
+}
+.compare-table td {
+  padding: 10px 14px; border-bottom: 1px solid var(--border); color: var(--muted); vertical-align: top;
+}
+.compare-table th:first-child, .compare-table td:first-child { color: var(--text); font-weight: 600; }
+
+/* 底部导航 */
+footer.nav-footer {
+  margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--border);
+  display: flex; justify-content: space-between; gap: 16px;
+}
+footer.nav-footer a {
+  display: flex; flex-direction: column; padding: 14px 18px; border: 1px solid var(--border);
+  border-radius: 8px; text-decoration: none; transition: border-color 0.2s; flex: 1;
+}
+footer.nav-footer a:hover { border-color: var(--primary); }
+footer.nav-footer a .label { font-size: 11px; color: var(--muted); }
+footer.nav-footer a .title { font-size: 14px; color: var(--primary); margin-top: 2px; }
+footer.nav-footer a.prev .label { text-align: left; }
+footer.nav-footer a.next { text-align: right; }
+
+/* 响应式 */
+@media (max-width: 860px) {
+  nav#sidebar { display: none; }
+  main { margin-left: 0; padding: 24px 20px; }
+}
+
+/* SVG 容器 */
+.diagram {
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 24px; margin: 20px 0; overflow-x: auto; text-align: center;
+}
+
+/* 状态标签 */
+.badge {
+  display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 3px;
+  font-weight: 600; letter-spacing: 0.5px; vertical-align: middle; margin-left: 6px;
+}
+.badge.new { background: rgba(79,195,247,0.15); color: var(--primary); }
+.badge.core { background: rgba(128,203,196,0.15); color: var(--accent); }
+</style>
+</head>
+<body>
+
+<!-- 左侧导航 -->
+<nav id="sidebar">
+  <div class="nav-title">UE5.8 RDG 渲染依赖图</div>
+  <ol>
+    <li><a href="#s1">1. 概述与定位</a></li>
+    <li><a href="#s2" class="sub">1.1 问题背景</a></li>
+    <li><a href="#s3" class="sub">1.2 RDG 核心概念</a></li>
+    <li><a href="#s4">2. 顶层架构设计</a></li>
+    <li><a href="#s5" class="sub">2.1 图三要素</a></li>
+    <li><a href="#s6" class="sub">2.2 FRDGBuilder API</a></li>
+    <li><a href="#s7" class="sub">2.3 Pass 类型体系</a></li>
+    <li><a href="#s8" class="sub">2.4 使用示例：Blur Downsample</a></li>
+    <li><a href="#s9" class="sub">2.5 工具 Pass</a></li>
+    <li><a href="#s10">3. 执行流程 / 数据流</a></li>
+    <li><a href="#s11" class="sub">3.1 构建阶段</a></li>
+    <li><a href="#s12" class="sub">3.2 编译/裁剪</a></li>
+    <li><a href="#s13" class="sub">3.3 Transient 资源池</a></li>
+    <li><a href="#s14" class="sub">3.4 屏障插入</a></li>
+    <li><a href="#s15" class="sub">3.5 并行执行</a></li>
+    <li><a href="#s16">4. 设计决策与权衡</a></li>
+    <li><a href="#s17">5. 底层实现关联</a></li>
+    <li><a href="#s18" class="sub">5.1 AddPass 依赖推导</a></li>
+    <li><a href="#s19" class="sub">5.2 Pass 执行状态机</a></li>
+    <li><a href="#s20" class="sub">5.3 Transient 池管理</a></li>
+    <li><a href="#s21">6. UE5.8 演进变化</a></li>
+    <li><a href="#s22">CVar 速查表</a></li>
+  </ol>
+</nav>
+
+<main>
+  <!-- 面包屑 -->
+  <div class="breadcrumb">
+    <a href="../../CLAUDE.md">UE5.8 渲染管线</a> <span class="sep">/</span>
+    <span>RDG 渲染依赖图</span>
+  </div>
+
+  <!-- 搜索 -->
+  <div class="search-bar">
+    <input type="text" id="searchInput" placeholder="搜索 RDG 文档内容（如 AddPass、Transient、屏障...）" />
+    <div class="search-results" id="searchResults"></div>
+  </div>
+
+  <!-- 标题 -->
+  <h1>RDG：Render Dependency Graph</h1>
+  <p>深入解读 UE5.8.0 的渲染依赖图系统 &mdash; 基于 DAG 的自动资源生命周期管理和 Pass 调度引擎</p>
+
+  <!-- 源码路径 -->
+  <div class="src-path">
+    <span class="icon">&#128196;</span>
+    Engine/Source/Runtime/RenderCore/Public/RenderGraphBuilder.h
+    <span style="color:#555">|</span>
+    RenderGraphResources.h
+    <span style="color:#555">|</span>
+    RenderGraphPass.h
+    <span style="color:#555">|</span>
+    RenderGraphUtils.h
+  </div>
+
+  <!-- ============================= 第1节 ============================= -->
+  <h2 id="s1">1. 概述与定位</h2>
+
+  <h3 id="s2">1.1 为什么需要渲染依赖图</h3>
+  <p>
+    传统渲染代码中，资源屏障（Barrier）必须由开发者手动插入。每当你写完一个
+    <code>RHICmdList.DispatchComputeShader()</code> 之后，如果想在后续 Pixel Shader
+    中读取结果，必须手动调用 <code>RHICmdList.Transition()</code> 来插入
+    UAV&rarr;SRV 屏障。这种方式有三个致命问题：
+  </p>
+  <div class="concept-grid">
+    <div class="concept-card">
+      <h4>屏障遗漏</h4>
+      <p>忘记插入或错误插入屏障会导致 GPU 数据竞争（data race）、渲染闪烁或黑屏。这些 bug 极难定位，通常只在特定 GPU 上复现。</p>
+    </div>
+    <div class="concept-card">
+      <h4>过度同步</h4>
+      <p>保守地插入过多屏障会打断 GPU 流水线，降低 GPU 占用率，导致性能下降 10%-30%。</p>
+    </div>
+    <div class="concept-card">
+      <h4>资源泄漏</h4>
+      <p>中间 RT/Buffer 的生命周期完全由开发者管理。忘记释放会导致显存逐渐耗尽，过早释放则导致 use-after-free。</p>
+    </div>
+  </div>
+  <p>
+    <strong>RDG 的核心价值主张</strong>：将整个帧的渲染工作表达为一张有向无环图（DAG），
+    其中 Pass 是节点，Resource 是边。让引擎自动完成依赖分析、屏障插入和资源生命周期管理。
+  </p>
+
+  <h3 id="s3">1.2 RDG 核心概念图</h3>
+  <div class="diagram">
+    <svg viewBox="0 0 720 320" width="100%" height="auto" style="max-width:680px">
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#4FC3F7"/>
+        </marker>
+        <filter id="shadow"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000" flood-opacity="0.4"/></filter>
+      </defs>
+      <!-- Pass 节点 -->
+      <rect x="60" y="80" width="120" height="44" rx="6" fill="#1a2a38" stroke="#4FC3F7" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="120" y="108" text-anchor="middle" fill="#4FC3F7" font-size="12" font-weight="600">Shadow Depth</text>
+      <rect x="300" y="80" width="120" height="44" rx="6" fill="#1a2a38" stroke="#4FC3F7" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="360" y="108" text-anchor="middle" fill="#4FC3F7" font-size="12" font-weight="600">Base Pass</text>
+      <rect x="540" y="80" width="120" height="44" rx="6" fill="#1a2a38" stroke="#4FC3F7" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="600" y="108" text-anchor="middle" fill="#4FC3F7" font-size="12" font-weight="600">Lighting</text>
+      <!-- Resource 边 -->
+      <line x1="180" y1="102" x2="294" y2="102" stroke="#80CBC4" stroke-width="2" marker-end="url(#arrow)"/>
+      <text x="237" y="94" text-anchor="middle" fill="#80CBC4" font-size="10">SceneDepth</text>
+      <line x1="420" y1="102" x2="534" y2="102" stroke="#80CBC4" stroke-width="2" marker-end="url(#arrow)"/>
+      <text x="477" y="94" text-anchor="middle" fill="#80CBC4" font-size="10">GBuffer</text>
+      <!-- 自动屏障标签 -->
+      <rect x="280" y="160" width="160" height="36" rx="18" fill="none" stroke="#FFB74D" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="360" y="183" text-anchor="middle" fill="#FFB74D" font-size="11">自动屏障（UAV→SRV）</text>
+      <line x1="350" y1="160" x2="350" y2="148" stroke="#FFB74D" stroke-width="1" stroke-dasharray="3,2"/>
+      <!-- 底部说明 -->
+      <text x="360" y="260" text-anchor="middle" fill="#909090" font-size="11">RDG = Pass 节点 + Resource 边 + 自动屏障推导</text>
+      <text x="360" y="290" text-anchor="middle" fill="#666" font-size="10">从 "手动插入 Barrier" 到 "声明式依赖 + 自动屏障" 的跨越</text>
+    </svg>
+  </div>
+
+  <!-- ============================= 第2节 ============================= -->
+  <h2 id="s4">2. 顶层架构设计</h2>
+
+  <h3 id="s5">2.1 图三要素</h3>
+  <p>RDG 将一帧的渲染工作抽象为三要素组成的 <strong>DAG 有向无环图</strong>：</p>
+  <div class="diagram">
+    <svg viewBox="0 0 720 280" width="100%" height="auto" style="max-width:700px">
+      <!-- 三大支柱 -->
+      <!-- Pass -->
+      <circle cx="120" cy="80" r="48" fill="#0d1f2d" stroke="#4FC3F7" stroke-width="2"/>
+      <text x="120" y="74" text-anchor="middle" fill="#4FC3F7" font-size="14" font-weight="700">Pass</text>
+      <text x="120" y="92" text-anchor="middle" fill="#909090" font-size="10">渲染操作</text>
+      <text x="120" y="108" text-anchor="middle" fill="#909090" font-size="10">（节点）</text>
+      <!-- Resource -->
+      <circle cx="360" cy="80" r="48" fill="#0d1f2d" stroke="#80CBC4" stroke-width="2"/>
+      <text x="360" y="74" text-anchor="middle" fill="#80CBC4" font-size="14" font-weight="700">Resource</text>
+      <text x="360" y="92" text-anchor="middle" fill="#909090" font-size="10">数据载体</text>
+      <text x="360" y="108" text-anchor="middle" fill="#909090" font-size="10">（边）</text>
+      <!-- Dependency -->
+      <circle cx="600" cy="80" r="48" fill="#0d1f2d" stroke="#FFB74D" stroke-width="2"/>
+      <text x="600" y="74" text-anchor="middle" fill="#FFB74D" font-size="14" font-weight="700">依赖</text>
+      <text x="600" y="92" text-anchor="middle" fill="#909090" font-size="10">自动推导</text>
+      <text x="600" y="108" text-anchor="middle" fill="#909090" font-size="10">（调度）</text>
+      <!-- 连接 -->
+      <line x1="168" y1="80" x2="312" y2="80" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="408" y1="80" x2="552" y2="80" stroke="#80CBC4" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <text x="240" y="60" text-anchor="middle" fill="#909090" font-size="9">读写定义</text>
+      <text x="480" y="60" text-anchor="middle" fill="#909090" font-size="9">推导出</text>
+      <!-- 流程线 -->
+      <line x1="120" y1="140" x2="120" y2="210" stroke="#4FC3F7" stroke-width="1" stroke-dasharray="4,3"/>
+      <line x1="360" y1="140" x2="360" y2="210" stroke="#80CBC4" stroke-width="1" stroke-dasharray="4,3"/>
+      <line x1="600" y1="140" x2="600" y2="210" stroke="#FFB74D" stroke-width="1" stroke-dasharray="4,3"/>
+      <rect x="40" y="210" width="160" height="30" rx="6" fill="#1a2a38" stroke="#4FC3F7" stroke-width="0.5"/>
+      <text x="120" y="230" text-anchor="middle" fill="#909090" font-size="10">FRDGPass</text>
+      <rect x="280" y="210" width="160" height="30" rx="6" fill="#1a2a38" stroke="#80CBC4" stroke-width="0.5"/>
+      <text x="360" y="230" text-anchor="middle" fill="#909090" font-size="10">FRDGTexture / FRDGBuffer</text>
+      <rect x="520" y="210" width="160" height="30" rx="6" fill="#1a2a38" stroke="#FFB74D" stroke-width="0.5"/>
+      <text x="600" y="230" text-anchor="middle" fill="#909090" font-size="10">FRDGProducerState</text>
+    </svg>
+  </div>
+
+  <p><strong>依赖推导的核心逻辑</strong>：每个 Pass 通过 <code>SHADER_PARAMETER_STRUCT</code> 声明自己读写哪些 RDG 资源。
+  <code>FRDGBuilder::AddPass()</code> 自动枚举参数结构体中的 <code>RDG_TEXTURE_ACCESS</code>、
+  <code>RDG_BUFFER_SRV</code>、<code>RDG_BUFFER_UAV</code> 等宏标记的资源，根据读写语义推导出 Pass 之间的依赖边。</p>
+
+  <h3 id="s6">2.2 FRDGBuilder 的 API 设计</h3>
+  <p><code>FRDGBuilder</code> 是 RDG 系统的核心入口类，采用 <strong>栈上 RAII 生命周期</strong>：创建于渲染函数栈上，在析构前必须调用 <code>Execute()</code>。其 API 分为四大类：</p>
+
+  <table class="compare-table">
+    <thead><tr><th style="width:18%">类别</th><th style="width:42%">关键 API</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>资源注册</td>
+        <td><code>CreateTexture() / CreateBuffer()</code><br><code>RegisterExternalTexture() / RegisterExternalBuffer()</code><br><code>CreateSRV() / CreateUAV()</code></td>
+        <td>创建新的图跟踪资源或注册外部已存在的资源</td>
+      </tr>
+      <tr>
+        <td>Pass 注册</td>
+        <td><code>AddPass()</code>（三重重载：含参数/运行时参数/无参数）<br><code>AddDispatchPass()</code></td>
+        <td>声明式注册渲染 Pass，lambda 延迟到 Execute 时执行</td>
+      </tr>
+      <tr>
+        <td>生命周期</td>
+        <td><code>QueueTextureExtraction() / QueueBufferExtraction()</code><br><code>ConvertToExternalTexture/Buffer()</code><br><code>QueueBufferUpload()</code></td>
+        <td>资源提取（延长到 Execute 后）、强制外部化、上传数据</td>
+      </tr>
+      <tr>
+        <td>执行</td>
+        <td><code>Execute()</code><br><code>AddSetupTask()</code></td>
+        <td>编译图、分配资源、插入屏障、执行所有 Pass</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 id="s7">2.3 Pass 类型体系</h3>
+  <p>RDG Pass 的类型通过 <code>ERDGPassFlags</code> 位掩码来标识 GPU 工作负载类型，核心分类如下：</p>
+  <div class="concept-grid">
+    <div class="concept-card">
+      <h4>FRDGPass（基类）</h4>
+      <p>所有 RDG Pass 的抽象基类。持有 <code>ParameterStruct</code>、<code>Flags</code>、<code>Pipeline</code> 以及 TextureStates/BufferStates 依赖信息。</p>
+    </div>
+    <div class="concept-card">
+      <h4>TRDGLambdaPass&lt;P,L&gt;</h4>
+      <p>模板化 Pass，将 Lambda 作为执行体。自动推断 TaskMode（Inline/Await/Async）。</p>
+    </div>
+    <div class="concept-card">
+      <h4>TRDGEmptyLambdaPass&lt;L&gt;</h4>
+      <p>无参数 Pass 的特化版本，适用于无需声明资源的辅助 Pass。自动附带 NeverCull+SkipRenderPass 标志。</p>
+    </div>
+    <div class="concept-card">
+      <h4>FRDGDispatchPass / TRDGDispatchPass</h4>
+      <p>专门用于用户自行创建多个 RHI CommandList 并并行录制的 Pass。U5.8 新增。</p>
+    </div>
+  </div>
+
+  <p><strong>ERDGPassFlags 核心标志</strong></p>
+  <table class="cvar-table">
+    <thead><tr><th>标志</th><th>含义</th></tr></thead>
+    <tbody>
+      <tr><td><code>Compute</code></td><td>Graphics 管线的 Compute Pass</td></tr>
+      <tr><td><code>AsyncCompute</code></td><td>异步 Compute 管线 Pass（与 Graphics 并行执行）</td></tr>
+      <tr><td><code>Raster</code></td><td>光栅化 Pass（像素/顶点着色器）</td></tr>
+      <tr><td><code>Copy</code></td><td>复制操作 Pass</td></tr>
+      <tr><td><code>NeverCull</code></td><td>永远不会被裁剪，即使其输出未被消费</td></tr>
+      <tr><td><code>SkipRenderPass</code></td><td>跳过 RHI RenderPass 的 Begin/End（用户自行管理）</td></tr>
+      <tr><td><code>Readback</code></td><td>GPU 回读 Pass（CopySrc 访问）</td></tr>
+    </tbody>
+  </table>
+
+  <h3 id="s8">2.4 使用示例：从一个后处理 Blur Downsample 看 RDG 迁移</h3>
+  <p>以下示例展示如何使用 RDG 实现一个 Compute Shader 的模糊降采样后处理效果，对比传统 RHI 方式与 RDG 方式。</p>
+
+  <h4>传统 RHI 方式（手动 Barrier）</h4>
+  <div class="code-block">
+    <div class="header"><span class="lang">C++ — 传统 RHI</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+    <pre><code><span class="line"><span class="cmt">// === 传统方式：手动管理 barrier 和资源生命周期 ===</span></span>
+<span class="line"><span class="kw">void</span> <span class="fn">RenderBlurTraditional</span>(FRHICommandListImmediate& RHICmdList, FRHITexture* Input, FRHITexture* Output)</span>
+<span class="line">{</span>
+<span class="line">    <span class="cmt">// 1. 手动创建中间纹理 —— 谁来释放？何时释放？</span></span>
+<span class="line">    TRefCountPtr&lt;IPooledRenderTarget&gt; HalfRes;</span>
+<span class="line">    GRenderTargetPool.FindFreeElement(RHICmdList, Desc, HalfRes, TEXT(<span class="str">"HalfRes"</span>));</span>
+<span class="line"></span>
+<span class="line">    <span class="cmt">// 2. 手动插入屏障 Input → Compute SRV</span></span>
+<span class="line">    <span class="kw">if</span> (Input需要屏障) { RHICmdList.Transition(...); }</span>
+<span class="line"></span>
+<span class="line">    <span class="cmt">// 3. Dispatch Downsample</span></span>
+<span class="line">    RHICmdList.SetComputeShader(DownsampleShader);</span>
+<span class="line">    RHICmdList.SetShaderResourceView(InputSRV);</span>
+<span class="line">    RHICmdList.SetUAVParameter(HalfResUAV);</span>
+<span class="line">    RHICmdList.DispatchComputeShader(...);</span>
+<span class="line"></span>
+<span class="line">    <span class="cmt">// 4. 手动插入屏障 UAV → SRV（极易遗忘！）</span></span>
+<span class="line">    RHICmdList.Transition(HalfRes, ERHIAccess::UAVCompute, ERHIAccess::SRVCompute);</span>
+<span class="line"></span>
+<span class="line">    <span class="cmt">// 5. Dispatch Blur</span></span>
+<span class="line">    RHICmdList.SetShaderResourceView(HalfResSRV);</span>
+<span class="line">    RHICmdList.SetUAVParameter(OutputUAV);</span>
+<span class="line">    RHICmdList.DispatchComputeShader(...);</span>
+<span class="line"></span>
+<span class="line">    <span class="cmt">// 6. 手动屏障 Output → SRV（给后续 Pass 使用）</span></span>
+<span class="line">    RHICmdList.Transition(Output, ERHIAccess::UAVCompute, ERHIAccess::SRVCompute);</span>
+<span class="line">    <span class="cmt">// ⚠ 忘记释放 HalfRes？泄漏! 提前释放？崩溃!</span></span>
+<span class="line">}</span></code></pre>
+  </div>
+
+  <h4>RDG 方式（声明式）</h4>
+  <div class="code-block">
+    <div class="header"><span class="lang">C++ — RDG 声明式</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+    <pre><code><span class="line"><span class="cmt">// === RDG 方式：声明资源 + 注册 Pass，一切交给引擎 ===</span></span>
+<span class="line"><span class="kw">void</span> <span class="fn">RenderBlurRDG</span>(FRDGBuilder& GraphBuilder, FRDGTextureRef Input, FRDGTextureRef Output)</span>
+<span class="line">{</span>
+<span class="line">    <span class="cmt">// 1. 声明中间资源 —— 生命周期由 RDG 管理</span></span>
+<span class="line">    FRDGTextureDesc HalfResDesc = FRDGTextureDesc::Create2D(</span>
+<span class="line">        Input-&gt;Desc.Extent / <span class="num">2</span>, Input-&gt;Desc.Format, FClearValueBinding::None,</span>
+<span class="line">        TexCreate_ShaderResource | TexCreate_UAV);</span>
+<span class="line">    FRDGTextureRef HalfRes = GraphBuilder.CreateTexture(HalfResDesc, TEXT(<span class="str">"HalfResBlur"</span>));</span>
+<span class="line"></span>
+<span class="line">    <span class="cmt">// 2a. Downsample Pass —— RDG 自动推断 Input→SRV, HalfRes→UAV</span></span>
+<span class="line">    <span class="kw">auto</span>* DownsampleParams = GraphBuilder.AllocParameters&lt;FDownsampleCS::FParameters&gt;();</span>
+<span class="line">    DownsampleParams-&gt;InputTexture  = Input;   <span class="cmt">// RDG 标记为 SRVCompute 读</span></span>
+<span class="line">    DownsampleParams-&gt;OutputTexture = GraphBuilder.CreateUAV(HalfRes); <span class="cmt">// 写</span></span>
+<span class="line"></span>
+<span class="line">    FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME(<span class="str">"BlurDownsample"</span>),</span>
+<span class="line">        DownsampleShader, DownsampleParams,</span>
+<span class="line">        FComputeShaderUtils::GetGroupCount(Input-&gt;Desc.Extent, <span class="num">8</span>));</span>
+<span class="line"></span>
+<span class="line">    <span class="cmt">// 2b. Blur Pass —— RDG 自动推断 HalfRes→SRV, Output→UAV</span></span>
+<span class="line">    <span class="kw">auto</span>* BlurParams = GraphBuilder.AllocParameters&lt;FBlurCS::FParameters&gt;();</span>
+<span class="line">    BlurParams-&gt;InputTexture  = HalfRes;</span>
+<span class="line">    BlurParams-&gt;OutputTexture = GraphBuilder.CreateUAV(Output);</span>
+<span class="line"></span>
+<span class="line">    FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME(<span class="str">"BlurHorizontal"</span>),</span>
+<span class="line">        BlurShader, BlurParams,</span>
+<span class="line">        FComputeShaderUtils::GetGroupCount(HalfRes-&gt;Desc.Extent, <span class="num">8</span>));</span>
+<span class="line"></span>
+<span class="line">    <span class="cmt">// ✅ 无需手动 Barrier —— RDG 根据 SRV/UAV 语义自动推导</span></span>
+<span class="line">    <span class="cmt">// ✅ 无需手动 Release —— HalfRes 在 Execute() 后自动释放</span></span>
+<span class="line">    <span class="cmt">// ✅ 若 HalfRes 未被消费，Downsample Pass 会被自动裁剪！</span></span>
+<span class="line">}</span></code></pre>
+  </div>
+
+  <div class="callout info">
+    <strong>关键差异</strong>：RDG 版本<strong>删除了所有屏障代码和资源释放代码</strong>，代码量减少约 40%，
+    同时获得了自动 <strong>Pass 裁剪</strong>（如果 Output 是中间结果但未被消费则整个子图被跳过）和
+    <strong>Transient 资源池</strong>（HalfRes 可能完全不占用独立显存）优化。
+  </div>
+
+  <h3 id="s9">2.5 常用工具 Pass</h3>
+  <p><code>RenderGraphUtils.h</code> 提供了大量开箱即用的工具 Pass，减少重复代码：</p>
+  <table class="cvar-table">
+    <thead><tr><th style="width:36%">工具函数</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>AddClearRenderTargetPass(GraphBuilder, Texture, ClearColor)</code></td><td>清除 RT 到指定颜色（自动选择 FastClear 或 DrawQuad）</td></tr>
+      <tr><td><code>AddClearUAVPass(GraphBuilder, UAV, Value)</code></td><td>清除 UAV 到单值（Texture/Buffer 均支持）</td></tr>
+      <tr><td><code>AddClearDepthStencilPass(GraphBuilder, Texture, bClearDepth, Depth, ...)</code></td><td>清除深度/模板缓冲区</td></tr>
+      <tr><td><code>AddCopyTexturePass(GraphBuilder, Src, Dst, CopyInfo)</code></td><td>纹理区域复制（底层调用 RHICopyTexture）</td></tr>
+      <tr><td><code>AddCopyBufferPass(GraphBuilder, Dst, Src)</code></td><td>缓冲区完整复制</td></tr>
+      <tr><td><code>AddDrawTexturePass(GraphBuilder, ShaderMap, Src, Dst, Info)</code></td><td>通过全屏三角形绘制纹理到 RT</td></tr>
+      <tr><td><code>AddEnqueueCopyPass(GraphBuilder, Readback, SrcTexture)</code></td><td>GPU 回读到 CPU（Readback）</td></tr>
+      <tr><td><code>AddBarrierPass(GraphBuilder, Flags, Textures, Buffers)</code></td><td>手动提前刷新屏障批次</td></tr>
+      <tr><td><code>FComputeShaderUtils::AddPass(GraphBuilder, ..., Shader, Params, GroupCount)</code></td><td>一行代码添加 Compute Pass</td></tr>
+      <tr><td><code>CreateStructuredBuffer(GraphBuilder, Name, InitialData)</code></td><td>创建含初始数据的结构化 Buffer</td></tr>
+    </tbody>
+  </table>
+
+  <!-- 工具 Pass 示例 -->
+  <div class="code-block">
+    <div class="header"><span class="lang">C++ — 工具 Pass 使用示例</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+    <pre><code><span class="line"><span class="cmt">// 一行代码清除 UAV</span></span>
+<span class="line">AddClearUAVPass(GraphBuilder, MyBufferUAV, <span class="num">0u</span>);</span>
+<span class="line"></span>
+<span class="line"><span class="cmt">// 清除 RenderTarget（自动选择 FastClear 路径）</span></span>
+<span class="line">AddClearRenderTargetPass(GraphBuilder, SceneColor, FLinearColor::Black);</span>
+<span class="line"></span>
+<span class="line"><span class="cmt">// GPU 回读</span></span>
+<span class="line"><span class="kw">auto</span>* Readback = GraphBuilder.AllocObject&lt;FRHIGPUBufferReadback&gt;(TEXT(<span class="str">"MyReadback"</span>));</span>
+<span class="line">AddEnqueueCopyPass(GraphBuilder, Readback, MyBuffer, MyBuffer-&gt;GetSize());</span>
+<span class="line">AddPostExecuteCallback([Readback] { </span>
+<span class="line">    <span class="kw">const</span> <span class="type">uint32</span>* Data = (<span class="kw">const</span> <span class="type">uint32</span>*)Readback-&gt;Lock(<span class="num">256</span>);</span>
+<span class="line">    <span class="cmt">// 处理 Data ...</span></span>
+<span class="line">    Readback-&gt;Unlock();</span>
+<span class="line">});</span></code></pre>
+  </div>
+
+  <!-- ============================= 第3节 ============================= -->
+  <h2 id="s10">3. 执行流程 / 数据流</h2>
+
+  <h3 id="s11">3.1 构建阶段（Graph Construction）</h3>
+  <p>渲染代码调用 <code>FRDGBuilder::AddPass()</code> 注册 Pass 时，<strong>Lambda 体不会立即执行</strong>。
+  RDG 仅在此时做以下工作：</p>
+  <div class="timeline">
+    <div class="step">
+      <h4>1. 分配 Pass 对象</h4>
+      <p>通过 <code>Passes.Allocate&lt;TRDGLambdaPass&gt;()</code> 从 RDG 内部分配器创建 Pass 实例。</p>
+    </div>
+    <div class="step">
+      <h4>2. 枚举参数结构体中的所有资源</h4>
+      <p>遍历 <code>ParameterStruct</code> 中的 <code>RDG_TEXTURE_ACCESS</code>、<code>RDG_BUFFER_SRV</code>、
+      <code>RDG_BUFFER_UAV</code> 等绑定，为每个资源创建 <code>FRDGPass::FTextureState</code> 或
+      <code>FRDGPass::FBufferState</code>，记录访问类型和子资源范围。</p>
+    </div>
+    <div class="step">
+      <h4>3. 记录 LastProducer 状态</h4>
+      <p>对于每个资源，更新 <code>FRDGTexture::LastProducers[]</code> 或
+      <code>FRDGBuffer::LastProducer</code>（按管线类型存于
+      <code>FRDGProducerStatesByPipeline</code> 中）。这是后续依赖推导的关键。</p>
+    </div>
+    <div class="step">
+      <h4>4. 存储 Lambda</h4>
+      <p>Lambda 被 Move 到 <code>TRDGLambdaPass</code> 中，直到 <code>Execute()</code> 时才被调用。
+      这意味着所有 Lambda 捕获的变量<strong>必须保证生命周期覆盖到 Execute 时刻</strong>。</p>
+    </div>
+  </div>
+
+  <h3 id="s12">3.2 编译 / 裁剪阶段</h3>
+  <p>在 <code>Execute()</code> 内部，<code>Compile()</code> 方法执行以下操作：</p>
+  <div class="timeline">
+    <div class="step">
+      <h4>1. Pass 依赖建立（SetupPassDependencies）</h4>
+      <p>遍历每个 Pass 的资源使用，调用 <code>AddCullingDependency()</code> 将 Producer-Consumer
+      关系写入 Pass 的 <code>Producers</code> 和 <code>CrossPipelineConsumers</code> 列表。</p>
+    </div>
+    <div class="step">
+      <h4>2. Pass 裁剪（Culling）</h4>
+      <p>标记所有 Pass 为 <code>bCulled = true</code>，然后从 NeverCull Pass 和输出资源的 LastProducer
+      出发进行 <strong>DFS 反向遍历</strong>（<code>CullPassStack</code>），将可达 Pass 取消裁剪。
+      被裁剪 Pass 使用的资源计数会相应减少。</p>
+    </div>
+    <div class="step">
+      <h4>3. RenderPass 合批（Merge）</h4>
+      <p>顺序遍历 Graphics 管线上的 Raster Pass。如果前后 Pass 使用相同的 RenderTarget 且没有
+      外部 Side-Effect（<code>bRenderPassOnlyWrites</code>），则合并到同一个 RHI RenderPass 中。
+      在合并时设置 Barrier Prologue/Epilogue Pass 来避免 RenderPass 内部发出屏障（非法操作）。</p>
+    </div>
+    <div class="step">
+      <h4>4. Async Compute 围栏建立</h4>
+      <p>为 AsyncCompute Pass 建立 Fork/Join 关系，插入跨管线围栏。同时调整资源分配/释放时机，
+      因为 AsyncCompute 管线的资源必须覆盖整个异步执行区间。</p>
+    </div>
+  </div>
+
+  <h3 id="s13">3.3 Transient 资源分配</h3>
+  <p>
+    编译完成后，<code>Execute()</code> 通过遍历 Pass 序列来收集资源的分配和释放操作：
+    <code>CollectAllocations()</code> 和 <code>CollectDeallocations()</code>。
+    这些操作生成 <code>FCollectResourceOp</code> 列表，按类型分为三个池：
+  </p>
+  <div class="concept-grid">
+    <div class="concept-card">
+      <h4>Transient 资源</h4>
+      <p>生命周期短暂、跨 Pass 不重叠的资源可走 Transient 分配器。多个 RDG 资源可能共享同一块 GPU 内存（Aliasing），大幅降低显存占用（典型节省 30%-50%）。</p>
+    </div>
+    <div class="concept-card">
+      <h4>Pooled 资源</h4>
+      <p>无法走 Transient 的资源（如 External、Extracted、UPLOAD）使用传统的 RenderTargetPool / BufferPool。分配器会尝试复用已有分配。</p>
+    </div>
+    <div class="concept-card">
+      <h4>UniformBuffer / View</h4>
+      <p>UniformBuffer 和 View（SRV/UAV）在资源分配完成后统一创建，因为它们依赖底层 RHI 资源已就绪。</p>
+    </div>
+  </div>
+
+  <p><strong>Transient 判定的条件</strong>（<code>FRDGBuilder::IsTransient()</code>）：</p>
+  <ul style="color:var(--muted);font-size:13px;padding-left:20px;line-height:2;">
+    <li>平台/分配器支持（<code>bSupportsTransientTextures/Buffers</code>）</li>
+    <li>非 QueuedForUpload（上传 Buffer 必须持久化）</li>
+    <li>非 FastVRAM（FastVRAM 资源总是 Transient）</li>
+    <li>未被标记 <code>bForceNonTransient</code></li>
+    <li>被提取的资源受 <code>GRDGTransientExtractedResources</code> CVar 控制</li>
+  </ul>
+
+  <h3 id="s14">3.4 屏障插入</h3>
+  <p>屏障推导是 RDG 最核心的价值之一，由三个步骤完成：</p>
+  <div class="timeline">
+    <div class="step">
+      <h4>CompilePassBarriers</h4>
+      <p>遍历 Pass，对每个资源的每个子资源比较 <code>StateBefore</code> 和 <code>StateAfter</code>。
+      调用 <code>FRDGSubresourceState::IsTransitionRequired()</code> 判断是否需要屏障。</p>
+    </div>
+    <div class="step">
+      <h4>CollectPassBarriers</h4>
+      <p>将屏障操作收集到 <code>FRDGBarrierBatchBegin</code> 批次中。一个批次可以包含多个 Transition，
+      批次的 End 位置关联到特定 Pass 的 Prologue 或 Epilogue。</p>
+    </div>
+    <div class="step">
+      <h4>CreatePassBarriers</h4>
+      <p>调用 <code>FRDGBarrierBatchBegin::CreateTransition()</code> 生成 RHI 屏障对象，
+      在 Pass 执行时通过 <code>ExecutePassPrologue()</code> / <code>ExecutePassEpilogue()</code> 提交。</p>
+    </div>
+  </div>
+
+  <div class="callout tip">
+    <strong>Split Barrier 设计</strong>：屏障可以放置在 Pass 的 Prologue（执行前）或 Epilogue（执行后）。
+    例如，Transient 资源的 Discard 操作（标记旧内容无效）必须在 Epilogue 中执行，
+    因为新 Pass 需要先完成写入才能释放前一个所有者的内存。
+  </div>
+
+  <h3 id="s15">3.5 并行执行</h3>
+  <p>
+    执行阶段支持三种模式（<code>ERDGPassTaskMode</code>）：
+  </p>
+  <table class="compare-table">
+    <thead><tr><th>模式</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>Inline</code></td><td>直接在渲染线程上执行。适用于使用 FRHICommandListImmediate 的 Pass。</td></tr>
+      <tr><td><code>Await</code></td><td>在 Task 中并行执行，Execute() 末尾自动等待。U5.8 中多个 Pass 可合并到一个 <code>FParallelPassSet</code> 并行运行。</td></tr>
+      <tr><td><code>Async</code></td><td>在 Task 中执行但不自动等待。用户通过 FRDGAsyncTask 控制同步。适用于 DispatchPass。</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>完整时序图</strong></p>
+  <div class="diagram">
+    <svg viewBox="0 0 720 340" width="100%" height="auto" style="max-width:720px">
+      <!-- 时间轴 -->
+      <line x1="80" y1="40" x2="680" y2="40" stroke="#333" stroke-width="1"/>
+      <polygon points="680,36 692,40 680,44" fill="#333"/>
+      <text x="680" y="32" text-anchor="end" fill="#666" font-size="10">时间</text>
+
+      <!-- 构建阶段 -->
+      <rect x="80" y="55" width="110" height="28" rx="4" fill="#1a2a38" stroke="#4FC3F7" stroke-width="1"/>
+      <text x="135" y="74" text-anchor="middle" fill="#4FC3F7" font-size="10">AddPass (构建图)</text>
+      <!-- 编译 -->
+      <rect x="210" y="55" width="120" height="28" rx="4" fill="#1a2a38" stroke="#80CBC4" stroke-width="1"/>
+      <text x="270" y="74" text-anchor="middle" fill="#80CBC4" font-size="10">Compile (编译/裁剪)</text>
+      <!-- 资源分配 -->
+      <rect x="350" y="55" width="120" height="28" rx="4" fill="#1a2a38" stroke="#FFB74D" stroke-width="1"/>
+      <text x="410" y="74" text-anchor="middle" fill="#FFB74D" font-size="10">Collect+Allocate</text>
+      <!-- 屏障 -->
+      <rect x="490" y="55" width="110" height="28" rx="4" fill="#1a2a38" stroke="#EF5350" stroke-width="1"/>
+      <text x="545" y="74" text-anchor="middle" fill="#EF5350" font-size="10">Barriers (屏障)</text>
+      <!-- 执行 -->
+      <rect x="620" y="55" width="60" height="28" rx="4" fill="#1a2a38" stroke="#4FC3F7" stroke-width="1.5"/>
+      <text x="650" y="74" text-anchor="middle" fill="#4FC3F7" font-size="10">Execute</text>
+
+      <!-- 并行区域标注 -->
+      <rect x="210" y="105" width="470" height="50" rx="6" fill="none" stroke="#FFB74D" stroke-width="0.8" stroke-dasharray="4,3"/>
+      <text x="445" y="122" text-anchor="middle" fill="#FFB74D" font-size="9">并行 Setup 阶段（允许由 Task 并行处理）</text>
+      <text x="445" y="138" text-anchor="middle" fill="#FFB74D" font-size="9">SetupPassResources · CullRootBuffer · FinalizeDescs · AllocatePooled</text>
+
+      <!-- Execute 细节 -->
+      <rect x="200" y="180" width="320" height="60" rx="6" fill="#0d1f2d" stroke="#4FC3F7" stroke-width="0.8"/>
+      <text x="360" y="200" text-anchor="middle" fill="#4FC3F7" font-size="10">Pass 执行循环</text>
+      <text x="360" y="216" text-anchor="middle" fill="#909090" font-size="9">Prologue → Lambda → Epilogue → Next Pass</text>
+      <text x="360" y="230" text-anchor="middle" fill="#909090" font-size="9">(屏障提交在 Prologue/Epilogue 中完成)</text>
+
+      <!-- Post Execute -->
+      <rect x="560" y="180" width="100" height="28" rx="4" fill="#1a2a38" stroke="#909090" stroke-width="1"/>
+      <text x="610" y="198" text-anchor="middle" fill="#909090" font-size="10">Extract + Callbacks</text>
+
+      <!-- 底部注释 -->
+      <text x="360" y="290" text-anchor="middle" fill="#666" font-size="10">FRDGBuilder 生命周期：构造 → AddPass × N → Execute（仅有一次）→ 析构</text>
+      <text x="360" y="312" text-anchor="middle" fill="#555" font-size="10">Transient 内存峰值仅覆盖资源生命周期重叠区间，而非所有中间资源之和</text>
+    </svg>
+  </div>
+
+  <!-- ============================= 第4节 ============================= -->
+  <h2 id="s16">4. 设计决策与权衡</h2>
+
+  <h3>4.1 声明式 API 的学习曲线 vs 运行时优化收益</h3>
+  <table class="compare-table">
+    <thead><tr><th style="width:30%">维度</th><th>成本</th><th>收益</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>编程模型转换</td>
+        <td>需要理解 RDG 资源句柄（<code>FRDGTextureRef</code>）vs 直接使用 <code>FRHITexture*</code>；Lambda 延迟执行的心智模型</td>
+        <td>消除整类 Barrier 错误（数据竞争、闪烁）；代码量减少 30%-50%</td>
+      </tr>
+      <tr>
+        <td>参数结构体</td>
+        <td>每个 Pass 需要定义 <code>SHADER_PARAMETER_STRUCT</code></td>
+        <td>自文档化、自动验证、ClearUnusedGraphResources 自动清理未绑定资源</td>
+      </tr>
+      <tr>
+        <td>编译开销</td>
+        <td>Compile() 遍历所有 Pass 和资源进行依赖分析</td>
+        <td>并行编译（<code>ERDGBuilderFlags::ParallelCompile</code>）、异步 Setup Queue 分摊开销</td>
+      </tr>
+      <tr>
+        <td>调试</td>
+        <td>Lambda 延迟执行增加了调试难度（断点时机）</td>
+        <td><code>r.RDG.Debug</code> 提供 Immediate Mode 逐 Pass 执行；RDG Dump/Visualize 工具</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>4.2 Transient 资源池的内存节省 vs 生命周期复杂度</h3>
+  <p>
+    Transient 分配器允许生命周期不重叠的多个 RDG 资源共享同一块物理 GPU 内存。这带来了显著的内存节省
+    （典型场景 30%-50%），但也增加了系统复杂度：
+  </p>
+  <ul style="color:var(--muted);font-size:13px;padding-left:20px;line-height:2;">
+    <li><strong>Aliasing 屏障</strong>：当两个 RDG 资源共享同一块显存时，需要在第二个资源首次使用前插入
+    <code>ERHIAccess::Discard</code> 操作来标记旧内容无效。这些 Aliasing 过渡在
+    <code>FRDGBuilder::AddAliasingTransition()</code> 中处理。</li>
+    <li><strong>AsyncCompute 兼容</strong>：AsyncCompute 管线的资源生命周期必须覆盖整个异步区域（Fork 到 Join），
+    这限制了 Transient 的重用机会。</li>
+    <li><strong>Extraction 冲突</strong>：被 Extracted 的资源不能走 Transient（除非
+    <code>GRDGTransientExtractedResources</code> 开启），因为 Extracted 资源需要在 Execute 之后仍然存活。</li>
+  </ul>
+
+  <h3>4.3 RDG 如何与 RHI 命令列表交互</h3>
+  <p>RDG 完全构建在 RHI 层之上：</p>
+  <div class="diagram">
+    <svg viewBox="0 0 620 180" width="100%" height="auto" style="max-width:600px">
+      <rect x="20" y="20" width="160" height="40" rx="6" fill="#1a2a38" stroke="#4FC3F7" stroke-width="1.5"/>
+      <text x="100" y="45" text-anchor="middle" fill="#4FC3F7" font-size="12" font-weight="600">RDG Layer</text>
+      <rect x="230" y="20" width="160" height="40" rx="6" fill="#1a2a38" stroke="#80CBC4" stroke-width="1.5"/>
+      <text x="310" y="45" text-anchor="middle" fill="#80CBC4" font-size="12" font-weight="600">RHI 命令列表</text>
+      <rect x="440" y="20" width="160" height="40" rx="6" fill="#1a2a38" stroke="#FFB74D" stroke-width="1.5"/>
+      <text x="520" y="45" text-anchor="middle" fill="#FFB74D" font-size="12" font-weight="600">GPU 硬件</text>
+      <line x1="180" y1="40" x2="224" y2="40" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="390" y1="40" x2="434" y2="40" stroke="#80CBC4" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <text x="100" y="90" text-anchor="middle" fill="#909090" font-size="10">图构建 + 依赖推导</text>
+      <text x="310" y="90" text-anchor="middle" fill="#909090" font-size="10">屏障插入 + 资源分配</text>
+      <text x="520" y="90" text-anchor="middle" fill="#909090" font-size="10">实际渲染</text>
+      <rect x="60" y="120" width="500" height="36" rx="6" fill="#0d1f2d" stroke="#4FC3F7" stroke-width="0.5"/>
+      <text x="310" y="142" text-anchor="middle" fill="#909090" font-size="11">
+        FRDGBuilder::Execute() → Compile → Collect → Barriers → RHICmdList.Dispatch / Draw → GPU
+      </text>
+    </svg>
+  </div>
+  <p>
+    执行时，RDG 通过 <code>ExecutePass()</code> 来调用用户 Lambda，Lambda 内部使用
+    <code>FRHIComputeCommandList&</code>（或 <code>FRHICommandList&</code>）执行实际的 RHI 调用。
+    <code>ExecutePassPrologue()</code> 在 Lambda 前提交屏障，
+    <code>ExecutePassEpilogue()</code> 在 Lambda 后提交收尾屏障。
+  </p>
+
+  <h3>4.4 为什么 RDG Pass 不能直接调用 RHI</h3>
+  <div class="callout warn">
+    <strong>核心约束</strong>：RDG Pass 的 Lambda 内只能通过 <code>FRDGTexture::GetRHI()</code> /
+    <code>FRDGBuffer::GetRHI()</code> 来获取底层 RHI 资源句柄<strong>（仅在 Pass 执行期间有效）</strong>。
+    不能绕过 RDG 资源句柄直接创建/销毁 RHI 资源。
+  </div>
+  <p>原因有三：</p>
+  <ol style="color:var(--muted);font-size:13px;padding-left:20px;line-height:2;">
+    <li><strong>屏障依赖完整性</strong>：如果 Pass A 通过原始 RHI 指针直接创建纹理并写入，RDG 不知道这个写入操作的存在，就无法为后续 Pass 插入正确的屏障。</li>
+    <li><strong>资源生命周期保证</strong>：RDG 创建的 Texture/Buffer 仅在声明了该资源的 Pass 执行期间保证 RHI 底层资源存活。在未声明的 Pass 中访问会导致 use-after-free。</li>
+    <li><strong>裁剪正确性</strong>：如果 Pass 被裁剪但其副作用通过 RHI 指针泄露了，会导致渲染管线状态不一致。</li>
+  </ol>
+  <p>
+    <strong>例外（外部访问模式）</strong>：通过 <code>UseExternalAccessMode()</code> 可以将资源切换到外部访问模式，
+    允许后续 Pass 直接访问底层 RHI 资源（只读）。这通常用于渐进式迁移现有代码到 RDG。
+  </p>
+
+  <!-- ============================= 第5节 ============================= -->
+  <h2 id="s17">5. 底层实现关联</h2>
+
+  <h3 id="s18">5.1 AddPass 内部依赖推导逻辑</h3>
+  <p>当调用 <code>GraphBuilder.AddPass(Name, ParameterStruct, Flags, Lambda)</code> 时，内部经过以下路径：</p>
+
+  <div class="code-block">
+    <div class="header"><span class="lang">C++ — AddPass 调用链</span><button class="copy-btn" onclick="copyCode(this)">复制</button></div>
+    <pre><code><span class="line"><span class="cmt">// 1. AddPass 公共 API（RenderGraphBuilder.h:221）</span></span>
+<span class="line"><span class="kw">template</span> &lt;<span class="kw">typename</span> P, <span class="kw">typename</span> L&gt;</span>
+<span class="line">FRDGPassRef <span class="fn">AddPass</span>(FRDGEventName&& Name, <span class="kw">const</span> P* ParameterStruct,</span>
+<span class="line">                      ERDGPassFlags Flags, L&& ExecuteLambda)</span>
+<span class="line">{</span>
+<span class="line">    <span class="cmt">// 覆盖 Pass Flags（AsyncCompute 强制开关等）</span></span>
+<span class="line">    Flags = OverridePassFlags(Name, Flags);</span>
+<span class="line">    <span class="cmt">// 转发到内部实现</span></span>
+<span class="line">    <span class="kw">return</span> AddPassInternal(Name, P::FTypeInfo::GetStructMetadata(),</span>
+<span class="line">                          ParameterStruct, Flags, MoveTemp(ExecuteLambda));</span>
+<span class="line">}</span>
+<span class="line"></span>
+<span class="line"><span class="cmt">// 2. AddPassInternal → 分配 TRDGLambdaPass 实例</span></span>
+<span class="line"><span class="kw">template</span> &lt;<span class="kw">typename</span> P, <span class="kw">typename</span> L&gt;</span>
+<span class="line">FRDGPass* <span class="fn">AddPassInternal</span>(FRDGEventName&& Name,</span>
+<span class="line">    <span class="kw">const</span> FShaderParametersMetadata* Metadata,</span>
+<span class="line">    <span class="kw">const</span> P* ParameterStruct, ERDGPassFlags Flags, L&& ExecuteLambda)</span>
+<span class="line">{</span>
+<span class="line">    <span class="kw">auto</span>* Pass = Passes.Allocate&lt;TRDGLambdaPass&lt;P, L&gt;&gt;(...);</span>
+<span class="line"></span>
+<span class="line">    <span class="cmt">// 分支：有参数 Struct → SetupParameterPass</span></span>
+<span class="line">    <span class="kw">if</span> (Metadata)</span>
+<span class="line">        <span class="kw">return</span> SetupParameterPass(Pass);  <span class="cmt">// ← 进入依赖推导</span></span>
+<span class="line">    <span class="kw">else</span></span>
+<span class="line">        <span class="kw">return</span> SetupEmptyPass(Pass);      <span class="cmt">// 无参数 → 跳过推导</span></span>
+<span class="line">}</span>
+<span class="line"></span>
+<span class="line"><span class="cmt">// 3. SetupParameterPass → 核心分析流程</span></span>
+<span class="line">FRDGPass* <span class="fn">SetupParameterPass</span>(FRDGPass* Pass)</span>
+<span class="line">{</span>
+<span class="line">    SetupPassInternals(Pass);   <span class="cmt">// 设置 Pipeline、Flags 预处理</span></span>
+<span class="line">    SetupPassResources(Pass);   <span class="cmt">// ← 枚举资源 + 推导依赖（关键！）</span></span>
+<span class="line">    MarkResourcesAsProduced(Pass); <span class="cmt">// 标记被写入的资源</span></span>
+<span class="line">    <span class="kw">return</span> Pass;</span>
+<span class="line">}</span>
+<span class="line"></span>
+<span class="line"><span class="cmt">// 4. SetupPassResources — 依赖推导核心</span></span>
+<span class="line"><span class="kw">void</span> <span class="fn">SetupPassResources</span>(FRDGPass* Pass)</span>
+<span class="line">{</span>
+<span class="line">    <span class="cmt">// 4a. 枚举所有纹理访问</span></span>
+<span class="line">    <span class="fn">EnumerateTextureAccess</span>(Pass-&gt;ParameterStruct, Pass-&gt;Flags,</span>
+<span class="line">        [&](FRDGView* View, FRDGTextureRef Texture, ERHIAccess Access,</span>
+<span class="line">           ERDGTextureAccessFlags TexFlags, FRDGTextureSubresourceRange Range)</span>
+<span class="line">    {</span>
+<span class="line">        <span class="cmt">// 为纹理的每个子资源记录状态变化</span></span>
+<span class="line">        <span class="kw">auto</span>& State = Texture-&gt;LastProducers[Pipeline];</span>
+<span class="line">        <span class="cmt">// State.Access, State.Pass, State.NoUAVBarrierHandle 记录</span></span>
+<span class="line">        Pass-&gt;TextureStates.Emplace(Texture);</span>
+<span class="line">    });</span>
+<span class="line"></span>
+<span class="line">    <span class="cmt">// 4b. 枚举所有 Buffer 访问</span></span>
+<span class="line">    <span class="fn">EnumerateBufferAccess</span>(Pass-&gt;ParameterStruct, Pass-&gt;Flags,</span>
+<span class="line">        [&](FRDGView* View, FRDGBufferRef Buffer, ERHIAccess Access)</span>
+<span class="line">    {</span>
+<span class="line">        <span class="kw">auto</span>& State = Buffer-&gt;LastProducer[Pipeline];</span>
+<span class="line">        Pass-&gt;BufferStates.Emplace(Buffer);</span>
+<span class="line">    });</span>
+<span class="line">}</span>
+<span class="line"></span>
+<span class="line"><span class="cmt">// 5. 最终依赖在 Compile 阶段通过 AddCullingDependency 建立：</span></span>
+<span class="line"><span class="cmt">//    - 同管线：LastProducer → 当前 Pass</span></span>
+<span class="line"><span class="cmt">//    - 跨管线（AsyncCompute↔Graphics）：CrossPipelineProducer/Consumer</span></span>
+<span class="line"><span class="cmt">//    - UAV Barrier Skip：跟踪 NoUAVBarrierHandle 优化</span></span></code></pre>
+  </div>
+
+  <h3 id="s19">5.2 Pass 执行状态机</h3>
+  <p><code>FRDGPass</code> 中多个 bitfield 标志协同控制执行行为：</p>
+  <table class="cvar-table">
+    <thead><tr><th style="width:26%">标志字段</th><th>作用</th></tr></thead>
+    <tbody>
+      <tr><td><code>bSkipRenderPassBegin</code></td><td>合批后跳过的中间 Pass，不调用 BeginRenderPass</td></tr>
+      <tr><td><code>bSkipRenderPassEnd</code></td><td>跳过的中间 Pass，不调用 EndRenderPass</td></tr>
+      <tr><td><code>bAsyncComputeBegin</code></td><td>该 Pass 是 AsyncCompute 区间的第一个 Pass</td></tr>
+      <tr><td><code>bAsyncComputeEnd</code></td><td>该 Pass 是 AsyncCompute 区间的最后一个 Pass</td></tr>
+      <tr><td><code>bGraphicsFork</code></td><td>Graphics 管线 Pass 需要 Fork 到 AsyncCompute</td></tr>
+      <tr><td><code>bGraphicsJoin</code></td><td>Graphics 管线 Pass 需要等待 AsyncCompute Join</td></tr>
+      <tr><td><code>bCulled</code></td><td>Pass 被裁剪，不执行、不分配资源</td></tr>
+      <tr><td><code>bSentinel</code></td><td>标记为哨兵 Pass（Prologue/Epilogue），不包含用户逻辑</td></tr>
+      <tr><td><code>bDispatchAfterExecute</code></td><td>执行后 Flush 到 RHI 线程</td></tr>
+      <tr><td><code>bRenderPassOnlyWrites</code></td><td>Pass 仅在 RenderPass 范围内写入资源（允许合批）</td></tr>
+      <tr><td><code>bExternalAccessPass</code></td><td>标记为外部访问模式切换 Pass（RDG 自动生成）</td></tr>
+    </tbody>
+  </table>
+
+  <h3 id="s20">5.3 Transient 池管理</h3>
+  <p>
+    RDG 的 Transient 资源管理委托给 <code>IRHITransientResourceAllocator</code> 接口
+    （由 <code>GRDGTransientResourceAllocator</code> 全局变量持有）。核心交互流程：
+  </p>
+  <ol style="color:var(--muted);font-size:13px;padding-left:20px;line-height:2;">
+    <li><code>CollectAllocations()</code> 生成 <code>Allocate</code> 操作，按 Pass 执行顺序排序</li>
+    <li><code>CollectDeallocations()</code> 生成 <code>Deallocate</code> 操作，标记资源不再使用</li>
+    <li><code>AllocateTransientResources()</code> 将操作列表提交给 Transient 分配器</li>
+    <li>分配器内部使用区间图算法：如果两个资源的生命周期区间不重叠，它们可以安全地共享同一块物理内存</li>
+    <li><code>FRDGBuilder</code> 在 Transient 资源首次使用时插入 <code>FRHITransientAliasingInfo</code> 来标记 Discard 操作</li>
+  </ol>
+
+  <!-- ============================= 第6节 ============================= -->
+  <h2 id="s21">6. UE5.8 演进变化</h2>
+
+  <h3>RDG 覆盖率提升</h3>
+  <p>
+    UE5.8 相比 5.4/5.5，RDG 覆盖率继续扩大。更多渲染 Pass 从传统 <code>FRHICommandList</code>
+    直接操作迁移到 RDG 框架中。这包括：
+  </p>
+  <ul style="color:var(--muted);font-size:13px;padding-left:20px;line-height:2;">
+    <li><strong>MegaLights</strong><span class="badge new">5.8 正式</span>：全新的大规模动态光源系统完全基于 RDG 构建，
+    所有光源采样、光追、降噪 Pass 均使用 RDG 管理资源依赖。</li>
+    <li><strong>Lumen Lite</strong><span class="badge new">5.8 新增</span>：轻量级 GI 变体，所有中间资源走 RDG Transient 路径。</li>
+    <li><strong>Accumulation DOF</strong><span class="badge new">5.8 正式</span>：多帧累积景深效果，使用 RDG 的 QueueTextureExtraction 实现帧间资源保持。</li>
+    <li><strong>Movie Render Graph</strong><span class="badge new">5.8 正式</span>：离线渲染管线的 RDG 集成。</li>
+  </ul>
+
+  <h3>Async Compute Pass 的 RDG 集成</h3>
+  <p>
+    UE5.8 进一步完善了 AsyncCompute 在 RDG 中的集成。关键改进包括：
+  </p>
+  <ul style="color:var(--muted);font-size:13px;padding-left:20px;line-height:2;">
+    <li><strong>自动 Fork/Join 围栏</strong>：<code>Compile()</code> 中的 AsyncCompute 围栏逻辑（<code>Compile()</code> 的 AsyncComputeFences 段落）
+    自动推导 Graphics 和 AsyncCompute 间的 Fork/Join 点，插入跨管线屏障。</li>
+    <li><strong>Transient 资源跨管线生命周期</strong>：当 AsyncCompute 管线启用时，Transient 分配器需要考虑跨管线资源重叠，
+    <code>ResourcesToBegin</code> 和 <code>ResourcesToEnd</code> 将 AsyncCompute Pass 的资源生命周期关联到 Graphics Fork/Join Pass。</li>
+    <li><strong>DispatchPass</strong><span class="badge new">5.8 新增</span>：<code>FRDGDispatchPass</code> 允许用户在 RDG 框架内手动创建多个 RHI CommandList
+    并并行录制，同时享受 RDG 的自动屏障和资源管理。</li>
+  </ul>
+
+  <h3>RDG 调试可视化工具</h3>
+  <p>
+    UE5.8 中 RDG 调试工具体系更加完善：
+  </p>
+  <div class="concept-grid">
+    <div class="concept-card">
+      <h4>Immediate Mode <span class="badge core">调试</span></h4>
+      <p><code>r.RDG.Debug 1</code>：逐 Pass 立即执行模式，Lambda 在 AddPass 时立即调用，便于断点调试和崩溃定位。</p>
+    </div>
+    <div class="concept-card">
+      <h4>Resource Dump <span class="badge core">诊断</span></h4>
+      <p><code>RDG_DUMP_RESOURCES</code> 编译宏：输出帧中所有 RDG 资源的创建/使用/释放日志。</p>
+    </div>
+    <div class="concept-card">
+      <h4>Clobber 模式 <span class="badge core">验证</span></h4>
+      <p><code>r.RDG.ClobberResources 1</code>：在 Pass 执行后用随机值填充未读资源，检测未初始化数据读取。</p>
+    </div>
+    <div class="concept-card">
+      <h4>Visualize Pass Outputs <span class="badge core">可视化</span></h4>
+      <p><code>r.RDG.VisualizeTexture</code>：配合 VisualizeTexture 命令可视化 RDG Pass 的中间输出纹理。</p>
+    </div>
+  </div>
+
+  <div class="callout info">
+    <strong>UE5.8 新增关键宏</strong>：<code>IF_RDG_ENABLE_TRACE</code> 用于条件编译 RDG Trace 功能；
+    支持输出 Graphviz DOT 格式的图可视化数据，可与 <code>UnrealInsights</code> 集成查看 Pass 依赖拓扑。
+  </div>
+
+  <!-- ============================= CVar 速查表 ============================= -->
+  <h2 id="s22">CVar 速查表</h2>
+  <table class="cvar-table">
+    <thead><tr><th style="width:36%">CVar</th><th>默认值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>r.RDG.Debug</code></td><td>0</td><td>启用 Immediate Mode（逐 Pass 立即执行 + 验证）</td></tr>
+      <tr><td><code>r.RDG.CullPasses</code></td><td>1</td><td>启用 Pass 裁剪（输出未被消费的 Pass 自动跳过）</td></tr>
+      <tr><td><code>r.RDG.AsyncCompute</code></td><td>Auto</td><td>AsyncCompute 模式（0=禁用, 1=自动, 2=强制启用）</td></tr>
+      <tr><td><code>r.RDG.TransientAllocator</code></td><td>1</td><td>Transient 资源分配器（0=禁用, 1=启用, 2=强制 Pooled）</td></tr>
+      <tr><td><code>r.RDG.TransientExtractedResources</code></td><td>1</td><td>允许 Extracted 资源走 Transient（0=禁用 1=自动 2=强制）</td></tr>
+      <tr><td><code>r.RDG.ClobberResources</code></td><td>0</td><td>调试：在 Pass 执行后用随机值填充资源</td></tr>
+      <tr><td><code>r.RDG.ParallelExecute</code></td><td>1</td><td>并行执行（0=禁用, 1=Await, 2=Async）</td></tr>
+      <tr><td><code>r.RDG.ParallelSetup</code></td><td>1</td><td>并行 Setup（编译阶段的并行处理）</td></tr>
+      <tr><td><code>r.RDG.AsyncSetupQueue</code></td><td>1</td><td>异步 Setup 队列（Pass Setup 异步化）</td></tr>
+      <tr><td><code>r.RDG.ParallelCompile</code></td><td>0</td><td>并行编译（资源分配等操作的并行处理）</td></tr>
+      <tr><td><code>r.RDG.Debug.DisableTransientResources</code></td><td>0</td><td>禁用 Transient 资源（调试用：2=仅Buffer 3=仅Texture）</td></tr>
+    </tbody>
+  </table>
+
+  <!-- 底部导航 -->
+  <footer class="nav-footer">
+    <a class="prev" href="../RHI/index.html">
+      <span class="label">上一章</span>
+      <span class="title">RHI 渲染硬件接口</span>
+    </a>
+    <a class="next" href="../Shader体系/index.html">
+      <span class="label">下一章</span>
+      <span class="title">Shader 编译体系</span>
+    </a>
+  </footer>
+</main>
+
+<script>
+// 复制按钮
+function copyCode(btn) {
+  const codeBlock = btn.closest('.code-block');
+  const lines = codeBlock.querySelectorAll('.line');
+  let text = '';
+  lines.forEach(line => { text += line.textContent + '\n'; });
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '已复制!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '复制'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+// 章节内搜索
+(function() {
+  const input = document.getElementById('searchInput');
+  const results = document.getElementById('searchResults');
+  const main = document.querySelector('main');
+
+  // 构建搜索索引
+  const headings = [];
+  main.querySelectorAll('h2, h3, h4').forEach(h => {
+    headings.push({ el: h, text: h.textContent.trim(), id: h.id });
+  });
+
+  input.addEventListener('input', function() {
+    const q = this.value.trim().toLowerCase();
+    if (q.length < 2) { results.style.display = 'none'; results.innerHTML = ''; return; }
+
+    const matches = [];
+    // 搜索标题
+    headings.forEach(h => {
+      if (h.text.toLowerCase().includes(q)) {
+        matches.push({ type: 'title', el: h.el, text: h.text, id: h.id });
+      }
+    });
+    // 搜索段落
+    main.querySelectorAll('p, li, td').forEach(el => {
+      if (el.textContent.toLowerCase().includes(q) && matches.length < 20) {
+        const parent = el.closest('section, h2, h3, h4') || el.previousElementSibling;
+        const title = parent ? parent.textContent.slice(0, 60) : '';
+        if (!matches.find(m => m.el === el)) {
+          matches.push({ type: 'content', el: el, text: el.textContent.slice(0, 100), title: title });
+        }
+      }
+    });
+
+    if (matches.length === 0) {
+      results.style.display = 'block';
+      results.innerHTML = '<div style="padding:12px 16px;color:var(--muted);font-size:13px">未找到匹配项</div>';
+    } else {
+      results.style.display = 'block';
+      results.innerHTML = matches.slice(0, 15).map(m => {
+        const label = m.type === 'title' ? m.text : (m.title ? m.title + ' ... ' + m.text.slice(0, 60) : m.text.slice(0, 80));
+        return '<a href="#' + (m.id || '') + '" onclick="document.getElementById(\'searchResults\').style.display=\'none\'">' + label + '</a>';
+      }).join('');
+    }
+  });
+
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.search-bar')) results.style.display = 'none';
+  });
+})();
+
+// 导航高亮
+(function() {
+  const navLinks = document.querySelectorAll('#sidebar a');
+  const sections = [];
+  navLinks.forEach(a => {
+    const id = a.getAttribute('href').slice(1);
+    const el = document.getElementById(id);
+    if (el) sections.push({ el, a });
+  });
+  window.addEventListener('scroll', function() {
+    const scrollY = window.scrollY + 100;
+    let current = sections[0];
+    for (const s of sections) {
+      if (s.el.offsetTop <= scrollY) current = s;
+    }
+    navLinks.forEach(a => a.classList.remove('active'));
+    if (current) current.a.classList.add('active');
+  });
+})();
+</script>
+</body>
+</html>

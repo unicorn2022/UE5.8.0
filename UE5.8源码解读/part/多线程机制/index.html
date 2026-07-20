@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UE5.8 多线程渲染机制 —— 纵深架构分析</title>
+<style>
+:root {
+  --bg-primary: #0a0a0f;
+  --bg-card: #131318;
+  --bg-code: #09090d;
+  --c-accent: #4FC3F7;
+  --c-accent-dim: rgba(79,195,247,0.12);
+  --c-text: #e0e0e0;
+  --c-text-dim: #909090;
+  --c-keyword: #569CD6;
+  --c-type: #4EC9B0;
+  --c-comment: #6A9955;
+  --c-string: #CE9178;
+  --c-number: #B5CEA8;
+  --c-macro: #C586C0;
+  --c-member: #DCDCAA;
+  --c-path: #808080;
+  --c-highlight-line: rgba(79,195,247,0.12);
+  --sidebar-w: 260px;
+  --header-h: 56px;
+  --font-mono: 'Cascadia Code','Fira Code','JetBrains Mono','Consolas',monospace;
+  --font-sans: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  --radius: 8px;
+  --transition: 0.2s ease;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:15px}
+body{font-family:var(--font-sans);background:var(--bg-primary);color:var(--c-text);line-height:1.72;display:flex;min-height:100vh}
+a{color:var(--c-accent);text-decoration:none}
+a:hover{text-decoration:underline}
+ul,ol{padding-left:1.6em}
+#sidebar{position:fixed;top:0;left:0;bottom:0;width:var(--sidebar-w);background:var(--bg-card);border-right:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;z-index:100;transition:transform var(--transition)}
+.sidebar-header{height:var(--header-h);display:flex;align-items:center;padding:0 18px;border-bottom:1px solid rgba(255,255,255,0.06);font-weight:700;font-size:1.05rem;color:var(--c-accent);letter-spacing:0.5px}
+.sidebar-search{padding:12px 16px}
+.sidebar-search input{width:100%;padding:7px 12px;border:1px solid rgba(255,255,255,0.1);border-radius:6px;background:var(--bg-primary);color:var(--c-text);font-size:0.88rem;outline:none;transition:border var(--transition)}
+.sidebar-search input:focus{border-color:var(--c-accent)}
+.sidebar-search input::placeholder{color:var(--c-text-dim)}
+#sidebar nav{flex:1;overflow-y:auto;padding:8px 0}
+#sidebar nav a{display:block;padding:6px 18px;font-size:0.88rem;color:var(--c-text-dim);border-left:3px solid transparent;transition:all var(--transition);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sidebar nav a:hover,#sidebar nav a.active{color:var(--c-text);background:var(--c-accent-dim);border-left-color:var(--c-accent);text-decoration:none}
+#sidebar nav a.sub{padding-left:36px;font-size:0.83rem}
+#content{margin-left:var(--sidebar-w);flex:1;min-width:0;padding:40px 48px;max-width:1060px}
+.breadcrumb{font-size:0.83rem;color:var(--c-path);margin-bottom:10px;font-family:var(--font-mono)}
+.breadcrumb span{color:var(--c-text-dim)}
+h1{font-size:2.2rem;font-weight:800;margin-bottom:6px;color:#fff;line-height:1.3}
+h1 small{display:block;font-size:0.95rem;color:var(--c-text-dim);font-weight:400;margin-top:4px}
+h2{font-size:1.5rem;font-weight:700;margin:48px 0 16px;padding-bottom:10px;border-bottom:2px solid rgba(255,255,255,0.08);color:var(--c-accent)}
+h3{font-size:1.15rem;font-weight:700;margin:32px 0 12px;color:#fff}
+h4{font-size:1rem;font-weight:600;margin:24px 0 8px;color:var(--c-text)}
+p{margin-bottom:14px}
+.figure-wrap{margin:24px 0;padding:20px;background:var(--bg-card);border-radius:var(--radius);border:1px solid rgba(255,255,255,0.06);overflow-x:auto}
+.figure-wrap .fig-caption{text-align:center;font-size:0.83rem;color:var(--c-text-dim);margin-top:12px}
+.figure-wrap svg{display:block;margin:0 auto;max-width:100%}
+.code-block{margin:18px 0;border-radius:var(--radius);border:1px solid rgba(255,255,255,0.07);background:var(--bg-code);overflow:hidden}
+.code-header{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:rgba(255,255,255,0.03);border-bottom:1px solid rgba(255,255,255,0.05);font-family:var(--font-mono);font-size:0.78rem;color:var(--c-path)}
+.code-header .btn-copy{border:1px solid rgba(255,255,255,0.12);border-radius:4px;padding:2px 10px;font-size:0.72rem;cursor:pointer;background:transparent;color:var(--c-text-dim);transition:all var(--transition)}
+.code-header .btn-copy:hover{color:#fff;border-color:var(--c-accent)}
+.code-body{display:flex;overflow-x:auto}
+.code-lines{flex-shrink:0;padding:10px 12px 10px 14px;text-align:right;color:var(--c-text-dim);font-family:var(--font-mono);font-size:0.82rem;line-height:1.64;user-select:none;border-right:1px solid rgba(255,255,255,0.05);background:rgba(255,255,255,0.015)}
+.code-lines span{display:block;min-height:1.36em}
+.code-content{padding:10px 16px;font-family:var(--font-mono);font-size:0.82rem;line-height:1.64;overflow-x:auto;white-space:pre;flex:1}
+.code-content .kw{color:var(--c-keyword)}
+.code-content .tp{color:var(--c-type)}
+.code-content .co{color:var(--c-comment);font-style:italic}
+.code-content .st{color:var(--c-string)}
+.code-content .nu{color:var(--c-number)}
+.code-content .ma{color:var(--c-macro)}
+.code-content .mb{color:var(--c-member)}
+.code-content .fn{color:#DCDCAA}
+.code-content .hl{display:inline-block;width:100%;background:var(--c-highlight-line)}
+.code-inline{font-family:var(--font-mono);font-size:0.88em;background:var(--bg-code);padding:1px 6px;border-radius:3px;color:var(--c-accent)}
+.card-grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));margin:18px 0}
+.card{background:var(--bg-card);border-radius:var(--radius);border:1px solid rgba(255,255,255,0.06);padding:20px;transition:border var(--transition)}
+.card:hover{border-color:rgba(79,195,247,0.25)}
+.card h4{margin-top:0;margin-bottom:8px;color:var(--c-accent);font-size:1rem}
+.card p{font-size:0.92rem;color:var(--c-text-dim);margin-bottom:0}
+.card .card-path{font-size:0.75rem;font-family:var(--font-mono);color:var(--c-path);margin-top:8px;word-break:break-all}
+.cvar-table{width:100%;border-collapse:collapse;margin:18px 0;font-size:0.88rem}
+.cvar-table th{background:var(--bg-card);text-align:left;padding:10px 14px;color:var(--c-accent);border-bottom:2px solid rgba(255,255,255,0.08);font-weight:600}
+.cvar-table td{padding:9px 14px;border-bottom:1px solid rgba(255,255,255,0.05);vertical-align:top}
+.cvar-table tr:hover td{background:var(--c-accent-dim)}
+.cvar-table .cvar-name{font-family:var(--font-mono);font-size:0.83rem;color:var(--c-accent);white-space:nowrap}
+.cvar-table .cvar-def{color:var(--c-number);font-weight:600}
+.timeline{position:relative;margin:24px 0;padding-left:28px}
+.timeline::before{content:'';position:absolute;left:8px;top:0;bottom:0;width:2px;background:rgba(79,195,247,0.25)}
+.timeline-item{position:relative;margin-bottom:24px;padding-left:20px}
+.timeline-item::before{content:'';position:absolute;left:-24px;top:6px;width:14px;height:14px;border-radius:50%;background:var(--bg-card);border:2px solid var(--c-accent)}
+.timeline-item .tl-ver{font-family:var(--font-mono);font-weight:700;color:var(--c-accent);font-size:0.9rem}
+.timeline-item .tl-desc{font-size:0.9rem;color:var(--c-text-dim);margin-top:2px}
+.bottom-nav{display:flex;justify-content:space-between;margin-top:56px;padding-top:24px;border-top:1px solid rgba(255,255,255,0.08)}
+.bottom-nav a{display:flex;flex-direction:column;padding:10px 18px;border-radius:var(--radius);background:var(--bg-card);border:1px solid rgba(255,255,255,0.06);transition:border var(--transition);max-width:46%}
+.bottom-nav a:hover{border-color:var(--c-accent);text-decoration:none}
+.bottom-nav .nav-label{font-size:0.75rem;color:var(--c-text-dim)}
+.bottom-nav .nav-title{font-size:0.95rem;color:var(--c-accent);font-weight:600}
+.bottom-nav a.prev{align-items:flex-start}
+.bottom-nav a.next{align-items:flex-end;text-align:right}
+@media(max-width:860px){#sidebar{transform:translateX(-100%)}#sidebar.open{transform:translateX(0)}#content{margin-left:0;padding:24px 18px}.card-grid{grid-template-columns:1fr}}
+.burger-btn{display:none}
+@media(max-width:860px){.burger-btn{display:block;position:fixed;top:12px;left:12px;z-index:200;background:var(--bg-card);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:var(--c-text);font-size:1.3rem;padding:4px 10px;cursor:pointer}}
+#sidebar nav a.hidden-by-search{display:none}
+.feat-table{width:100%;border-collapse:collapse;margin:18px 0;font-size:0.88rem}
+.feat-table th{text-align:left;padding:8px 12px;background:var(--bg-card);border-bottom:1px solid rgba(255,255,255,0.08)}
+.feat-table td{padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.04)}
+.note{margin:16px 0;padding:12px 16px;border-left:3px solid var(--c-accent);border-radius:0 var(--radius) var(--radius) 0;background:var(--c-accent-dim);font-size:0.88rem;color:var(--c-text)}
+</style>
+</head>
+<body>
+<button class="burger-btn" onclick="document.getElementById('sidebar').classList.toggle('open')">&#9776;</button>
+<aside id="sidebar">
+<div class="sidebar-header">UE5.8 多线程渲染</div>
+<div class="sidebar-search"><input id="navSearch" type="text" placeholder="搜索章节标题..." oninput="filterNav()"></div>
+<nav id="sideNav">
+<a href="#s1" class="active">一、概述与定位</a>
+<a href="#s2">二、顶层架构设计</a>
+<a href="#s2-1" class="sub">2.1 TaskGraph 任务图系统</a>
+<a href="#s2-2" class="sub">2.2 命名线程体系</a>
+<a href="#s2-3" class="sub">2.3 核心类关系</a>
+<a href="#s2-4" class="sub">2.4 ENQUEUE_RENDER_COMMAND</a>
+<a href="#s2-5" class="sub">2.5 ParallelFor 并行计算</a>
+<a href="#s3">三、执行流程与数据流</a>
+<a href="#s3-1" class="sub">3.1 单帧时序图</a>
+<a href="#s3-2" class="sub">3.2 Fence 同步机制</a>
+<a href="#s4">四、设计决策与权衡</a>
+<a href="#s5">五、底层实现关联</a>
+<a href="#s5-1" class="sub">5.1 Fence 实现细节</a>
+<a href="#s5-2" class="sub">5.2 RHI 命令缓冲</a>
+<a href="#s5-3" class="sub">5.3 无锁队列 CAS</a>
+<a href="#s6">六、UE5.8 演进变化</a>
+<a href="#cvar-ref">CVar 速查表</a>
+</nav>
+</aside>
+
+<main id="content">
+<div class="breadcrumb">Engine/Source/Runtime/<span>Core/Async/</span> + <span>RenderCore/</span> + <span>Renderer/</span></div>
+<h1>UE5.8 多线程渲染机制<small>任务图驱动、命名线程协作、RHI 异步解耦 —— UE5 如何利用多核 CPU 并行执行渲染任务</small></h1>
+<p>UE5 的多线程渲染架构是一种<b>以帧为节奏、以 TaskGraph 为核心调度器、以命名线程为执行单元</b>的并行计算模型。从 GameThread 的逻辑更新，到 RenderThread 的渲染命令执行，再到 RHIThread 的 GPU 命令提交，整个管线通过有向无环图（DAG）的任务依赖模型实现高效的多核并行。</p>
+<h2 id="s1">一、概述与定位</h2>
+<h3>一句话定位</h3>
+<p>UE5 通过 <strong>TaskGraph 任务图系统</strong>将渲染管线拆解为数千个可以并行执行的 Task，分配到 <strong>GameThread / RenderThread / RHIThread / AsyncCompute</strong> 四层命名线程上执行，实现跨帧流水线化、线程间无锁通信和 GPU 命令异步提交，从而在多核 CPU 上榨取每一帧的渲染吞吐。</p>
+<h3>三层线程模型全景图</h3>
+<div class="figure-wrap">
+<svg viewBox="0 0 920 480" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<filter id="fGlow"><feGaussianBlur stdDeviation="3"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.02)" stroke-width="1"/></pattern>
+<rect width="920" height="480" fill="url(#grid)"/>
+<rect x="20" y="30" width="880" height="80" rx="6" fill="none" stroke="rgba(255,112,67,0.25)" stroke-width="1.5"/>
+<text x="36" y="54" font-family="sans-serif" font-size="13" fill="#FF7043" font-weight="700">GameThread</text>
+<text x="36" y="74" font-family="sans-serif" font-size="11" fill="rgba(255,255,255,0.6)">游戏逻辑 / 物理 / 动画 / 输入 -> 生成 RenderCommand，提交到 RenderThread</text>
+<rect x="40" y="86" width="135" height="18" rx="4" fill="rgba(255,112,67,0.15)"/>
+<text x="107" y="99" font-family="monospace" font-size="9" fill="#FF8A65" text-anchor="middle">ENQUEUE_RENDER_COMMAND</text>
+<defs><marker id="arrGtRt" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="rgba(255,255,255,0.3)"/></marker></defs>
+<line x1="175" y1="95" x2="460" y2="145" stroke="rgba(255,255,255,0.2)" stroke-width="1.2" marker-end="url(#arrGtRt)" stroke-dasharray="6,3"/>
+<rect x="20" y="130" width="880" height="100" rx="6" fill="none" stroke="rgba(66,165,245,0.3)" stroke-width="1.5"/>
+<text x="36" y="154" font-family="sans-serif" font-size="13" fill="#42A5F5" font-weight="700">RenderThread</text>
+<text x="36" y="174" font-family="sans-serif" font-size="11" fill="rgba(255,255,255,0.6)">可见性计算 -> Shadow Depth -> BasePass -> Lighting -> Translucency -> PostProcess</text>
+<rect x="40" y="186" width="148" height="18" rx="4" fill="rgba(66,165,245,0.15)"/>
+<text x="114" y="199" font-family="monospace" font-size="9" fill="#64B5F6" text-anchor="middle">DeferredShadingRenderer::Render()</text>
+<rect x="210" y="186" width="130" height="18" rx="4" fill="rgba(66,165,245,0.15)"/>
+<text x="275" y="199" font-family="monospace" font-size="9" fill="#64B5F6" text-anchor="middle">SendRHICommands</text>
+<rect x="362" y="186" width="95" height="18" rx="4" fill="rgba(66,165,245,0.15)"/>
+<text x="409" y="199" font-family="monospace" font-size="9" fill="#64B5F6" text-anchor="middle">ParallelFor</text>
+<rect x="480" y="186" width="110" height="18" rx="4" fill="rgba(66,165,245,0.15)"/>
+<text x="535" y="199" font-family="monospace" font-size="9" fill="#64B5F6" text-anchor="middle">RDG Execute</text>
+<line x1="460" y1="204" x2="460" y2="280" stroke="rgba(255,255,255,0.2)" stroke-width="1.2" marker-end="url(#arrGtRt)"/>
+<rect x="20" y="280" width="880" height="75" rx="6" fill="none" stroke="rgba(102,187,106,0.3)" stroke-width="1.5"/>
+<text x="36" y="304" font-family="sans-serif" font-size="13" fill="#66BB6A" font-weight="700">RHIThread</text>
+<text x="36" y="324" font-family="sans-serif" font-size="11" fill="rgba(255,255,255,0.6)">RHI Command Buffer 解码 -> DrawCall / Dispatch / Resource Upload / Present -> GPU</text>
+<rect x="40" y="332" width="118" height="18" rx="4" fill="rgba(102,187,106,0.15)"/>
+<text x="99" y="345" font-family="monospace" font-size="9" fill="#81C784" text-anchor="middle">RHICmdList.Execute()</text>
+<line x1="840" y1="317" x2="920" y2="317" stroke="rgba(255,255,255,0.15)" stroke-width="1.2"/>
+<text x="878" y="310" font-family="sans-serif" font-size="9" fill="rgba(255,255,255,0.4)" text-anchor="middle">GPU</text>
+<rect x="820" y="130" width="90" height="100" rx="6" fill="none" stroke="rgba(171,71,188,0.3)" stroke-width="1.5" stroke-dasharray="5,3"/>
+<text x="865" y="154" font-family="sans-serif" font-size="11" fill="#AB47BC" font-weight="600">Worker</text>
+<text x="865" y="172" font-family="sans-serif" font-size="9" fill="rgba(255,255,255,0.45)">x N</text>
+<text x="865" y="190" font-family="sans-serif" font-size="9" fill="rgba(255,255,255,0.4)">ParallelFor</text>
+<text x="865" y="206" font-family="sans-serif" font-size="9" fill="rgba(255,255,255,0.4)">TaskGraph</text>
+<rect x="20" y="375" width="880" height="90" rx="8" fill="rgba(79,195,247,0.04)" stroke="rgba(79,195,247,0.12)" stroke-width="1"/>
+<text x="460" y="400" font-family="sans-serif" font-size="12" fill="#fff" font-weight="600" text-anchor="middle">核心设计原则</text>
+<text x="460" y="422" font-family="sans-serif" font-size="11" fill="rgba(255,255,255,0.55)" text-anchor="middle">GameThread 永不等待 RenderThread（异步提交） -- RenderThread 通过局部队列读取 RenderCommand</text>
+<text x="460" y="442" font-family="sans-serif" font-size="11" fill="rgba(255,255,255,0.55)" text-anchor="middle">RHIThread 从 RHI 命令缓冲区消费命令，RenderThread 与 GPU 通信完全解耦</text>
+</svg>
+<div class="fig-caption">图 1.1 -- UE5 三层线程模型全景图（GameThread - RenderThread - RHIThread + Worker Threads）</div>
+</div>
+<p>顶层架构的核心理念可以简单概括为<b>"分离关注点 + 异步流水线"</b>：</p>
+<ul>
+<li><span class="code-inline">GameThread</span> -- 运行游戏逻辑，产生渲染命令，<b>绝不打阻塞等待</b> RenderThread。</li>
+<li><span class="code-inline">RenderThread</span> -- 执行 <span class="code-inline">DeferredShadingRenderer::Render()</span> 全流程，负责场景遍历、Pass 调度、DrawCall 生成。</li>
+<li><span class="code-inline">RHIThread</span> -- 独立线程，将 RenderThread 产出的 RHI 命令缓冲<b>解码为真实的 GPU API 调用</b>（D3D12/Vulkan），达到 CPU 与 GPU 完全解耦。</li>
+<li><span class="code-inline">Worker Threads</span> -- TaskGraph 动态管理的线程池，承载 ParallelFor 和各类异步 Task。</li>
+</ul>
+
+<h2 id="s2">二、顶层架构设计</h2>
+
+<h3 id="s2-1">2.1 TaskGraph 任务图系统</h3>
+<p>TaskGraph 是 UE5 整个多线程模型的中枢调度器。它维护着一张<b>有向无环图（DAG）</b>，节点代表 Task、边代表依赖。TaskGraph 的核心能力包括：</p>
+<ul>
+<li><b>依赖管理</b>：Task 可以有前置条件（Prerequisites），只有所有前置条件完成后，Task 才会被调度执行。</li>
+<li><b>线程亲和性</b>：Task 可以绑定到特定命名线程（如 <span class="code-inline">ENamedThreads::RenderThread</span>），也可以放给 Worker Pool 执行。</li>
+<li><b>优先级调度</b>：支持 Normal/High 两级任务优先级和 Normal/High/Background 三级线程优先级。</li>
+<li><b>工作窃取（Work Stealing）</b>：Worker 线程空闲时会从其他线程的队列窃取任务，保证负载均衡。</li>
+<li><b>动态线程创建</b>：5.8 支持按需创建线程（<span class="code-inline">TaskGraph.UseDynamicThreadCreation</span>），避免不必要的线程开销。</li>
+</ul>
+<div class="figure-wrap">
+<svg viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg">
+<pattern id="gr2" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.015)" stroke-width="1"/></pattern>
+<rect width="900" height="380" fill="url(#gr2)"/>
+<defs><marker id="arDag" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5 Z" fill="rgba(255,255,255,0.35)"/></marker></defs>
+<rect x="260" y="30" width="130" height="42" rx="8" fill="#131318" stroke="#4FC3F7" stroke-width="1.8"/>
+<text x="325" y="55" font-family="sans-serif" font-size="12" fill="#fff" text-anchor="middle" font-weight="600">Task A</text>
+<rect x="60" y="140" width="130" height="42" rx="8" fill="#131318" stroke="#CE93D8" stroke-width="1.5"/>
+<text x="125" y="165" font-family="sans-serif" font-size="12" fill="#CE93D8" text-anchor="middle" font-weight="600">Task B</text>
+<rect x="260" y="140" width="130" height="42" rx="8" fill="#131318" stroke="#64B5F6" stroke-width="1.5"/>
+<text x="325" y="165" font-family="sans-serif" font-size="12" fill="#64B5F6" text-anchor="middle" font-weight="600">Task C</text>
+<rect x="460" y="140" width="130" height="42" rx="8" fill="#131318" stroke="#81C784" stroke-width="1.5"/>
+<text x="525" y="165" font-family="sans-serif" font-size="12" fill="#81C784" text-anchor="middle" font-weight="600">Task D</text>
+<rect x="260" y="250" width="130" height="42" rx="8" fill="#131318" stroke="#FFB74D" stroke-width="1.8"/>
+<text x="325" y="275" font-family="sans-serif" font-size="12" fill="#FFB74D" text-anchor="middle" font-weight="600">Task E (汇聚)</text>
+<line x1="300" y1="72" x2="125" y2="140" stroke="rgba(255,255,255,0.25)" stroke-width="1.2" marker-end="url(#arDag)"/>
+<line x1="350" y1="72" x2="325" y2="140" stroke="rgba(255,255,255,0.25)" stroke-width="1.2" marker-end="url(#arDag)"/>
+<line x1="325" y1="72" x2="525" y2="140" stroke="rgba(255,255,255,0.25)" stroke-width="1.2" marker-end="url(#arDag)"/>
+<line x1="125" y1="182" x2="270" y2="250" stroke="rgba(255,255,255,0.25)" stroke-width="1.2" marker-end="url(#arDag)"/>
+<line x1="325" y1="182" x2="325" y2="250" stroke="rgba(255,255,255,0.25)" stroke-width="1.2" marker-end="url(#arDag)"/>
+<line x1="525" y1="182" x2="380" y2="250" stroke="rgba(255,255,255,0.25)" stroke-width="1.2" marker-end="url(#arDag)"/>
+<rect x="630" y="40" width="235" height="130" rx="6" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.08)"/>
+<text x="650" y="62" font-family="sans-serif" font-size="11" fill="#fff" font-weight="600">图例</text>
+<circle cx="660" cy="85" r="5" fill="#131318" stroke="#4FC3F7" stroke-width="2"/>
+<text x="674" y="89" font-family="sans-serif" font-size="10" fill="rgba(255,255,255,0.6)">前置 Task</text>
+<circle cx="660" cy="108" r="5" fill="#131318" stroke="#CE93D8" stroke-width="1.5"/>
+<text x="674" y="112" font-family="sans-serif" font-size="10" fill="rgba(255,255,255,0.6)">并行子 Task</text>
+<circle cx="660" cy="131" r="5" fill="#131318" stroke="#FFB74D" stroke-width="2"/>
+<text x="674" y="135" font-family="sans-serif" font-size="10" fill="rgba(255,255,255,0.6)">汇聚 Task</text>
+<text x="650" y="210" font-family="monospace" font-size="10" fill="rgba(255,255,255,0.4)">Task B / C / D 并行执行</text>
+<text x="650" y="228" font-family="monospace" font-size="10" fill="rgba(255,255,255,0.4)">前提：A 已完成</text>
+<text x="650" y="246" font-family="monospace" font-size="10" fill="rgba(255,255,255,0.4)">E 等待 B + C + D 全部完成</text>
+<rect x="60" y="320" width="780" height="42" rx="8" fill="rgba(79,195,247,0.06)" stroke="rgba(79,195,247,0.2)"/>
+<text x="450" y="346" font-family="sans-serif" font-size="12" fill="rgba(255,255,255,0.6)" text-anchor="middle">TaskGraph Scheduler -- 工作窃取 / 优先级队列 / 动态线程创建 / 依赖自动解析</text>
+</svg>
+<div class="fig-caption">图 2.1 -- TaskGraph DAG 调度模型：Task A 完成后，B/C/D 并行执行，全部完成后方可执行汇聚 Task E</div>
+</div>
+
+<p>TaskGraph 的基本使用方式如下：</p>
+<div class="code-block">
+<div class="code-header"><span>Engine/Source/Runtime/Core/Public/Async/TaskGraphInterfaces.h -- 基本 Task 创建</span><button class="btn-copy" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="code-lines"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span></div>
+<div class="code-content"><span class="co">// 定义自定义 Task 类型</span>
+<span class="kw">class</span> <span class="tp">FMyParallelTask</span>
+{
+<span class="kw">public</span>:
+    <span class="co">// 指定要在哪个线程上执行</span>
+    <span class="tp">ENamedThreads::Type</span> <span class="fn">GetDesiredThread</span>() { <span class="kw">return</span> ENamedThreads::AnyThread; }
+
+    <span class="co">// 指定后续模式：TrackSubsequents 或 FireAndForget</span>
+    <span class="kw">static</span> <span class="tp">ESubsequentsMode::Type</span> <span class="fn">GetSubsequentsMode</span>() { <span class="kw">return</span> ESubsequentsMode::TrackSubsequents; }
+
+    <span class="co">// 实际执行体</span>
+    <span class="kw">void</span> <span class="fn">DoTask</span>(<span class="tp">ENamedThreads::Type</span> CurrentThread, <span class="kw">const</span> <span class="tp">FGraphEventRef</span>& MyCompletionGraphEvent)
+    {
+        <span class="co">// 并行计算的逻辑</span>
+    }
+};
+
+<span class="co">// 创建并提交 Task</span>
+<span class="tp">FGraphEventRef</span> TaskEvent = <span class="tp">TGraphTask</span>&lt;<span class="tp">FMyParallelTask</span>&gt;::CreateTask().ConstructAndDispatchWhenReady();</div>
+</div>
+</div>
+
+<h3 id="s2-2">2.2 命名线程体系</h3>
+<p>UE5 的线程模型通过 <span class="code-inline">ENamedThreads::Type</span> 枚举定义了一系列"命名线程"（Named Threads）。这些线程在运行时被 TaskGraph 注册并管理，与普通的 Worker 线程有本质区别：命名线程有<b>固定身份和局部队列</b>，Worker 线程则通过全局队列 + 工作窃取处理任务。</p>
+<table class="feat-table">
+<thead><tr><th style="width:25%">线程名称</th><th style="width:20%">枚举值</th><th>职责描述</th><th style="width:15%">源码行号</th></tr></thead>
+<tbody>
+<tr><td><b>GameThread</b></td><td><span class="code-inline">GameThread</span></td><td>主线程，游戏逻辑、物理、动画、输入、蓝图脚本。生成渲染命令但不执行。</td><td><span style="font-family:var(--font-mono);font-size:0.75rem;color:var(--c-path)">TaskGraphInterfaces.h:61</span></td></tr>
+<tr><td><b>RenderThread</b></td><td><span class="code-inline">ActualRenderingThread</span></td><td>延迟渲染管线全流程：可见性、Shadow、BasePass、Lighting、后处理等。</td><td><span style="font-family:var(--font-mono);font-size:0.75rem;color:var(--c-path)">RenderingThread.cpp:227-277</span></td></tr>
+<tr><td><b>RHIThread</b></td><td><span class="code-inline">RHIThread</span></td><td>解码 RHI 命令缓冲，转换为 D3D12/Vulkan API 调用，负责 GPU 沟通。</td><td><span style="font-family:var(--font-mono);font-size:0.75rem;color:var(--c-path)">RenderingThread.cpp:160-224</span></td></tr>
+<tr><td><b>Worker</b></td><td><span class="code-inline">AnyThread</span></td><td>TaskGraph 动态管理的线程池，处理 ParallelFor、异步 Task 等并行工作。</td><td><span style="font-family:var(--font-mono);font-size:0.75rem;color:var(--c-path)">TaskGraphInterfaces.h:67</span></td></tr>
+</tbody>
+</table>
+
+<h4>线程优先级组合（位域编码）</h4>
+<p><span class="code-inline">ENamedThreads::Type</span> 是一个复合位字段，将线程标识与优先级信息编码在一个 32-bit 整数中：</p>
+<table class="feat-table">
+<thead><tr><th>位域</th><th>掩码</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>ThreadIndex</td><td><span class="code-inline">0xFF</span> (8-bit)</td><td>命名线程 ID：GameThread=0x00, ActualRenderingThread=0x01, RHIThread=0x00, AnyThread=0xFF</td></tr>
+<tr><td>QueueIndex</td><td><span class="code-inline">0x100</span> (2种)</td><td>MainQueue=0x000（全局） / LocalQueue=0x100（局部，无锁）</td></tr>
+<tr><td>TaskPriority</td><td><span class="code-inline">0x200</span> (2级)</td><td>NormalTaskPriority=0x000 / HighTaskPriority=0x200</td></tr>
+<tr><td>ThreadPriority</td><td><span class="code-inline">0xC00</span> (3级)</td><td>Normal=0x000 / High=0x400 / Background=0x800</td></tr>
+</tbody>
+</table>
+
+<div class="note"><b>重点：</b>在 UE5.8 中，RenderThread 的身份是<b>动态的</b>：当 <span class="code-inline">GIsThreadedRendering == true</span> 时，<span class="code-inline">ENamedThreads::ActualRenderingThread</span> 是一个独立的物理线程。当 <span class="code-inline">GIsThreadedRendering == false</span>（编辑器非 PIE 或服务器模式）时，RenderThread 回退为 GameThread 上的一部分。由 <span class="code-inline">ENamedThreads::FRenderThreadStatics</span> 中的 <span class="code-inline">TAtomic Type RenderThread</span> 跟踪此动态状态。</div>
+
+<h3 id="s2-3">2.3 核心类关系图</h3>
+<div class="figure-wrap">
+<svg viewBox="0 0 860 480" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="arInherit" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="rgba(255,255,255,0.4)"/></marker><marker id="arAssoc" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5 Z" fill="rgba(255,255,255,0.25)"/></marker></defs>
+<pattern id="gr3" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M 30 0 L 0 0 0 30" fill="none" stroke="rgba(255,255,255,0.01)" stroke-width="1"/></pattern>
+<rect width="860" height="480" fill="url(#gr3)"/>
+<rect x="300" y="20" width="260" height="52" rx="6" fill="#131318" stroke="#4FC3F7" stroke-width="2.2"/>
+<text x="430" y="42" font-family="sans-serif" font-size="12" fill="#4FC3F7" text-anchor="middle" font-weight="700">FTaskGraphInterface (抽象接口)</text>
+<text x="430" y="60" font-family="monospace" font-size="9" fill="rgba(255,255,255,0.4)" text-anchor="middle">QueueTask / WaitUntil / ProcessThread</text>
+<line x1="430" y1="72" x2="430" y2="110" stroke="rgba(255,255,255,0.25)" stroke-width="1.2" marker-end="url(#arInherit)"/>
+<rect x="270" y="112" width="320" height="56" rx="6" fill="#131318" stroke="#64B5F6" stroke-width="1.8"/>
+<text x="430" y="134" font-family="sans-serif" font-size="11" fill="#64B5F6" text-anchor="middle" font-weight="700">FTaskGraphImplementation</text>
+<text x="430" y="152" font-family="monospace" font-size="9" fill="rgba(255,255,255,0.4)" text-anchor="middle">命名线程管理 + Worker 池 + 工作窃取</text>
+<line x1="300" y1="168" x2="160" y2="220" stroke="rgba(255,255,255,0.2)" stroke-width="1" marker-end="url(#arAssoc)"/>
+<line x1="430" y1="168" x2="430" y2="220" stroke="rgba(255,255,255,0.2)" stroke-width="1" marker-end="url(#arAssoc)"/>
+<line x1="560" y1="168" x2="700" y2="220" stroke="rgba(255,255,255,0.2)" stroke-width="1" marker-end="url(#arAssoc)"/>
+<rect x="40" y="222" width="230" height="48" rx="6" fill="#131318" stroke="#81C784" stroke-width="1.5"/>
+<text x="155" y="244" font-family="sans-serif" font-size="11" fill="#81C784" text-anchor="middle" font-weight="700">FNamedTaskThread</text>
+<text x="155" y="261" font-family="monospace" font-size="9" fill="rgba(255,255,255,0.4)" text-anchor="middle">GameThread / RenderThread / RHIThread</text>
+<rect x="310" y="222" width="240" height="48" rx="6" fill="#131318" stroke="#CE93D8" stroke-width="1.5"/>
+<text x="430" y="244" font-family="sans-serif" font-size="11" fill="#CE93D8" text-anchor="middle" font-weight="700">FTaskThreadAnyThread (Worker)</text>
+<text x="430" y="261" font-family="monospace" font-size="9" fill="rgba(255,255,255,0.4)" text-anchor="middle">x N Worker 线程</text>
+<rect x="600" y="222" width="220" height="48" rx="6" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.15)" stroke-width="1.2" stroke-dasharray="4,3"/>
+<text x="710" y="244" font-family="sans-serif" font-size="11" fill="rgba(255,255,255,0.4)" text-anchor="middle" font-weight="600">FTaskThreadBase</text>
+<text x="710" y="261" font-family="monospace" font-size="9" fill="rgba(255,255,255,0.3)" text-anchor="middle">基类（旧版后端）</text>
+<rect x="310" y="310" width="240" height="48" rx="6" fill="#131318" stroke="#FFB74D" stroke-width="1.5"/>
+<text x="430" y="332" font-family="sans-serif" font-size="11" fill="#FFB74D" text-anchor="middle" font-weight="700">FBaseGraphTask</text>
+<text x="430" y="349" font-family="monospace" font-size="9" fill="rgba(255,255,255,0.4)" text-anchor="middle">继承 UE::Tasks::Private::FTaskBase</text>
+<rect x="300" y="392" width="260" height="48" rx="6" fill="#131318" stroke="#FF8A65" stroke-width="1.5"/>
+<text x="430" y="414" font-family="sans-serif" font-size="11" fill="#FF8A65" text-anchor="middle" font-weight="700">TGraphTask&lt;TTask&gt;</text>
+<text x="430" y="431" font-family="monospace" font-size="9" fill="rgba(255,255,255,0.4)" text-anchor="middle">模板包装器 - FConstructor 工厂</text>
+<line x1="430" y1="358" x2="430" y2="392" stroke="rgba(255,255,255,0.25)" stroke-width="1.2" marker-end="url(#arInherit)"/>
+</svg>
+<div class="fig-caption">图 2.3 -- TaskGraph 核心类关系图</div>
+</div>
+
+<h3 id="s2-4">2.4 ENQUEUE_RENDER_COMMAND 使用示例</h3>
+<p><span class="code-inline">ENQUEUE_RENDER_COMMAND</span> 是 GameThread 向 RenderThread 提交渲染命令的标准宏。它在 GameThread 上调用，将 lambda 闭包安全地封送到 RenderThread 的局部队列中。</p>
+<div class="code-block">
+<div class="code-header"><span>完整示例：ENQUEUE_RENDER_COMMAND 用法</span><button class="btn-copy" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="code-lines"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span><span>21</span><span>22</span><span>23</span><span>24</span><span>25</span><span>26</span><span>27</span><span>28</span><span>29</span><span>30</span><span>31</span><span>32</span><span>33</span><span>34</span><span>35</span><span>36</span></div>
+<div class="code-content"><span class="co">// ===== 头文件引用 =====</span>
+<span class="ma">#include</span> <span class="st">"RenderingThread.h"</span>
+<span class="ma">#include</span> <span class="st">"RHICommandList.h"</span>
+<span class="ma">#include</span> <span class="st">"Async/TaskGraphInterfaces.h"</span>
+
+<span class="co">// ===== 示例 1：基本渲染命令提交（GameThread -> RenderThread）=====</span>
+<span class="kw">class</span> <span class="tp">UMyComponent</span> : <span class="kw">public</span> <span class="tp">UActorComponent</span>
+{
+    <span class="kw">void</span> <span class="fn">UpdateTextureOnRenderThread</span>(<span class="tp">UTexture2D</span>* Texture)
+    {
+        <span class="co">// 从 GameThread 调用 —— 将 lambda 封送到 RenderThread 执行</span>
+        ENQUEUE_RENDER_COMMAND(<span class="tp">FUpdateMyTexture</span>)([Texture](<span class="tp">FRHICommandListImmediate</span>& RHICmdList)
+        {
+            <span class="co">// 此 lambda 在 RenderThread 上执行</span>
+            <span class="kw">if</span> (<span class="tp">FTexture2DRHIRef</span> TexRHI = Texture-&gt;GetResource()-&gt;TextureRHI)
+            {
+                <span class="co">// 执行 RHI 级纹理操作</span>
+            }
+        });
+    }
+};
+
+<span class="co">// ===== 示例 2：带 Flush 的渲染命令（GameThread 阻塞等待）=====</span>
+<span class="kw">void</span> <span class="fn">ReadBackFromRenderThread</span>()
+{
+    <span class="kw">static</span> <span class="tp">TArray</span>&lt;<span class="tp">FLinearColor</span>&gt; ReadbackData;
+
+    ENQUEUE_RENDER_COMMAND(<span class="tp">FReadbackCommand</span>)([&amp;ReadbackData](<span class="tp">FRHICommandListImmediate</span>& RHICmdList)
+    {
+        ReadbackData.SetNum(<span class="nu">1024</span>);
+        <span class="co">// ... 执行 GPU readback ...</span>
+    });
+
+    <span class="co">// 阻塞 GameThread 直到所有排队命令执行完毕</span>
+    <span class="tp">FlushRenderingCommands</span>();
+}</div>
+</div>
+</div>
+
+<p>在 UE5.8 中，<span class="code-inline">ENQUEUE_RENDER_COMMAND</span> 的底层实现已升级为 <b>Render Command Pipe 机制</b>。当 <span class="code-inline">r.RenderCommandPipeMode</span> 设为 2（默认值）时，所有渲染命令经 Pipe 批量提交，相较逐个 Task 提交有显著性能改善。</p>
+
+<h3 id="s2-5">2.5 ParallelFor 并行计算</h3>
+<p><span class="code-inline">ParallelFor</span> 是 UE5 中用于<b>数据并行</b>的标准工具。它在 TaskGraph 上将循环迭代拆分到多个 Worker 线程执行。UE5.8 提供了丰富的变体：</p>
+<div class="code-block">
+<div class="code-header"><span>Engine/Source/Runtime/Core/Public/Async/ParallelFor.h -- 常见用法</span><button class="btn-copy" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="code-lines"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span><span>21</span><span>22</span><span>23</span><span>24</span><span>25</span><span>26</span><span>27</span><span>28</span><span>29</span><span>30</span></div>
+<div class="code-content"><span class="co">// 基本 ParallelFor</span>
+<span class="kw">ParallelFor</span>(<span class="nu">10000</span>, [](<span class="kw">int32</span> Index) {
+    Data[Index] = ComputeValue(Index);
+});
+
+<span class="co">// 带调试名和最小批量的 ParallelFor</span>
+<span class="kw">ParallelFor</span>(TEXT(<span class="st">"MyHeavyTask"</span>), <span class="nu">5000</span>, <span class="nu">64</span>, <span class="co">// 每个 Batch 至少 64 个元素</span>
+    [](<span class="kw">int32</span> Index) { ProcessElement(Index); });
+
+<span class="co">// Unbalanced 模式（适用于迭代耗时差异大的场景）</span>
+<span class="kw">ParallelFor</span>(TEXT(<span class="st">"UnbalancedWork"</span>), NumItems, <span class="nu">1</span>,
+    [](<span class="kw">int32</span> Index) { HeavyWork(Index); },
+    <span class="tp">EParallelForFlags</span>::Unbalanced);
+
+<span class="co">// 带 Task Context 的 ParallelFor（无需锁的并行计算）</span>
+<span class="kw">struct</span> <span class="tp">FMyContext</span> {
+    <span class="kw">int32</span> LocalResult = <span class="nu">0</span>;  <span class="co">// 每个 Task 独占，无需同步</span>
+};
+<span class="tp">TArray</span>&lt;<span class="tp">FMyContext</span>&gt; Contexts;
+<span class="kw">ParallelForWithTaskContext</span>(TEXT(<span class="st">"WithContext"</span>), Contexts, NumItems,
+    [](<span class="kw">int32</span> CtxIdx, <span class="kw">int32</span> NumCtx) { <span class="kw">return</span> FMyContext(); },
+    [](<span class="tp">FMyContext</span>& Ctx, <span class="kw">int32</span> Index) {
+        Ctx.LocalResult += Compute(Index);  <span class="co">// 无锁安全！</span>
+    });</div>
+</div>
+</div>
+<p>UE5.8 的 ParallelFor 底层完全基于 <span class="code-inline">LowLevelTasks::FScheduler</span>，关键优化包括：动态 Worker 启动（<span class="code-inline">GetNextWorkerIndexToLaunch()</span>）、最后一个 Batch 保留给主线程、后台任务分级、自动批处理平衡。</p>
+
+<h2 id="s3">三、执行流程与数据流</h2>
+<h3 id="s3-1">3.1 单帧时序图</h3>
+<p>下图展示了一帧内各线程之间的协作关系，从 GameTick 到 Present 的完整生命周期。每个阶段的<b>线程边界</b>和<b>同步点（Fence）</b>都清晰标注。</p>
+<div class="figure-wrap">
+<svg viewBox="0 0 1000 600" xmlns="http://www.w3.org/2000/svg">
+<pattern id="grF" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M 30 0 L 0 0 0 30" fill="none" stroke="rgba(255,255,255,0.01)" stroke-width="1"/></pattern>
+<rect width="1000" height="600" fill="url(#grF)"/>
+<rect x="30" y="50" width="85" height="26" rx="4" fill="#FF7043" opacity="0.85"/><text x="72" y="68" font-family="sans-serif" font-size="10" fill="#fff" text-anchor="middle" font-weight="600">GameThread</text>
+<rect x="30" y="180" width="85" height="26" rx="4" fill="#42A5F5" opacity="0.85"/><text x="72" y="198" font-family="sans-serif" font-size="10" fill="#fff" text-anchor="middle" font-weight="600">RenderThread</text>
+<rect x="30" y="420" width="85" height="26" rx="4" fill="#66BB6A" opacity="0.85"/><text x="72" y="438" font-family="sans-serif" font-size="10" fill="#fff" text-anchor="middle" font-weight="600">RHIThread</text>
+<rect x="30" y="530" width="85" height="26" rx="4" fill="rgba(255,255,255,0.15)"/><text x="72" y="548" font-family="sans-serif" font-size="10" fill="rgba(255,255,255,0.6)" text-anchor="middle">GPU</text>
+<line x1="130" y1="63" x2="960" y2="63" stroke="rgba(255,112,67,0.3)" stroke-width="2"/>
+<line x1="130" y1="193" x2="960" y2="193" stroke="rgba(66,165,245,0.3)" stroke-width="2"/>
+<line x1="130" y1="433" x2="960" y2="433" stroke="rgba(102,187,106,0.3)" stroke-width="2"/>
+<line x1="130" y1="543" x2="960" y2="543" stroke="rgba(255,255,255,0.1)" stroke-width="2" stroke-dasharray="6,3"/>
+<rect x="140" y="76" width="110" height="28" rx="5" fill="rgba(255,112,67,0.15)" stroke="rgba(255,112,67,0.35)"/><text x="195" y="94" font-family="sans-serif" font-size="10" fill="#FF8A65" text-anchor="middle">Game Tick</text>
+<rect x="270" y="76" width="120" height="28" rx="5" fill="rgba(255,112,67,0.15)" stroke="rgba(255,112,67,0.35)"/><text x="330" y="94" font-family="sans-serif" font-size="10" fill="#FF8A65" text-anchor="middle">Latch Config</text>
+<rect x="410" y="76" width="140" height="28" rx="5" fill="rgba(255,112,67,0.18)" stroke="rgba(255,112,67,0.4)"/><text x="480" y="94" font-family="sans-serif" font-size="10" fill="#FFAB91" text-anchor="middle">BeginRendering (Fence)</text>
+<rect x="570" y="76" width="100" height="28" rx="5" fill="rgba(255,112,67,0.12)" stroke="rgba(255,112,67,0.25)"/><text x="620" y="94" font-family="sans-serif" font-size="10" fill="rgba(255,255,255,0.5)" text-anchor="middle">Other Tasks</text>
+<defs><marker id="arFrameS" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="rgba(255,255,255,0.25)"/></marker></defs>
+<line x1="550" y1="96" x2="550" y2="130" stroke="#8BC34A" stroke-width="1.8"/>
+<text x="562" y="140" font-family="sans-serif" font-size="9" fill="#8BC34A">ENQUEUE_RENDER_COMMAND</text>
+<rect x="235" y="126" width="80" height="18" rx="3" fill="rgba(139,195,74,0.12)" stroke="rgba(139,195,74,0.3)"/><text x="275" y="139" font-family="monospace" font-size="8" fill="#8BC34A" text-anchor="middle">Fence Start</text>
+<rect x="140" y="206" width="100" height="28" rx="5" fill="rgba(66,165,245,0.15)" stroke="rgba(66,165,245,0.35)"/><text x="190" y="224" font-family="sans-serif" font-size="10" fill="#64B5F6" text-anchor="middle">InitViews</text>
+<rect x="255" y="206" width="95" height="28" rx="5" fill="rgba(66,165,245,0.12)" stroke="rgba(66,165,245,0.3)"/><text x="302" y="224" font-family="sans-serif" font-size="10" fill="rgba(255,255,255,0.6)" text-anchor="middle">PrePass</text>
+<rect x="365" y="206" width="120" height="28" rx="5" fill="rgba(66,165,245,0.15)" stroke="rgba(66,165,245,0.35)"/><text x="425" y="224" font-family="sans-serif" font-size="10" fill="#64B5F6" text-anchor="middle">RenderNanite</text>
+<rect x="500" y="206" width="95" height="28" rx="5" fill="rgba(66,165,245,0.12)" stroke="rgba(66,165,245,0.3)"/><text x="547" y="224" font-family="sans-serif" font-size="10" fill="rgba(255,255,255,0.6)" text-anchor="middle">ShadowDepth</text>
+<rect x="610" y="206" width="90" height="28" rx="5" fill="rgba(66,165,245,0.15)" stroke="rgba(66,165,245,0.35)"/><text x="655" y="224" font-family="sans-serif" font-size="10" fill="#64B5F6" text-anchor="middle">BasePass</text>
+<rect x="715" y="206" width="140" height="28" rx="5" fill="rgba(66,165,245,0.15)" stroke="rgba(66,165,245,0.35)"/><text x="785" y="224" font-family="sans-serif" font-size="10" fill="#64B5F6" text-anchor="middle">Lighting + Post</text>
+<line x1="550" y1="234" x2="550" y2="360" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"/>
+<text x="570" y="320" font-family="sans-serif" font-size="9" fill="rgba(255,255,255,0.35)">RHI Command Buffer</text>
+<rect x="140" y="446" width="150" height="28" rx="5" fill="rgba(102,187,106,0.15)" stroke="rgba(102,187,106,0.35)"/><text x="215" y="464" font-family="sans-serif" font-size="10" fill="#81C784" text-anchor="middle">Decode RHI Commands</text>
+<rect x="310" y="446" width="160" height="28" rx="5" fill="rgba(102,187,106,0.15)" stroke="rgba(102,187,106,0.35)"/><text x="390" y="464" font-family="sans-serif" font-size="10" fill="#81C784" text-anchor="middle">Submit GPU Commands</text>
+<rect x="140" y="556" width="130" height="24" rx="5" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.12)"/><text x="205" y="572" font-family="sans-serif" font-size="10" fill="rgba(255,255,255,0.5)" text-anchor="middle">GPU Execution</text>
+<rect x="290" y="556" width="100" height="24" rx="5" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.12)"/><text x="340" y="572" font-family="sans-serif" font-size="10" fill="rgba(255,255,255,0.5)" text-anchor="middle">Present</text>
+<circle cx="130" cy="560" r="5" fill="none" stroke="#8BC34A" stroke-width="1.5"/><text x="138" y="592" font-family="monospace" font-size="8" fill="#8BC34A">Fence Complete</text>
+<line x1="130" y1="46" x2="130" y2="585" stroke="rgba(255,255,255,0.05)" stroke-width="1" stroke-dasharray="4,6"/>
+<line x1="960" y1="46" x2="960" y2="585" stroke="rgba(255,255,255,0.05)" stroke-width="1" stroke-dasharray="4,6"/>
+</svg>
+<div class="fig-caption">图 3.1 -- 单帧跨线程协作时序图（GameTick -> BeginRendering -> RenderQuery -> Present）</div>
+</div>
+
+<h3 id="s3-2">3.2 Fence 同步机制</h3>
+<p>在跨线程协作中，<b>Fence（栅栏）</b>是 UE5 实现线程同步的核心原语。它允许 GameThread 安全地等待 RenderThread 完成特定工作，而不引入重量级锁。</p>
+<div class="figure-wrap">
+<svg viewBox="0 0 700 260" xmlns="http://www.w3.org/2000/svg">
+<pattern id="grFence" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M 30 0 L 0 0 0 30" fill="none" stroke="rgba(255,255,255,0.008)" stroke-width="1"/></pattern>
+<rect width="700" height="260" fill="url(#grFence)"/>
+<defs><marker id="arFence" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="rgba(255,255,255,0.3)"/></marker></defs>
+<rect x="20" y="22" width="120" height="32" rx="5" fill="rgba(255,112,67,0.15)" stroke="#FF7043" stroke-width="1.2"/><text x="80" y="42" font-family="sans-serif" font-size="11" fill="#FF7043" text-anchor="middle" font-weight="600">GameThread</text>
+<rect x="20" y="68" width="120" height="28" rx="4" fill="rgba(255,112,67,0.08)"/><text x="80" y="86" font-family="monospace" font-size="10" fill="#FF8A65" text-anchor="middle">Flush Commands</text>
+<rect x="560" y="22" width="120" height="32" rx="5" fill="rgba(66,165,245,0.15)" stroke="#42A5F5" stroke-width="1.2"/><text x="620" y="42" font-family="sans-serif" font-size="11" fill="#42A5F5" text-anchor="middle" font-weight="600">RenderThread</text>
+<rect x="560" y="68" width="120" height="28" rx="4" fill="rgba(66,165,245,0.08)"/><text x="620" y="86" font-family="monospace" font-size="10" fill="#64B5F6" text-anchor="middle">Process Commands</text>
+<rect x="180" y="70" width="340" height="160" rx="8" fill="rgba(139,195,74,0.04)" stroke="rgba(139,195,74,0.2)"/>
+<text x="350" y="92" font-family="sans-serif" font-size="11" fill="#8BC34A" text-anchor="middle" font-weight="600">FRenderCommandFence 工作流程</text>
+<line x1="210" y1="105" x2="490" y2="105" stroke="rgba(255,255,255,0.15)" stroke-width="1.2"/>
+<circle cx="260" cy="105" r="6" fill="none" stroke="#8BC34A" stroke-width="1.5"/><text x="260" y="130" font-family="monospace" font-size="9" fill="#8BC34A" text-anchor="middle">1. BeginFence</text>
+<circle cx="350" cy="105" r="6" fill="none" stroke="#FFB74D" stroke-width="1.5"/><text x="350" y="130" font-family="monospace" font-size="9" fill="#FFB74D" text-anchor="middle">2. InsertFenceTask</text>
+<circle cx="440" cy="105" r="6" fill="none" stroke="#CE93D8" stroke-width="1.5"/><text x="440" y="130" font-family="monospace" font-size="9" fill="#CE93D8" text-anchor="middle">3. Wait(Event)</text>
+<text x="350" y="160" font-family="sans-serif" font-size="10" fill="rgba(255,255,255,0.55)" text-anchor="middle">Fence 关联的 Task 完成后触发 Event，唤醒 GameThread</text>
+<text x="350" y="180" font-family="monospace" font-size="9" fill="rgba(255,255,255,0.35)" text-anchor="middle">GameThread Sleep -> Task Complete -> Event::Trigger() -> GameThread Wake</text>
+<text x="350" y="205" font-family="sans-serif" font-size="10" fill="rgba(255,255,255,0.45)" text-anchor="middle">源码位置: RenderCore/Private/RenderingThread.cpp</text>
+<line x1="140" y1="82" x2="180" y2="82" stroke="#FF7043" stroke-width="1.2" marker-end="url(#arFence)"/>
+<line x1="520" y1="82" x2="560" y2="82" stroke="rgba(66,165,245,0.5)" stroke-width="1.2" marker-end="url(#arFence)"/>
+</svg>
+<div class="fig-caption">图 3.2 -- Fence 同步原理：BeginFence -> InsertFenceTask -> WaitEvent -> TaskComplete -> TriggerEvent -> GameThread Reactivate</div>
+</div>
+
+<h2 id="s4">四、设计决策与权衡</h2>
+<div class="card-grid">
+<div class="card"><h4>有锁 vs 无锁队列</h4><p>UE5 的 TaskGraph 全面采用<b>无锁（Lock-Free）数据结构</b>。核心队列（<span class="code-inline">FLockFreePointerFIFOBase</span>、<span class="code-inline">FLockFreePointerListLIFORoot</span>）基于 CAS（Compare-And-Swap）原子操作实现。相比有锁方案，无锁队列避免了线程阻塞、优先级反转和上下文切换开销，但复杂度显著增加（ABA 问题、Tag Counter 递增）。</p><div class="card-path">Engine/Source/Runtime/Core/Public/Containers/LockFreeList.h:263-413</div></div>
+<div class="card"><h4>单生产者 vs 多生产者队列</h4><p>命名线程使用<b>局部队列（Local Queue）</b>，由单一线程生产、同一线程消费，无需同步。Worker 线程使用<b>全局队列 + 工作窃取</b>，支持多生产者多消费者，通过无锁 FIFO 保证公平性。Local Queue 极大减少了 GameThread 到 RenderThread 往返的同步开销。</p><div class="card-path">Engine/Source/Runtime/Core/Public/Async/TaskGraphInterfaces.h:70-73</div></div>
+<div class="card"><h4>RenderThread 分离的原因</h4><p>分离 RenderThread 是<b>延迟换取吞吐</b>的典型决策。优点：GameThread 不等待 GPU/渲染完成，CPU 与 GPU 并行（通过 RHIThread 进一步解耦）。代价：引入 1-2 帧延迟，需要复杂同步机制（Fence、FGraphEvent）。编辑器模式下默认关闭线程渲染（<span class="code-inline">GUseThreadedRendering=false</span>）以降低延迟。</p><div class="card-path">Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp:49-51</div></div>
+<div class="card"><h4>TaskGraph 的优先级调度</h4><p>三级线程优先级（Normal/High/Background）和两级任务优先级（Normal/High）组合提供 6 种调度策略。<b>工作窃取</b>确保高优先级线程空闲时从低优先级队列窃取任务。<span class="code-inline">FStallingTaskQueue</span> 通过 <span class="code-inline">MasterState</span> 位掩码跟踪每个 Worker 的阻塞状态，按优先级扫描多级 FIFO 队列。</p><div class="card-path">Engine/Source/Runtime/Core/Public/Containers/LockFreeList.h:689-837</div></div>
+</div>
+
+<h2 id="s5">五、底层实现关联</h2>
+<h3 id="s5-1">5.1 Fence 机制的实现</h3>
+<p><span class="code-inline">FRenderCommandFence</span> 是 GameThread 与 RenderThread 之间的主同步点。</p>
+<div class="code-block">
+<div class="code-header"><span>Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp -- Fence 实现概要</span><button class="btn-copy" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="code-lines"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span></div>
+<div class="code-content"><span class="co">// ===== Fence 基本流程 =====</span>
+
+<span class="co">// 1. GameThread: 创建 Fence 并插入队列</span>
+<span class="tp">FRenderCommandFence</span> Fence;
+<span class="fn">BeginFence</span>(Fence);         <span class="co">// 设置 bValid=true，插入 FGraphEvent 到队列</span>
+
+<span class="co">// 2. GameThread: 阻塞等待</span>
+<span class="fn">WaitForFence</span>(Fence);       <span class="co">// 等待绑定的 FGraphEvent 完成</span>
+
+<span class="co">// 3. RenderThread: 命令消耗完毕后触发 Fence 事件 -> 唤醒 GameThread</span>
+
+<span class="co">// 等价于单次调用：</span>
+<span class="fn">FlushRenderingCommands</span>();</div>
+</div>
+</div>
+<div class="note"><b>关键点：</b><span class="code-inline">FlushRenderingCommands()</span> 内部通过 <span class="code-inline">FRenderCommandFence</span> 实现同步。它先通过 <span class="code-inline">FFrameEndSync::Sync()</span> 确保 RHIThread 完成当前帧工作，再等待 RenderThread 所有排队命令。</div>
+
+<h3 id="s5-2">5.2 RHI 命令缓冲</h3>
+<p>RHIThread 从 <span class="code-inline">FRHICommandList</span> 中解码并执行 RHI 命令。RenderThread 记录 RHI 命令到缓冲区，RHIThread 独立解码并调用实际的平台 API。</p>
+<div class="code-block">
+<div class="code-header"><span>Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp:160-223 -- RHIThread</span><button class="btn-copy" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="code-lines"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span><span>19</span></div>
+<div class="code-content"><span class="co">// RHIThread 是一个 FRunnable，注册为命名线程后进入事件循环</span>
+<span class="kw">class</span> <span class="tp">FRHIThread</span> : <span class="kw">private</span> <span class="tp">FRunnable</span>
+{
+<span class="kw">public</span>:
+    <span class="kw">static</span> <span class="kw">inline</span> <span class="tp">ERHIThreadMode</span> TargetMode = ERHIThreadMode::DedicatedThread;
+
+    <span class="fn">FRHIThread</span>()
+    {
+        <span class="co">// 以 "RHIThread" 身份创建物理线程，512KB 栈</span>
+        Thread = <span class="tp">FRunnableThread</span>::Create(<span class="kw">this</span>, TEXT(<span class="st">"RHIThread"</span>), <span class="nu">512</span>*<span class="nu">1024</span>,
+            FPlatformAffinity::GetRHIThreadPriority(),
+            FPlatformAffinity::GetRHIThreadMask(),
+            FPlatformAffinity::GetRHIThreadFlags());
+    }
+
+    <span class="kw">virtual</span> <span class="kw">uint32</span> <span class="fn">Run</span>() <span class="kw">override</span>
+    {
+        <span class="co">// 注册到 TaskGraph，进入命令处理循环</span>
+        <span class="tp">FTaskGraphInterface</span>::Get().AttachToThread(ENamedThreads::RHIThread);
+        <span class="tp">FTaskGraphInterface</span>::Get().ProcessThreadUntilRequestReturn(ENamedThreads::RHIThread);
+        <span class="kw">return</span> <span class="nu">0</span>;
+    }
+};</div>
+</div>
+</div>
+
+<h3 id="s5-3">5.3 无锁队列的核心 CAS 操作</h3>
+<p>UE5 的无锁队列底层依赖 <span class="code-inline">FIndexedPointer</span> 和 <span class="code-inline">InterlockedCompareExchange</span>，使用 <b>ABA 计数</b>避免竞态：</p>
+<div class="code-block">
+<div class="code-header"><span>Engine/Source/Runtime/Core/Public/Containers/LockFreeList.h:136-223 -- CAS 指针结构</span><button class="btn-copy" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="code-lines"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span></div>
+<div class="code-content"><span class="co">// FIndexedPointer: 32-bit 指针 + 32-bit ABA 计数器 -> 64-bit 原子变量</span>
+<span class="kw">struct</span> <span class="tp">FIndexedPointer</span>
+{
+    <span class="co">// 低 26-bit: 索引指针 | 高 38-bit: Counter + State (防 ABA)</span>
+    <span class="tp">std::atomic</span>&lt;<span class="kw">uint64</span>&gt; Ptrs;
+
+    <span class="kw">uint32</span> <span class="fn">GetPtr</span>() <span class="kw">const</span> {
+        <span class="kw">return</span> <span class="kw">uint32</span>(Ptrs.load() &amp; (<span class="tp">MAX_LOCK_FREE_LINKS</span> - <span class="nu">1</span>));
+    }
+
+    <span class="co">// 核心 CAS: 无锁队列的基石</span>
+    <span class="kw">bool</span> <span class="fn">InterlockedCompareExchange</span>(<span class="kw">const</span> <span class="tp">FIndexedPointer</span>& Exchange,
+                                   <span class="kw">const</span> <span class="tp">FIndexedPointer</span>& Comparand)
+    {
+        <span class="kw">uint64</span> Expected = Comparand.Ptrs.load();
+        <span class="kw">return</span> Ptrs.compare_exchange_strong(Expected, Exchange.Ptrs.load());
+    }
+};</div>
+</div>
+</div>
+
+<p><span class="code-inline">FLockFreePointerListLIFORoot::Push()</span> 的 CAS 自旋循环：</p>
+<div class="code-block">
+<div class="code-header"><span>Engine/Source/Runtime/Core/Public/Containers/LockFreeList.h:286-301 -- LIFO Push</span><button class="btn-copy" onclick="copyCode(this)">复制</button></div>
+<div class="code-body">
+<div class="code-lines"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span></div>
+<div class="code-content"><span class="kw">void</span> <span class="fn">Push</span>(<span class="tp">TLinkPtr</span> Item)
+{
+    <span class="kw">while</span> (<span class="kw">true</span>)                   <span class="co">// CAS 自旋</span>
+    {
+        <span class="tp">TDoublePtr</span> LocalHead;
+        LocalHead.<span class="fn">AtomicRead</span>(Head);     <span class="co">// 1. 读取当前头部</span>
+        <span class="tp">TDoublePtr</span> NewHead;
+        NewHead.<span class="fn">AdvanceCounterAndState</span>(LocalHead, TABAInc); <span class="co">// 2. 递增 ABA 计数器</span>
+        NewHead.<span class="fn">SetPtr</span>(Item);         <span class="co">// 3. 设置新指针</span>
+        DerefLink(Item)-&gt;SingleNext.<span class="fn">store</span>(LocalHead.GetPtr()); <span class="co">// 4. 链接</span>
+        <span class="kw">if</span> (Head.<span class="fn">InterlockedCompareExchange</span>(NewHead, LocalHead))
+            <span class="kw">break</span>;                 <span class="co">// 5. CAS 成功 -> 退出; 失败 -> 重试</span>
+    }
+}</div>
+</div>
+</div>
+
+<h2 id="s6">六、UE5.8 演进变化</h2>
+<div class="timeline">
+<div class="timeline-item"><div class="tl-ver">UE 4.25</div><div class="tl-desc">TaskGraph 系统成熟，<strong>AsyncCompute</strong> 基础支持引入。RenderThread 与 RHIThread 分离已成标准。命名线程通过旧版 <span class="code-inline">FTaskThreadBase</span> 管理。</div></div>
+<div class="timeline-item"><div class="tl-ver">UE 5.0</div><div class="tl-desc"><strong>RenderGraph (RDG)</strong> 集成到主渲染管线，所有 Pass 通过 <span class="code-inline">FRDGBuilder</span> 管理。RenderGraph Pass 在 RenderThread 上并行编译、在 RHIThread 上按依赖图顺序提交。TaskGraph 后端开始逐步迁移到 <span class="code-inline">LowLevelTasks::FScheduler</span>。</div></div>
+<div class="timeline-item"><div class="tl-ver">UE 5.2</div><div class="tl-desc"><strong>Named Task Thread 细化</strong>：<span class="code-inline">FBaseGraphTask</span> 继承自 <span class="code-inline">UE::Tasks::Private::FTaskBase</span>，新旧 Task 系统桥接。AsyncCompute 队列增强，支持多个 AsyncCompute Queue。</div></div>
+<div class="timeline-item"><div class="tl-ver">UE 5.3</div><div class="tl-desc"><strong>工作窃取策略改进</strong>：引入 <span class="code-inline">WorkStealingQueueRetryLimit</span> 限制窃取失败后的重试次数，避免高争用场景下的热度消耗。动态线程创建（<span class="code-inline">TaskGraph.UseDynamicThreadCreation</span>）成为桌面平台默认选项。</div></div>
+<div class="timeline-item"><div class="tl-ver">UE 5.4</div><div class="tl-desc"><strong>Render Command Pipe</strong> 系统引入：<span class="code-inline">FRenderCommandPipe</span> 和 <span class="code-inline">FRenderThreadCommandPipe</span> 替代原生的逐个 Task 提交模式。Pipe 批量收集命令、减少锁竞争。新增 <span class="code-inline">r.RenderCommandPipeMode</span> CVar。</div></div>
+<div class="timeline-item"><div class="tl-ver">UE 5.5</div><div class="tl-desc"><strong>Task 优先级改进</strong>：<span class="code-inline">FAutoConsoleTaskPriority</span> 允许运行时通过 CVar 动态调整特定 Task 类型的优先级。ParallelFor 新增 <span class="code-inline">BackgroundPriority</span> 和 <span class="code-inline">PumpRenderingThread</span> 标志。TaskGraph 后端完全迁移到 <span class="code-inline">LowLevelTasks</span>。</div></div>
+<div class="timeline-item"><div class="tl-ver">UE 5.8</div><div class="tl-desc"><strong>最显著的进步</strong>：<br>- <strong>Render Command Pipe 成熟</strong>：<span class="code-inline">FRenderCommandList</span> 支持嵌套和 <span class="code-inline">ParallelForContext</span> 集成，Render Command Pipe 覆盖所有渲染管道。<br>- <strong>Inherited Context</strong>：<span class="code-inline">FInheritedContextBase</span> 使 Task 继承调试上下文。<br>- <strong>动态并行度控制</strong>：<span class="code-inline">GParallelForDisableOversubscription</span> 和 <span class="code-inline">GParallelForBackgroundYieldingTimeoutMs</span> 新增。<br>- <strong>FGraphEventImpl 优化</strong>：使用 <span class="code-inline">TLockFreeFixedSizeAllocator_TLSCache</span> 减少内存分配。<br>- <strong>RenderThread 轮询 CVar</strong>：<span class="code-inline">TaskGraph.RenderThreadPollPeriodMs</span> 控制 RT 轮询间隔。</div></div>
+</div>
+
+<h2 id="cvar-ref">CVar 速查表</h2>
+<table class="cvar-table">
+<thead><tr><th>Console Variable</th><th>默认值</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td class="cvar-name">TaskGraph.NumForegroundWorkers</td><td class="cvar-def">2</td><td>前台（高优先级）Worker 线程数量。需重启 Scheduler 生效。</td></tr>
+<tr><td class="cvar-name">TaskGraph.UseDynamicPrioritization</td><td class="cvar-def">1</td><td>启用动态线程优先级调整，高优先级任务在后台线程不易被抢占。</td></tr>
+<tr><td class="cvar-name">TaskGraph.OversubscriptionRatio</td><td class="cvar-def">2.0</td><td>过订阅比率。Task 包含 Wait 时动态增 Worker。1.0 = 禁用。</td></tr>
+<tr><td class="cvar-name">TaskGraph.UseDynamicThreadCreation</td><td class="cvar-def">1(桌面)</td><td>按需创建线程，而非初始化时全数创建。</td></tr>
+<tr><td class="cvar-name">TaskGraph.UseBackgroundThreads</td><td class="cvar-def">1</td><td>启用后台线程。0 = 后台任务运行在普通优先级。</td></tr>
+<tr><td class="cvar-name">TaskGraph.UseHiPriThreads</td><td class="cvar-def">1</td><td>启用高优先级线程。</td></tr>
+<tr><td class="cvar-name">TaskGraph.ThreadStackSize</td><td class="cvar-def">0</td><td>Worker 线程栈大小（字节）。0 = 平台默认。</td></tr>
+<tr><td class="cvar-name">TaskGraph.WorkStealingQueue.RetryLimit</td><td class="cvar-def">-1</td><td>工作窃取失败最大重试次数。-1 = 几乎无限。</td></tr>
+<tr><td class="cvar-name">TaskGraph.RenderThreadPollPeriodMs</td><td class="cvar-def">1</td><td>RenderThread 轮询 Task 周期（ms）。负值 = TaskGraph 显式唤醒。</td></tr>
+<tr><td class="cvar-name">TaskGraph.EnableForkedMultithreading</td><td class="cvar-def">1</td><td>允许 fork 进程使用多线程 TaskGraph。</td></tr>
+<tr><td class="cvar-name">TaskGraph.ForkedProcessMaxWorkerThreads</td><td class="cvar-def">2</td><td>Fork 进程的最大 Worker 线程数。</td></tr>
+<tr><td class="cvar-name">TaskGraph.ABTestThreads</td><td class="cvar-def">-</td><td>控制台命令：同时设置 HiPri + Background 线程开关。</td></tr>
+<tr><td class="cvar-name">r.RenderCommandPipeMode</td><td class="cvar-def">2</td><td>Pipe 模式：0=逐个Task, 1=仅RT, 2=所有Pipe启用。</td></tr>
+<tr><td class="cvar-name">r.RenderCommandFenceBundling</td><td class="cvar-def">1</td><td>允许 Fence 批处理，减少同步开销。</td></tr>
+<tr><td class="cvar-name">r.RHIThread.Enable</td><td class="cvar-def">1</td><td>启用独立 RHI 线程（控制台命令切换）。</td></tr>
+</tbody>
+</table>
+
+<div class="bottom-nav">
+<a href="#" class="prev" style="visibility:hidden;"><span class="nav-label">上一章</span><span class="nav-title">（无）</span></a>
+<a href="#" class="next"><span class="nav-label">下一章</span><span class="nav-title">RenderGraph 资源依赖管理</span></a>
+</div>
+</main>
+
+<script>
+(function(){const nav=document.getElementById('sideNav');const links=nav.querySelectorAll('a');const sections=[];links.forEach(a=>{const id=a.getAttribute('href');if(id&&id.startsWith('#')&&id.length>1){const el=document.getElementById(id.substring(1));if(el)sections.push({el,a});}});function onScroll(){let current=sections[0];for(const s of sections){if(s.el.getBoundingClientRect().top<=120)current=s;}links.forEach(a=>a.classList.remove('active'));if(current)current.a.classList.add('active');}window.addEventListener('scroll',onScroll,{passive:true});onScroll();})();
+function filterNav(){const q=document.getElementById('navSearch').value.trim().toLowerCase();const links=document.querySelectorAll('#sideNav a');links.forEach(a=>{const txt=a.textContent.toLowerCase();a.classList.toggle('hidden-by-search',q!==''&&!txt.includes(q));});}
+function copyCode(btn){const codeBlock=btn.closest('.code-block');const lines=codeBlock.querySelectorAll('.code-content');let text='';lines.forEach(l=>{text+=l.textContent+'\n';});navigator.clipboard.writeText(text.trim()).then(()=>{const orig=btn.textContent;btn.textContent='已复制!';setTimeout(()=>{btn.textContent=orig;},1500);}).catch(()=>{btn.textContent='失败';setTimeout(()=>{btn.textContent='复制';},1500);});}
+</script>
+</body>
+</html>

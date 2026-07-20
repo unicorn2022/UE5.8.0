@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MegaLights 系统深入解读 — UE5.8.0 渲染管线</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --card: #131318;
+    --codebg: #09090d;
+    --primary: #4FC3F7;
+    --text: #e0e0e0;
+    --muted: #909090;
+    --border: #1e1e28;
+    --accent: #81d4fa;
+    --warn: #ffb74d;
+    --success: #81c784;
+    --error: #e57373;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.75;
+    display: flex;
+  }
+
+  /* 左侧大纲导航 */
+  nav#sidebar {
+    position: fixed;
+    left: 0; top: 0; bottom: 0;
+    width: 270px;
+    background: var(--card);
+    border-right: 1px solid var(--border);
+    padding: 24px 20px;
+    overflow-y: auto;
+    z-index: 10;
+  }
+  nav#sidebar h2 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: 16px;
+    letter-spacing: 0.5px;
+  }
+  nav#sidebar a {
+    display: block;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 13px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    transition: all .15s;
+  }
+  nav#sidebar a:hover { color: var(--text); background: rgba(79,195,247,0.08); }
+  nav#sidebar a.active { color: var(--primary); background: rgba(79,195,247,0.12); }
+  nav#sidebar a.l2 { padding-left: 24px; font-size: 12px; }
+
+  main {
+    margin-left: 270px;
+    max-width: 1000px;
+    width: 100%;
+    padding: 48px 56px 80px;
+  }
+
+  h1 { font-size: 32px; color: #fff; margin-bottom: 8px; }
+  h2 { font-size: 22px; color: var(--primary); margin: 48px 0 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  h3 { font-size: 17px; color: #fff; margin: 28px 0 12px; }
+  p { margin-bottom: 14px; color: var(--text); }
+
+  .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 8px; }
+
+  /* 面包屑 */
+  .breadcrumb {
+    font-size: 12px; color: var(--muted); margin-bottom: 24px;
+    display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+  }
+  .breadcrumb a { color: var(--primary); text-decoration: none; }
+  .breadcrumb a:hover { text-decoration: underline; }
+  .breadcrumb span.sep { color: #555; }
+
+  /* 卡片 */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+
+  /* 对比表 */
+  table.compare {
+    width: 100%; border-collapse: collapse; margin: 16px 0;
+  }
+  table.compare th, table.compare td {
+    border: 1px solid var(--border); padding: 10px 14px; text-align: left;
+    font-size: 13px;
+  }
+  table.compare th {
+    background: rgba(79,195,247,0.08); color: var(--primary); font-weight: 600;
+  }
+  table.compare td { color: var(--text); }
+
+  /* 源码路径 */
+  .source-path {
+    font-family: "Cascadia Code", "Fira Code", monospace;
+    font-size: 12px; color: var(--muted);
+    background: var(--codebg); border: 1px solid var(--border);
+    border-radius: 4px; padding: 4px 10px; display: inline-block;
+    margin-bottom: 8px;
+  }
+
+  /* 代码块 */
+  .code-block-wrapper {
+    position: relative; margin: 16px 0;
+    border: 1px solid var(--border); border-radius: 6px;
+    overflow: hidden;
+  }
+  .code-block-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 14px; background: rgba(79,195,247,0.05);
+    font-size: 11px; color: var(--muted);
+  }
+  .code-block-header button {
+    background: rgba(79,195,247,0.12); border: none; color: var(--primary);
+    padding: 3px 10px; border-radius: 3px; font-size: 11px; cursor: pointer;
+  }
+  .code-block-header button:hover { background: rgba(79,195,247,0.25); }
+  .code-block-wrapper pre {
+    padding: 18px 20px; overflow-x: auto; margin: 0;
+    background: var(--codebg); font-size: 12px; line-height: 1.65;
+    counter-reset: codeline;
+  }
+  .code-block-wrapper pre .line {
+    display: flex; counter-increment: codeline;
+  }
+  .code-block-wrapper pre .line::before {
+    content: counter(codeline);
+    display: inline-block; width: 32px; padding-right: 16px;
+    text-align: right; color: #444;
+    flex-shrink: 0;
+  }
+  .code-block-wrapper code { font-family: "Cascadia Code", "Fira Code", monospace; }
+
+  /* 语法高亮 */
+  .kw { color: #c792ea; }      /* 关键字 */
+  .ty { color: #ffcb6b; }      /* 类型 */
+  .fn { color: #82aaff; }      /* 函数 */
+  .str { color: #c3e88d; }     /* 字符串 */
+  .cm { color: #676e95; font-style: italic; } /* 注释 */
+  .nu { color: #f78c6c; }      /* 数字 */
+  .pp { color: #89ddff; }      /* 预处理 */
+  .op { color: #89ddff; }      /* 操作符 */
+
+  /* CVar 速查表 */
+  table.cvars {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+  }
+  table.cvars th, table.cvars td {
+    border: 1px solid var(--border); padding: 8px 12px; text-align: left;
+  }
+  table.cvars th { background: rgba(79,195,247,0.08); color: var(--primary); }
+  table.cvars td:first-child { font-family: monospace; font-size: 12px; white-space: nowrap; color: var(--accent); }
+  table.cvars td:nth-child(2) { color: var(--text); }
+  table.cvars td:nth-child(3) {
+    font-size: 12px; white-space: nowrap;
+    color: var(--nu); /* reuse num color for default val */
+  }
+
+  /* 搜索 */
+  .search-wrap {
+    position: sticky; top: 8px; z-index: 20; margin-bottom: 20px;
+  }
+  .search-wrap input {
+    width: 100%; padding: 10px 14px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--codebg); color: var(--text);
+    font-size: 14px; outline: none;
+  }
+  .search-wrap input:focus { border-color: var(--primary); }
+
+  .highlight { background: rgba(255,183,77,0.35); border-radius: 2px; }
+
+  /* 底部导航 */
+  footer.bottom-nav {
+    margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between;
+    font-size: 13px;
+  }
+  footer.bottom-nav a { color: var(--primary); text-decoration: none; }
+  footer.bottom-nav a:hover { text-decoration: underline; }
+
+  /* SVG 图表 */
+  .diagram { margin: 20px 0; text-align: center; }
+  .diagram svg { max-width: 100%; }
+
+  /* 响应式 */
+  @media (max-width: 860px) {
+    nav#sidebar { display: none; }
+    main { margin-left: 0; padding: 24px 20px; }
+  }
+
+  /* info box */
+  .info-box {
+    border-left: 3px solid var(--primary);
+    background: rgba(79,195,247,0.05);
+    padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0;
+    font-size: 13px;
+  }
+  .info-box.warn {
+    border-left-color: var(--warn);
+    background: rgba(255,183,77,0.05);
+  }
+</style>
+</head>
+<body>
+
+<nav id="sidebar">
+  <h2>目录大纲</h2>
+  <div class="search-wrap">
+    <input type="text" id="searchInput" placeholder="搜索章节..." oninput="doSearch()">
+  </div>
+  <a href="#sec-overview" class="l1">1. 概述 & 定位</a>
+  <a href="#sec-architecture" class="l1">2. 顶层架构设计</a>
+  <a href="#sec-architecture" class="l2">2.1 范式转变</a>
+  <a href="#sec-core-components" class="l2">2.2 三大核心组件</a>
+  <a href="#sec-scheduling" class="l2">2.3 分帧调度策略</a>
+  <a href="#sec-light-matrix" class="l2">2.4 光源类型支持矩阵</a>
+  <a href="#sec-flow" class="l1">3. 执行流程 / 数据流</a>
+  <a href="#sec-design" class="l1">4. 设计决策 & 权衡</a>
+  <a href="#sec-impl" class="l1">5. 底层实现关联</a>
+  <a href="#sec-impl" class="l2">5.1 RenderMegaLights() 内部阶段</a>
+  <a href="#sec-sampling-struct" class="l2">5.2 采样策略与数据结构</a>
+  <a href="#sec-denoising" class="l2">5.3 降噪器 Tile 分派</a>
+  <a href="#sec-evolution" class="l1">6. UE5.8 演进变化</a>
+  <a href="#sec-cvars" class="l1">CVar 速查表</a>
+</nav>
+
+<main>
+
+<div class="breadcrumb">
+  <a href="../Nanite和Lumen/index.html">Nanite 和 Lumen</a><span class="sep">/</span>
+  <strong>MegaLights</strong><span class="sep">/</span>
+  <a href="../实时光线追踪/index.html">实时光线追踪</a>
+</div>
+
+<h1>MegaLights 系统深入解读</h1>
+<p class="subtitle">UE5.8 正式发布的革命性功能 — 单帧内支持数百个可投影动态光源。深入分析从架构到实现的完整技术全景。</p>
+
+<!-- ===== 1. 概述 & 定位 ===== -->
+<h2 id="sec-overview">1. 概述 & 定位</h2>
+
+<div class="card">
+<p><strong>MegaLights</strong> 是 UE5.8 在 2025 年正式发布 (Production Ready) 的革命性功能，解决了传统延迟渲染管线在多光源场景中的核心瓶颈："每个光源都需要逐像素计算阴影"。</p>
+
+<p>通过采用 <strong>随机光源采样 (Stochastic Light Sampling)</strong> 替代传统的 Tile-Based 光源裁剪，MegaLights 实现了以固定的 GPU 开销渲染数百个可投影动态光源。这意味着：</p>
+
+<ul style="margin-left:20px; color:var(--text);">
+  <li>场景中可以放置数百个动态点光源、聚光灯、矩形光源，每个都带有实时阴影</li>
+  <li>GPU 开销不再随光源数量线性增长</li>
+  <li>每个像素只追踪固定数量的阴影光线 (Shadow Rays)，而非每个光源都追踪</li>
+</ul>
+
+<p style="margin-top:12px;"><strong>前提条件：</strong>MegaLights 依赖硬件光线追踪 (HWRT)。引擎将自动检测条件，不满足时回退到传统的 Clustered Deferred 路径。同时支持虚拟阴影贴图 (VSM) 作为替代阴影方法。</p>
+</div>
+
+<div class="diagram">
+<svg width="900" height="380" viewBox="0 0 900 380">
+  <defs>
+    <linearGradient id="gP" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#4FC3F7" stop-opacity="0.12"/><stop offset="100%" stop-color="#4FC3F7" stop-opacity="0.03"/></linearGradient>
+    <linearGradient id="gC" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffb74d" stop-opacity="0.10"/><stop offset="100%" stop-color="#ffb74d" stop-opacity="0.03"/></linearGradient>
+  </defs>
+
+  <!-- 标题 -->
+  <text x="450" y="28" text-anchor="middle" fill="#e0e0e0" font-size="15" font-weight="700">MegaLights vs Clustered Deferred — 范式对比</text>
+
+  <!-- 左侧：Clustered Deferred -->
+  <rect x="20" y="50" width="410" height="310" rx="8" fill="url(#gC)" stroke="#ffb74d33" stroke-width="1"/>
+  <text x="225" y="78" text-anchor="middle" fill="#ffb74d" font-size="14" font-weight="600">Clustered Deferred (传统)</text>
+
+  <rect x="40" y="95" width="370" height="30" rx="4" fill="#131318" stroke="#1e1e28"/>
+  <text x="225" y="115" text-anchor="middle" fill="#909090" font-size="11">Tile / Cluster 空间划分 → 每个 Tile 构建光源列表</text>
+
+  <rect x="40" y="135" width="370" height="30" rx="4" fill="#131318" stroke="#1e1e28"/>
+  <text x="225" y="155" text-anchor="middle" fill="#909090" font-size="11">Light Culling (视锥 + 距离) → 每个 Tile 保留影响光源</text>
+
+  <rect x="40" y="175" width="370" height="30" rx="4" fill="#131318" stroke="#1e1e28"/>
+  <text x="225" y="195" text-anchor="middle" fill="#909090" font-size="11">逐光源逐像素 Shading — 光源数量 = GPU 时间线性增长</text>
+
+  <rect x="40" y="215" width="370" height="50" rx="4" fill="#131318" stroke="#e5737333"/>
+  <text x="225" y="235" text-anchor="middle" fill="#e57373" font-size="12" font-weight="600">瓶颈: N 个光源 = O(N) 开销</text>
+  <text x="225" y="253" text-anchor="middle" fill="#e57373" font-size="11">N=50 → 不可实时</text>
+
+  <rect x="40" y="280" width="370" height="65" rx="4" fill="#131318" stroke="#1e1e28"/>
+  <text x="225" y="298" text-anchor="middle" fill="#e0e0e0" font-size="11">光源列表: [Light_0, Light_1, Light_2, ..., Light_N]</text>
+  <text x="225" y="318" text-anchor="middle" fill="#909090" font-size="11">逐光源遍历 → 每个像素计算 N 次光照</text>
+  <text x="225" y="336" text-anchor="middle" fill="#81c784" font-size="10">适合: N &le; 10</text>
+
+  <!-- 箭头 -->
+  <text x="445" y="210" text-anchor="middle" fill="#4FC3F7" font-size="28" font-weight="700">→</text>
+
+  <!-- 右侧：MegaLights -->
+  <rect x="470" y="50" width="410" height="310" rx="8" fill="url(#gP)" stroke="#4FC3F733" stroke-width="1"/>
+  <text x="675" y="78" text-anchor="middle" fill="#4FC3F7" font-size="14" font-weight="600">MegaLights (随机采样)</text>
+
+  <rect x="490" y="95" width="370" height="30" rx="4" fill="#131318" stroke="#1e1e28"/>
+  <text x="675" y="115" text-anchor="middle" fill="#909090" font-size="11">屏幕空间 Tile 分类 → 确定每种 Tile 的着色复杂度</text>
+
+  <rect x="490" y="135" width="370" height="30" rx="4" fill="#131318" stroke="#1e1e28"/>
+  <text x="675" y="155" text-anchor="middle" fill="#909090" font-size="11">RIS/ReSTIR 重要性采样 → 每像素选 K 个最有影响力的光源</text>
+
+  <rect x="490" y="175" width="370" height="30" rx="4" fill="#131318" stroke="#1e1e28"/>
+  <text x="675" y="195" text-anchor="middle" fill="#909090" font-size="11">固定 K 条 Shadow Rays — 光线追踪 (HWRT/SDF/屏幕)</text>
+
+  <rect x="490" y="215" width="370" height="50" rx="4" fill="#131318" stroke="#81c78433"/>
+  <text x="675" y="235" text-anchor="middle" fill="#81c784" font-size="12" font-weight="600">优势: N 个光源 = O(1) 开销</text>
+  <text x="675" y="253" text-anchor="middle" fill="#81c784" font-size="11">N=500 → 开销可控(降噪+采样开销)</text>
+
+  <rect x="490" y="280" width="370" height="65" rx="4" fill="#131318" stroke="#1e1e28"/>
+  <text x="675" y="298" text-anchor="middle" fill="#e0e0e0" font-size="11">每像素采样: [Light_A, Light_K, Light_M] (按 RIS)</text>
+  <text x="675" y="318" text-anchor="middle" fill="#909090" font-size="11">K=4 条光线 → 时序累积 → 空间滤波 → 最终结果</text>
+  <text x="675" y="336" text-anchor="middle" fill="#81c784" font-size="10">适合: 10 &le; N &le; 500+</text>
+</svg>
+</div>
+
+<div class="source-path">Engine/Source/Runtime/Renderer/Private/MegaLights/MegaLights.cpp:554</div>
+<div class="code-block-wrapper">
+  <div class="code-block-header">
+    <span>MegaLights 启用判定 3 层检查</span>
+    <button onclick="copyCode(this)">复制</button>
+  </div>
+  <pre><code class="line"><span class="kw">bool</span> <span class="fn">IsEnabled</span>(<span class="kw">const</span> FSceneViewFamily& ViewFamily) {
+    <span class="kw">return</span> <span class="fn">IsRequested</span>(ViewFamily)     <span class="cm">// PPV + CVars + ShowFlags</span>
+        && <span class="fn">HasRequiredTracingData</span>(ViewFamily);  <span class="cm">// HWRT 或 SDF 可用</span>
+}
+
+<span class="kw">bool</span> <span class="fn">IsRequested</span>(<span class="kw">const</span> FSceneViewFamily& ViewFamily) {
+    <span class="kw">return</span> ViewFamily.Views[<span class="nu">0</span>]->FinalPostProcessSettings.bMegaLights
+        && CVarMegaLightsAllowed.<span class="fn">GetValueOnRenderThread</span>() != <span class="nu">0</span>
+        && ViewFamily.EngineShowFlags.Lighting
+        && ViewFamily.EngineShowFlags.DirectLighting
+        && ViewFamily.EngineShowFlags.MegaLights
+        && <span class="fn">ShouldCompileShaders</span>(ViewFamily.<span class="fn">GetShaderPlatform</span>());
+}</code></pre>
+</div>
+
+<!-- ===== 2. 顶层架构设计 ===== -->
+<h2 id="sec-architecture">2. 顶层架构设计</h2>
+
+<h3 id="sec-paradigm">2.1 范式转变：从 "Tile-Based Culling" 到 "Stochastic Light Sampling"</h3>
+
+<div class="card">
+<table class="compare">
+  <tr><th style="width:28%">维度</th><th style="width:36%">Clustered Deferred</th><th style="width:36%">MegaLights</th></tr>
+  <tr>
+    <td><strong>光源选择</strong></td>
+    <td>确定性裁剪 (视锥+距离+Cluster)</td>
+    <td>随机重要性采样 (RIS, 类似 ReSTIR)</td>
+  </tr>
+  <tr>
+    <td><strong>阴影计算</strong></td>
+    <td>逐光源逐像素 (VSM/CSM)</td>
+    <td>每像素固定数量 Shadow Rays (HWRT/VSM)</td>
+  </tr>
+  <tr>
+    <td><strong>GPU 开销</strong></td>
+    <td>O(光源数) — 随光源线性增长</td>
+    <td>O(1) — 固定 Ray Budget</td>
+  </tr>
+  <tr>
+    <td><strong>阴影质量</strong></td>
+    <td>取决于 Shadow Map 分辨率</td>
+    <td>取决于 Ray 数量与降噪质量</td>
+  </tr>
+  <tr>
+    <td><strong>空间划分</strong></td>
+    <td>Froxel Grid (3D Tile)</td>
+    <td>屏幕空间 Tile + 可见光哈希表</td>
+  </tr>
+  <tr>
+    <td><strong>时序信息</strong></td>
+    <td>不使用</td>
+    <td>上一帧可见光历史引导采样 + 时序降噪</td>
+  </tr>
+  <tr>
+    <td><strong>方向光</strong></td>
+    <td>CSM 级联阴影</td>
+    <td>可选支持 (默认禁用)</td>
+  </tr>
+  <tr>
+    <td><strong>半透明</strong></td>
+    <td>逐光源 Forward</td>
+    <td>专用 Translucency Lighting Volume + 前层半透明 Pass</td>
+  </tr>
+</table>
+</div>
+
+<h3 id="sec-core-components">2.2 三大核心组件</h3>
+
+<div class="diagram">
+<svg width="880" height="360" viewBox="0 0 880 360">
+  <defs>
+    <marker id="arrow2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#4FC3F7"/>
+    </marker>
+  </defs>
+
+  <!-- 组件 1 -->
+  <rect x="20" y="20" width="260" height="320" rx="8" fill="#131318" stroke="#4FC3F755" stroke-width="1.5"/>
+  <text x="150" y="52" text-anchor="middle" fill="#4FC3F7" font-size="14" font-weight="700">核心组件 1</text>
+  <text x="150" y="72" text-anchor="middle" fill="#4FC3F7" font-size="12">光源重要性采样</text>
+  <line x1="40" y1="82" x2="260" y2="82" stroke="#1e1e28"/>
+
+  <rect x="36" y="92" width="228" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="150" y="111" text-anchor="middle" fill="#909090" font-size="11">RIS 重采样重要性采样</text>
+
+  <rect x="36" y="126" width="228" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="150" y="145" text-anchor="middle" fill="#909090" font-size="11">每像素 4 样本 (2x2)</text>
+
+  <rect x="36" y="160" width="228" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="150" y="179" text-anchor="middle" fill="#909090" font-size="11">Guide By History (上一帧可见性)</text>
+
+  <rect x="36" y="194" width="228" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="150" y="213" text-anchor="middle" fill="#909090" font-size="11">方向光 / 局部光采样比例</text>
+
+  <rect x="36" y="228" width="228" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="150" y="247" text-anchor="middle" fill="#909090" font-size="11">软阴影 (区域光源) 支持</text>
+
+  <rect x="36" y="262" width="228" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="150" y="281" text-anchor="middle" fill="#909090" font-size="11">Merge Rays: 同方向光线去重</text>
+
+  <!-- 箭头 -->
+  <line x1="280" y1="180" x2="310" y2="180" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrow2)"/>
+
+  <!-- 组件 2 -->
+  <rect x="315" y="20" width="250" height="320" rx="8" fill="#131318" stroke="#4FC3F755" stroke-width="1.5"/>
+  <text x="440" y="52" text-anchor="middle" fill="#4FC3F7" font-size="14" font-weight="700">核心组件 2</text>
+  <text x="440" y="72" text-anchor="middle" fill="#4FC3F7" font-size="12">光线追踪(双路径)</text>
+  <line x1="335" y1="82" x2="545" y2="82" stroke="#1e1e28"/>
+
+  <rect x="331" y="92" width="218" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="440" y="111" text-anchor="middle" fill="#81c784" font-size="11">HWRT (硬光追) — 默认</text>
+
+  <rect x="331" y="126" width="218" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="440" y="145" text-anchor="middle" fill="#81c784" font-size="11">Inline Ray Tracing 加速</text>
+
+  <rect x="331" y="160" width="218" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="440" y="179" text-anchor="middle" fill="#ffb74d" font-size="11">屏幕空间 HZB 追踪 (可选)</text>
+
+  <rect x="331" y="194" width="218" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="440" y="213" text-anchor="middle" fill="#ffb74d" font-size="11">全局 SDF 软光追 (回退)</text>
+
+  <rect x="331" y="228" width="218" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="440" y="247" text-anchor="middle" fill="#909090" font-size="11">远场光线追踪 (Far Field)</text>
+
+  <rect x="331" y="262" width="218" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="440" y="281" text-anchor="middle" fill="#909090" font-size="11">光线压缩: 连续追踪去重</text>
+
+  <!-- 箭头 -->
+  <line x1="565" y1="180" x2="595" y2="180" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrow2)"/>
+
+  <!-- 组件 3 -->
+  <rect x="600" y="20" width="260" height="320" rx="8" fill="#131318" stroke="#4FC3F755" stroke-width="1.5"/>
+  <text x="730" y="52" text-anchor="middle" fill="#4FC3F7" font-size="14" font-weight="700">核心组件 3</text>
+  <text x="730" y="72" text-anchor="middle" fill="#4FC3F7" font-size="12">时序+空间降噪</text>
+  <line x1="620" y1="82" x2="840" y2="82" stroke="#1e1e28"/>
+
+  <rect x="616" y="92" width="228" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="730" y="111" text-anchor="middle" fill="#909090" font-size="11">时序累积: 最多 12 帧历史</text>
+
+  <rect x="616" y="126" width="228" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="730" y="145" text-anchor="middle" fill="#909090" font-size="11">Neighborhood Clamp (防鬼影)</text>
+
+  <rect x="616" y="160" width="228" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="730" y="179" text-anchor="middle" fill="#909090" font-size="11">空间滤波: 8px 半径, 4 采样</text>
+
+  <rect x="616" y="194" width="228" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="730" y="213" text-anchor="middle" fill="#909090" font-size="11">二阶矩方差追踪</text>
+
+  <rect x="616" y="228" width="228" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="730" y="247" text-anchor="middle" fill="#909090" font-size="11">Shading Confidence (遮罩输出)</text>
+
+  <rect x="616" y="262" width="228" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="730" y="281" text-anchor="middle" fill="#909090" font-size="11">与 TSR/TAA 独立运行</text>
+</svg>
+</div>
+
+<h3 id="sec-scheduling">2.3 分帧调度策略</h3>
+
+<div class="card">
+<p>MegaLights 使用<strong>固定 Ray Budget</strong> 策略覆盖任意数量的光源。核心思路：</p>
+
+<ul style="margin-left:20px; color:var(--text);">
+  <li><strong>每像素 K 条光线</strong>: 默认 K=4 (2x2 采样模式)，通过降采样 (Half-resolution) 进一步减少</li>
+  <li><strong>RIS (重要性重采样)</strong>: 对每个像素，根据光源对该像素的潜在贡献 (亮度/距离/衰减) 计算 PDF，然后按 PDF 随机采样 K 个光源</li>
+  <li><strong>Guide By History</strong>: 利用上一帧的可见光/隐藏光哈希表，降低对上一帧被遮挡光源的采样概率 (PDF 权重缩放至 10%)，减少噪声</li>
+  <li><strong>Tile-Based 分类</strong>: 将屏幕划分为 8x8 Tile，根据材质复杂度 (Simple/Complex/Rect) 分派不同的着色路径</li>
+  <li><strong>光线合并</strong>: 当多条光线指向同一光源或不在半影区时，复用追踪结果</li>
+</ul>
+
+<p style="margin-top:8px;">关键公式：</p>
+<p style="margin:8px 0; padding:8px 16px; background:var(--codebg); border-radius:4px; font-family:monospace; font-size:13px;">
+  采样预算 = (分辨率 / DownsampleFactor) * NumSamplesPerPixel * (1 或 2 方向光额外比例)
+</p>
+<p>通过 r.MegaLights.DownsampleMode 和 r.MegaLights.NumSamplesPerPixel 可在性能与质量间调节。</p>
+</div>
+
+<h3 id="sec-light-matrix">2.4 光源类型支持矩阵</h3>
+
+<div class="card">
+<table class="compare">
+  <tr><th>光源类型</th><th>MegaLights (HWRT)</th><th>MegaLights (VSM)</th><th>回退到传统路径</th><th>说明</th></tr>
+  <tr>
+    <td>点光源 (Point)</td>
+    <td style="color:#81c784">完整支持</td>
+    <td style="color:#81c784">完整支持</td>
+    <td>可以</td>
+    <td>默认走 HWRT, 可配置为 VSM</td>
+  </tr>
+  <tr>
+    <td>聚光灯 (Spot)</td>
+    <td style="color:#81c784">完整支持</td>
+    <td style="color:#81c784">完整支持</td>
+    <td>可以</td>
+    <td>IES Profile 支持 (r.MegaLights.IESProfiles)</td>
+  </tr>
+  <tr>
+    <td>矩形光源 (Rect)</td>
+    <td style="color:#81c784">完整支持 + 软阴影</td>
+    <td style="color:#81c784">完整支持</td>
+    <td>可以</td>
+    <td>支持纹理矩形光源 (r.MegaLights.TexturedRectLights)</td>
+  </tr>
+  <tr>
+    <td>方向光 (Directional)</td>
+    <td style="color:#ffb74d">可选 (默认关闭)</td>
+    <td>—</td>
+    <td style="color:#81c784">推荐</td>
+    <td>r.MegaLights.DirectionalLights=0 默认; 方向光通常走 CSM</td>
+  </tr>
+  <tr>
+    <td>天空光 (Sky)</td>
+    <td style="color:#e57373">不支持</td>
+    <td style="color:#e57373">不支持</td>
+    <td style="color:#81c784">强制</td>
+    <td>天空光走传统路径</td>
+  </tr>
+</table>
+
+<p style="margin-top:12px; font-size:13px; color:var(--muted);">
+  光源模式由 <code style="background:var(--codebg);padding:1px 6px;border-radius:3px;">EMegaLightsMode</code> 枚举控制：<code style="background:var(--codebg);padding:1px 6px;border-radius:3px;">Disabled / EnabledRT / EnabledVSM</code>。每个光源可通过 <code style="background:var(--codebg);padding:1px 6px;border-radius:3px;">EMegaLightsShadowMethod</code> 单独配置。
+</p>
+</div>
+
+<!-- ===== 3. 执行流程 / 数据流 ===== -->
+<h2 id="sec-flow">3. 执行流程 / 数据流</h2>
+
+<div class="diagram">
+<svg width="880" height="720" viewBox="0 0 880 720">
+  <defs>
+    <marker id="arrow3" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#4FC3F7"/>
+    </marker>
+    <marker id="arrowA" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#ffb74d"/>
+    </marker>
+  </defs>
+
+  <text x="440" y="24" text-anchor="middle" fill="#e0e0e0" font-size="15" font-weight="700">MegaLights 完整帧时序图</text>
+
+  <!-- Stage 1: Frame Setup -->
+  <rect x="40" y="42" width="800" height="54" rx="6" fill="#131318" stroke="#1e1e28"/>
+  <text x="60" y="65" fill="#4FC3F7" font-size="13" font-weight="700">阶段 1: Frame Setup</text>
+  <text x="60" y="84" fill="#909090" font-size="11">
+    CreateMegaLightsFrameTemporaries() → SetupStageOne() → 分配 VisBuffer/深度/采样纹理
+  </text>
+
+  <line x1="440" y1="96" x2="440" y2="118" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrow3)"/>
+
+  <!-- Stage 2 -->
+  <rect x="40" y="120" width="800" height="54" rx="6" fill="#131318" stroke="#1e1e28"/>
+  <text x="60" y="143" fill="#4FC3F7" font-size="13" font-weight="700">阶段 2: Tile Classification</text>
+  <text x="60" y="162" fill="#909090" font-size="11">
+    TileClassificationBuildListsCS → 8x8 Tile 分类为 Simple/Complex/Rect/Empty → 构建 Indirect Dispatch 参数
+  </text>
+
+  <line x1="440" y1="174" x2="440" y2="196" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrow3)"/>
+
+  <!-- Stage 3: Sample Generation -->
+  <rect x="40" y="198" width="800" height="54" rx="6" fill="#131318" stroke="#1e1e28"/>
+  <text x="60" y="221" fill="#4FC3F7" font-size="13" font-weight="700">阶段 3: Sample Generation (GenerateLightSamplesCS)</text>
+  <text x="60" y="240" fill="#909090" font-size="11">
+    对每个降采样像素, RIS 采样 K 个光源 → 输出 LightSamples + LightSampleRays (CompactPackedData)
+  </text>
+
+  <line x1="440" y1="252" x2="440" y2="274" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrow3)"/>
+
+  <!-- Stage 4: Ray Tracing (三分支) -->
+  <rect x="40" y="276" width="800" height="90" rx="6" fill="#131318" stroke="#1e1e28"/>
+  <text x="60" y="299" fill="#4FC3F7" font-size="13" font-weight="700">阶段 4: 光线追踪 (Compact + Trace)</text>
+
+  <rect x="60" y="310" width="220" height="42" rx="3" fill="#0a0a0f" stroke="#81c78444"/>
+  <text x="170" y="328" text-anchor="middle" fill="#81c784" font-size="11">CompactLightSampleTracesCS</text>
+  <text x="170" y="344" text-anchor="middle" fill="#909090" font-size="10">压缩无效光线, 优化 GPU 占用</text>
+
+  <rect x="320" y="310" width="220" height="42" rx="3" fill="#0a0a0f" stroke="#ffb74d44"/>
+  <text x="430" y="328" text-anchor="middle" fill="#ffb74d" font-size="11">ScreenSpaceRayTrace (HZB)</text>
+  <text x="430" y="344" text-anchor="middle" fill="#909090" font-size="10">可选: 屏幕空间接触阴影</text>
+
+  <rect x="580" y="310" width="240" height="42" rx="3" fill="#0a0a0f" stroke="#4FC3F744"/>
+  <text x="700" y="328" text-anchor="middle" fill="#4FC3F7" font-size="11">HWRT / VSM Trace (inline或RGS)</text>
+  <text x="700" y="344" text-anchor="middle" fill="#909090" font-size="10">世界空间阴影光线追踪</text>
+
+  <line x1="440" y1="366" x2="440" y2="388" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrow3)"/>
+
+  <!-- Stage 5: Resolve -->
+  <rect x="40" y="390" width="800" height="54" rx="6" fill="#131318" stroke="#1e1e28"/>
+  <text x="60" y="413" fill="#4FC3F7" font-size="13" font-weight="700">阶段 5: Shade + Resolve (ShadeLightSamplesCS)</text>
+  <text x="60" y="432" fill="#909090" font-size="11">
+    利用追踪结果计算漫反射/镜面反射光照 → ResolvedDiffuseLighting + ResolvedSpecularLighting + ShadingConfidence
+  </text>
+
+  <line x1="440" y1="444" x2="440" y2="466" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrow3)"/>
+
+  <!-- Stage 5.5: Visible Light Hash -->
+  <rect x="40" y="468" width="800" height="36" rx="6" fill="#131318" stroke="#1e1e28"/>
+  <text x="60" y="492" fill="#ffb74d" font-size="13" font-weight="700">阶段 5.5: VisibleLightHash + FilterVisibleLightHash — 为下一帧构建可见/隐藏光源哈希表</text>
+
+  <line x1="440" y1="504" x2="440" y2="526" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrow3)"/>
+
+  <!-- Stage 6: Denoising -->
+  <rect x="40" y="528" width="800" height="72" rx="6" fill="#131318" stroke="#1e1e28"/>
+  <text x="60" y="551" fill="#4FC3F7" font-size="13" font-weight="700">阶段 6: 降噪 (DenoiseLighting)</text>
+
+  <rect x="60" y="562" width="370" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="245" y="581" text-anchor="middle" fill="#909090" font-size="11">DenoiserTemporalCS: 时序累积 + 反照率解调 (Demodulation)</text>
+
+  <rect x="450" y="562" width="370" height="28" rx="3" fill="#0a0a0f"/>
+  <text x="635" y="581" text-anchor="middle" fill="#909090" font-size="11">DenoiserSpatialCS: 空间滤波 → 写入 SceneColor</text>
+
+  <line x1="440" y1="600" x2="440" y2="622" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrow3)"/>
+
+  <!-- Final -->
+  <rect x="40" y="624" width="800" height="36" rx="6" fill="#131318" stroke="#81c78455"/>
+  <text x="60" y="648" fill="#81c784" font-size="13" font-weight="700">最终: ResolvedLighting → SceneColor (叠加到 GBuffer 光照)</text>
+
+  <!-- 并行: 体积 -->
+  <rect x="660" y="42" width="160" height="22" rx="3" fill="#0a0a0f" stroke="#ffb74d44"/>
+  <text x="740" y="57" text-anchor="middle" fill="#ffb74d" font-size="10">Volume (并行路径)</text>
+
+  <line x1="740" y1="64" x2="740" y2="198" stroke="#ffb74d66" stroke-width="1" stroke-dasharray="4,3"/>
+
+  <rect x="630" y="200" width="220" height="140" rx="4" fill="#131318" stroke="#ffb74d33"/>
+  <text x="740" y="220" text-anchor="middle" fill="#ffb74d" font-size="11">VolumeGenerateLightSamplesCS</text>
+  <text x="740" y="240" text-anchor="middle" fill="#909090" font-size="10">3D 体素光源采样</text>
+  <line x1="660" y1="250" x2="820" y2="250" stroke="#1e1e28"/>
+  <text x="740" y="268" text-anchor="middle" fill="#909090" font-size="10">VolumeHWRT/SoftwareRT</text>
+  <text x="740" y="286" text-anchor="middle" fill="#909090" font-size="10">3D 体积光线追踪</text>
+  <line x1="660" y1="296" x2="820" y2="296" stroke="#1e1e28"/>
+  <text x="740" y="314" text-anchor="middle" fill="#909090" font-size="10">VolumeShadeLightSamplesCS</text>
+  <text x="740" y="332" text-anchor="middle" fill="#909090" font-size="10">体积着色 → VolumetricFog / TLV</text>
+
+  <line x1="740" y1="340" x2="740" y2="528" stroke="#ffb74d66" stroke-width="1" stroke-dasharray="4,3"/>
+
+  <!-- 标注 -->
+  <rect x="540" y="660" width="300" height="50" rx="4" fill="#131318" stroke="#1e1e28"/>
+  <text x="690" y="678" text-anchor="middle" fill="#909090" font-size="10">体积路径可选异步计算 (AsyncCompute)</text>
+  <text x="690" y="698" text-anchor="middle" fill="#909090" font-size="10">支持 Unified Volume (统一采样+追踪两用)</text>
+</svg>
+</div>
+
+<p style="margin-top:12px; font-size:13px; color:var(--muted);">
+  关键入口函数: <code style="background:var(--codebg);padding:1px 6px;border-radius:3px;">FDeferredShadingSceneRenderer::RenderMegaLights()</code> (MegaLights.cpp:2428) 调用 <code style="background:var(--codebg);padding:1px 6px;border-radius:3px;">RenderMegaLightsViewContext()</code>。Reference Mode 下会多次循环 Shading Pass 以生成无噪声参考图。
+</p>
+
+<!-- ===== 4. 设计决策 & 权衡 ===== -->
+<h2 id="sec-design">4. 设计决策 & 权衡</h2>
+
+<div class="card">
+<h3>4.1 随机采样噪声 vs 降噪模糊的平衡</h3>
+<p>MegaLights 的核心权衡：<strong>采样数越少 → 噪声越高 → 降噪越激进 → 细节模糊越多</strong>。默认配置下 (每像素 4 采样, Half-res, 最多 12 帧时序累积)，引擎试图在此光谱中找到最佳平衡点。</p>
+<ul style="margin-left:20px; color:var(--text);">
+  <li><strong>直接遍历式 (传统 Deferred)</strong>: 无噪, 但 O(N) 开销</li>
+  <li><strong>MegaLights 默认配置</strong>: 低噪, O(1) 开销, 12 帧积累后噪声收敛</li>
+  <li><strong>MegaLights 激进配置</strong>: 每像素 1 采样, 2x2 降采样, 无时序 → 纯随机噪声, 但极快</li>
+</ul>
+
+<h3 style="margin-top:24px;">4.2 硬光追 (HWRT) vs 软光追 (SDF) 的性能/质量光谱</h3>
+<table class="compare">
+  <tr><th>维度</th><th>HWRT (默认)</th><th>SDF 软光追 (回退)</th><th>Screen Space HZB (补充)</th></tr>
+  <tr><td>质量</td><td style="color:#81c784">极高 — 精确三角形级碰撞</td><td style="color:#ffb74d">中等 — 距离场近似几何</td><td style="color:#ffb74d">低 — 仅屏幕内容</td></tr>
+  <tr><td>性能消耗</td><td>中-高 (依赖 BVH)</td><td>中-低 (距离场追踪)</td><td>极低 (HZB 步进)</td></tr>
+  <tr><td>内存</td><td>高 (TLAS/BLAS)</td><td>中 (Global SDF 纹理)</td><td>低 (HZB)</td></tr>
+  <tr><td>Nanite 兼容</td><td style="color:#81c784">完全兼容 (Nanite RayTracing PVS)</td><td style="color:#e57373">不兼容</td><td style="color:#81c784">完全兼容 (屏幕深度)</td></tr>
+  <tr><td>开关 CVar</td><td>r.MegaLights.HardwareRayTracing</td><td>r.MegaLights.SoftwareRayTracing.Allow</td><td>r.MegaLights.ScreenTraces</td></tr>
+</table>
+
+<h3 style="margin-top:24px;">4.3 为什么需要独立的降噪器 (而非复用 TSR)?</h3>
+<ul style="margin-left:20px; color:var(--text);">
+  <li><strong>数据域不同</strong>: MegaLights 降噪在<strong>光照域</strong> (DiffuseLighting/SpecularLighting) 操作, 使用反照率解调 (Demodulation); TSR 在最终颜色域操作</li>
+  <li><strong>二阶矩追踪</strong>: MegaLights 维持 LightingMoments (二阶矩) 用于自适应空间滤波, 这是 TSR 没有的</li>
+  <li><strong>时序长度不同</strong>: MegaLights 时序累积可达 12 帧, TSR 典型为 1-2 帧</li>
+  <li><strong>集成需求</strong>: 通过 MegaFilters 管道将降噪后的结果交还给 TSR, 实现两个降噪器的级联</li>
+</ul>
+
+<h3 style="margin-top:24px;">4.4 与传统 Light Pass 的互斥/互补关系</h3>
+<ul style="margin-left:20px; color:var(--text);">
+  <li><strong>互斥</strong>: 走 MegaLights 的光源 <strong>不再</strong> 参与传统的 Clustered Deferred Light Pass, 避免双重贡献</li>
+  <li><strong>互补</strong>: 不走 MegaLights 的光源 (天空光, 禁用 MegaLights 的光源, 方向光默认) 仍然走传统路径</li>
+  <li><strong>方向光特殊处理</strong>: MegaLights 可在 ForwardLightUniformParameters 中标记方向光为 "DirectionalLightHandledByMegaLights", 但默认关闭</li>
+  <li><strong>半透明分路径</strong>: 普通半透明走传统 Forward; Front Layer Translucency 走专用 MegaLights Pass; 其余层走 Translucency Lighting Volume (TLV)</li>
+</ul>
+</div>
+
+<!-- ===== 5. 底层实现关联 ===== -->
+<h2 id="sec-impl">5. 底层实现关联</h2>
+
+<h3 id="sec-rendering-stages">5.1 RenderMegaLights() 内部阶段</h3>
+
+<div class="source-path">Engine/Source/Runtime/Renderer/Private/MegaLights/MegaLights.cpp:2428-2483</div>
+<div class="code-block-wrapper">
+  <div class="code-block-header">
+    <span>RenderMegaLights() — 渲染入口</span>
+    <button onclick="copyCode(this)">复制</button>
+  </div>
+  <pre><code class="line"><span class="kw">void</span> <span class="fn">FDeferredShadingSceneRenderer::RenderMegaLights</span>(...) {
+    <span class="kw">for</span> (<span class="kw">int32</span> ViewIndex ...) {
+        <span class="cm">// 遍历 GBuffer 和 HairStrands 上下文</span>
+        <span class="fn">RenderMegaLightsViewContext</span>(GraphBuilder, ViewContext, ...);
+        <span class="cm">// 内部: for (ShadingPass):</span>
+        <span class="cm">//   1. TileClassificationMark()</span>
+        <span class="cm">//   2. GenerateSamples()</span>
+        <span class="cm">//   3. GenerateVolumeSamples()</span>
+        <span class="cm">//   4. RayTrace()          — HWRT + Screen + VSM</span>
+        <span class="cm">//   5. Resolve()           — ShadeLightSamplesCS</span>
+        <span class="cm">//   6. DenoiseLighting()   — Temporal + Spatial</span>
+        <span class="fn">RenderMegaLightsViewContext</span>(GraphBuilder, ViewContextHairStrands, ...);
+    }
+}</code></pre>
+</div>
+
+<h3 id="sec-sampling-struct">5.2 采样策略与数据结构</h3>
+
+<p>MegaLights 的采样数据通过压缩纹理传输, 每条采样用 <code style="background:var(--codebg);padding:1px 6px;border-radius:3px;">PF_R32_UINT</code> 格式的纹理编码:</p>
+
+<div class="card">
+<table class="compare">
+  <tr><th>纹理</th><th>格式</th><th>大小</th><th>内容</th></tr>
+  <tr>
+    <td>LightSamples</td>
+    <td>PF_R32_UINT</td>
+    <td>SampleViewSize (降采样 * NumSamples)</td>
+    <td>每个采样的光源索引 (16bit) + 表面位置编码 (16bit)</td>
+  </tr>
+  <tr>
+    <td>LightSampleRays</td>
+    <td>PF_R32_UINT (2D) / PF_R8_UINT (3D)</td>
+    <td>同 LightSamples</td>
+    <td>光线方向编码 + 追踪优先级标志</td>
+  </tr>
+  <tr>
+    <td>DownsampledSceneDepth</td>
+    <td>PF_R32_FLOAT</td>
+    <td>DownsampleFactor 缩放后分辨率</td>
+    <td>降采样深度, 用于采样距离衰减</td>
+  </tr>
+  <tr>
+    <td>DownsampledSceneWorldNormal</td>
+    <td>PF_A2B10G10R10</td>
+    <td>同深度</td>
+    <td>降采样法线, 用于 NdotL 估算</td>
+  </tr>
+</table>
+</div>
+
+<p>光源可见性历史通过 <strong>哈希表 (Hash Grid)</strong> 传递到下一帧, 用于 Guide By History 降低对被遮挡光源的采样概率:</p>
+
+<div class="source-path">Engine/Source/Runtime/Renderer/Private/MegaLights/MegaLightsSampling.cpp:396-441</div>
+<div class="code-block-wrapper">
+  <div class="code-block-header">
+    <span>VisibleLightHash — 每帧更新可见/隐藏光源哈希表</span>
+    <button onclick="copyCode(this)">复制</button>
+  </div>
+  <pre><code class="line"><span class="cm">// 常量定义</span>
+<span class="kw">constexpr</span> <span class="kw">int32</span> VisibleLightHashSize = <span class="nu">4</span>;   <span class="cm">// 每个 Tile 最多追踪 4 个可见光源</span>
+<span class="kw">constexpr</span> <span class="kw">int32</span> HiddenLightHashSize  = <span class="nu">2</span>;   <span class="cm">// 每个 Tile 最多追踪 2 个隐藏光源</span>
+<span class="kw">constexpr</span> <span class="kw">int32</span> TileSize            = <span class="nu">8</span>;   <span class="cm">// Tile 大小 8x8 像素</span>
+
+<span class="cm">// 每一帧: FVisibleLightHashCS 从 LightSamples 提取可见/隐藏光源 →</span>
+<span class="cm">// FFilterVisibleLightHashCS 跨 Tile 共享可见性信息 → 传给下帧</span>
+PassParameters->bGuideByHistory = VisibleLightHashHistory != <span class="kw">nullptr</span>
+    && SceneDepthHistory != <span class="kw">nullptr</span>;
+PassParameters->LightHiddenPDFWeight = <span class="nu">0.1f</span>;  <span class="cm">// 隐藏光源 PDF 权重降至 10%</span></code></pre>
+</div>
+
+<h3 id="sec-denoising">5.3 降噪器 Tile 分派</h3>
+
+<p>降噪器采用<strong>8x8 Tile 间接分派 (Indirect Dispatch)</strong> 策略, 只处理有效 Tile, 跳过空白区域:</p>
+
+<div class="source-path">Engine/Source/Runtime/Renderer/Private/MegaLights/MegaLightsDenoising.cpp:436-628</div>
+<div class="code-block-wrapper">
+  <div class="code-block-header">
+    <span>DenoiseLighting() — 时序 + 空间降噪管线</span>
+    <button onclick="copyCode(this)">复制</button>
+  </div>
+  <pre><code class="line"><span class="kw">void</span> <span class="fn">FMegaLightsViewContext::DenoiseLighting</span>(...) {
+    <span class="cm">// 1. FastClear: 跳过空 Tile 只清除边界 (Reduce GPU 开销)</span>
+    <span class="kw">if</span> (<span class="fn">UseFastClear</span>(InputType)) {
+        <span class="fn">FClearTemporalAccumulationCS</span> → 按 Empty Tile 列表分派
+    }
+
+    <span class="cm">// 2. 时序累积 (Temporal): 最多 12 帧</span>
+    <span class="fn">FDenoiserTemporalCS</span>(ValidHistory, FastClear, OutputHistoryConfidence)
+        → DiffuseLighting + SpecularLighting + LightingMoments (二阶矩)
+        → 每像素 (8x8 线程组) 全屏分派
+
+    <span class="cm">// 3. 空间滤波 (Spatial): 8px 核半径, 4 次采样</span>
+    <span class="fn">FDenoiserSpatialCS</span>(SpatialFilter, InputType, FastClear, UseHistoryVariance)
+        → 由时序输出的方差引导空间滤波强度
+        → SubsurfaceDiffuse (次表面散射写入)
+        → 最终写入 SceneColor
+
+    <span class="cm">// 4. MegaFilters 管道: 将结果传递给后期处理</span>
+    <span class="fn">AddMegaFiltersPass</span>(GraphBuilder, View, TEXT("MegaLights"), MegaFiltersInputs);
+
+    <span class="cm">// 5. 提取历史资源供下一帧使用</span>
+    GraphBuilder.<span class="fn">QueueTextureExtraction</span>(DiffuseLighting, &ViewState.DiffuseLightingHistory);
+}</code></pre>
+</div>
+
+<!-- ===== 6. UE5.8 演进变化 ===== -->
+<h2 id="sec-evolution">6. UE5.8 演进变化</h2>
+
+<div class="card">
+<h3>从 5.0 Experimental → 5.8 Production Ready 的关键里程碑</h3>
+
+<table class="compare">
+  <tr><th>版本</th><th>状态</th><th>关键变化</th></tr>
+  <tr>
+    <td>UE 5.0 ~ 5.2</td>
+    <td>—</td>
+    <td>概念阶段: Clustered Deferred 为主, 多光源场景开销巨大</td>
+  </tr>
+  <tr>
+    <td>UE 5.3</td>
+    <td style="color:#ffb74d">早期原型</td>
+    <td>引入 Stochastic Lighting 框架, MegaLights 内部实验</td>
+  </tr>
+  <tr>
+    <td>UE 5.4</td>
+    <td style="color:#ffb74d">实验性</td>
+    <td>MegaLights 首次公开, r.MegaLights.EnableForProject=0 默认关闭, 需要手动启用</td>
+  </tr>
+  <tr>
+    <td>UE 5.5</td>
+    <td style="color:#ffb74d">Beta</td>
+    <td>添加 HairStrands 支持, Volume 体积路径, FrontLayerTranslucency 前层半透明</td>
+  </tr>
+  <tr>
+    <td style="font-weight:700;">UE 5.8</td>
+    <td style="color:#81c784; font-weight:700;">正式发布</td>
+    <td>
+      稳定 API, 全特性可用: VSM 标记优化, Unified Volume, LightPowerDelta 光源闪烁预测, Light Functions + IES Profiles + Lighting Channels 完整支持, 性能优化 (AsyncCompute 体积路径, FastClear 边界优化)
+    </td>
+  </tr>
+</table>
+
+<h3 style="margin-top:24px;">与 Lumen / VSM 的互操作机制</h3>
+
+<ul style="margin-left:20px; color:var(--text);">
+  <li><strong>Lumen 共存</strong>: MegaLights 贡献 <strong>直接光照 (Direct Lighting)</strong>, Lumen 负责 <strong>间接光照 (Indirect/GI)</strong>。两者在同一帧内并行处理, 各自输出到 SceneColor</li>
+  <li><strong>Lumen 集成</strong>: MegaLights GBuffer 输入复用 Lumen 的 StochasticLighting 框架 (<code>StochasticLighting::TileClassificationMark</code>, <code>StochasticLighting::FHistoryScreenParameters</code>)</li>
+  <li><strong>VSM 集成</strong>: MegaLights 有两条 VSM 路径 — (a) 使用 HWRT 追踪的物理准确阴影, (b) 回退到 VSM 传统阴影贴图采样 (<code>FVirtualShadowMapTraceLightSamplesCS</code>)。VSM 路径可预先标记需要渲染的 Shadow Page (<code>FVirtualShadowMapMarkLightSamplesCS</code>)</li>
+  <li><strong>Nanite 兼容</strong>: HWRT 通过 Nanite RayTracing 的 PVS (Procedural Visibility Shader) 实现对 Nanite 几何的精确阴影</li>
+  <li><strong>MegaFilters 管道</strong>: MegaLights 的结果在空间滤波后通过 MegaFilters 传递给后期处理, 实现与 TSR 的级联</li>
+</ul>
+
+<h3 style="margin-top:24px;">未来方向</h3>
+<div class="info-box">
+  <p>基于源码中的 TODO 注释 (<code>#ml_todo</code>), 可预期的后续工作:</p>
+  <ul style="margin-left:16px; color:var(--muted); font-size:13px;">
+    <li>VSM 标记对 HairStrands 的支持 (当前仅 GBuffer)</li>
+    <li>更多光源类型 (当前方向光默认禁用)</li>
+    <li>进一步优化光线压缩和 WaveOps 利用</li>
+    <li>与 Lumen Lite 的深度集成</li>
+    <li>移动端/非 HWRT 平台的 SDF 回退路径优化</li>
+  </ul>
+</div>
+</div>
+
+<!-- ===== CVar 速查表 ===== -->
+<h2 id="sec-cvars">CVar 速查表</h2>
+
+<div class="card">
+<table class="cvars">
+  <tr><th style="width:38%">Console Variable</th><th style="width:34%">说明</th><th>默认值</th></tr>
+  <tr><td>r.MegaLights.EnableForProject</td><td>项目级别开关</td><td>0</td></tr>
+  <tr><td>r.MegaLights.Allowed</td><td>可扩展性/设备配置允许</td><td>1</td></tr>
+  <tr><td>r.MegaLights.DownsampleMode</td><td>降采样模式 (0=1x1, 1=2x1棋盘, 2=2x2半分辨率)</td><td>2</td></tr>
+  <tr><td>r.MegaLights.NumSamplesPerPixel</td><td>每降采样像素的采样数 (1/2/4)</td><td>4</td></tr>
+  <tr><td>r.MegaLights.HardwareRayTracing</td><td>使用硬件光线追踪</td><td>1</td></tr>
+  <tr><td>r.MegaLights.HardwareRayTracing.Inline</td><td>使用 Inline Ray Tracing (更快)</td><td>1</td></tr>
+  <tr><td>r.MegaLights.HardwareRayTracing.Bias</td><td>光线追踪起始偏移 (防自遮挡)</td><td>1.0</td></tr>
+  <tr><td>r.MegaLights.HardwareRayTracing.NormalBias</td><td>法线偏移 (防自遮挡)</td><td>0.1</td></tr>
+  <tr><td>r.MegaLights.HardwareRayTracing.MaxIterations</td><td>最大遍历迭代数</td><td>8192</td></tr>
+  <tr><td>r.MegaLights.ScreenTraces</td><td>屏幕空间 HZB 追踪</td><td>true</td></tr>
+  <tr><td>r.MegaLights.ScreenTraces.Quality</td><td>屏幕追踪质量 (0=快速半分辨率, 1=全分辨率)</td><td>1</td></tr>
+  <tr><td>r.MegaLights.WorldSpaceTraces</td><td>世界空间光线追踪</td><td>true</td></tr>
+  <tr><td>r.MegaLights.DirectionalLights</td><td>方向光支持 (默认关闭)</td><td>0</td></tr>
+  <tr><td>r.MegaLights.GuideByHistory</td><td>利用上一帧可见性引导采样</td><td>true</td></tr>
+  <tr><td>r.MegaLights.GuideByHistory.LightHiddenWeight</td><td>被遮挡光源的 PDF 权重缩放</td><td>0.1</td></tr>
+  <tr><td>r.MegaLights.MergeRays</td><td>合并同向光线去重</td><td>true</td></tr>
+  <tr><td>r.MegaLights.Temporal</td><td>时序降噪</td><td>true</td></tr>
+  <tr><td>r.MegaLights.Temporal.MaxFramesAccumulated</td><td>最大时序累积帧数</td><td>12</td></tr>
+  <tr><td>r.MegaLights.Temporal.HistoryDistanceThreshold</td><td>历史拒绝的相对距离阈值</td><td>0.03</td></tr>
+  <tr><td>r.MegaLights.Spatial</td><td>空间滤波</td><td>true</td></tr>
+  <tr><td>r.MegaLights.Spatial.KernelRadius</td><td>空间滤波核半径 (像素)</td><td>8.0</td></tr>
+  <tr><td>r.MegaLights.Spatial.NumSamples</td><td>空间滤波采样数</td><td>4</td></tr>
+  <tr><td>r.MegaLights.TexturedRectLights</td><td>纹理矩形光源支持</td><td>1</td></tr>
+  <tr><td>r.MegaLights.LightFunctions</td><td>光源函数支持</td><td>1</td></tr>
+  <tr><td>r.MegaLights.IESProfiles</td><td>IES 配光曲线支持</td><td>1</td></tr>
+  <tr><td>r.MegaLights.Transmission</td><td>次表面透射支持</td><td>true</td></tr>
+  <tr><td>r.MegaLights.Volume</td><td>体积光照 (Volumetric Fog)</td><td>1</td></tr>
+  <tr><td>r.MegaLights.Volume.Unified</td><td>统一体积采样/追踪 (复用 Fog + TLV)</td><td>1</td></tr>
+  <tr><td>r.MegaLights.Volume.NumSamplesPerVoxel</td><td>每降采样体素的采样数 (2/4)</td><td>2</td></tr>
+  <tr><td>r.MegaLights.TranslucencyVolume</td><td>半透明光照体积 (TLV)</td><td>1</td></tr>
+  <tr><td>r.MegaLights.HairStrands</td><td>HairStrands 支持</td><td>1</td></tr>
+  <tr><td>r.MegaLights.FrontLayerTranslucency.EnableForProject</td><td>前层半透明专用 Pass</td><td>true</td></tr>
+  <tr><td>r.MegaLights.DefaultShadowMethod</td><td>默认阴影方法 (0=光追, 1=VSM)</td><td>0</td></tr>
+  <tr><td>r.MegaLights.VSM.MarkPages</td><td>MegaLights 直接标记所需 VSM 页面</td><td>1</td></tr>
+  <tr><td>r.MegaLights.AsyncCompute.Volume</td><td>体积 Pass 异步计算</td><td>0</td></tr>
+  <tr><td>r.MegaLights.AsyncCompute.GenerateSamples</td><td>采样生成异步计算</td><td>0</td></tr>
+  <tr><td>r.MegaLights.ShadingConfidence</td><td>Shading Confidence 输出 (减小降噪)</td><td>1</td></tr>
+  <tr><td>r.MegaLights.MaxShadingWeight</td><td>最大着色权重 (防 Fireflies)</td><td>20.0</td></tr>
+</table>
+</div>
+
+<!-- 底部导航 -->
+<footer class="bottom-nav">
+  <span>
+    <a href="../Nanite和Lumen/index.html">上一章: Nanite 和 Lumen</a>
+  </span>
+  <a href="#">回到顶部</a>
+  <span>
+    <a href="../实时光线追踪/index.html">下一章: 实时光线追踪</a>
+  </span>
+</footer>
+
+</main>
+
+<script>
+// 复制按钮
+function copyCode(btn) {
+  const pre = btn.closest('.code-block-wrapper').querySelector('pre');
+  const text = pre.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '已复制';
+    setTimeout(() => btn.textContent = '复制', 1500);
+  });
+}
+
+// 章节内搜索与高亮
+function doSearch() {
+  const term = document.getElementById('searchInput').value.trim().toLowerCase();
+  // 清除之前的高亮
+  document.querySelectorAll('.highlight').forEach(el => {
+    el.outerHTML = el.textContent;
+  });
+  if (!term || term.length < 2) {
+    // 恢复大纲滚动
+    return;
+  }
+  // 在 main 内容中搜索
+  const main = document.querySelector('main');
+  const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT, null, false);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  let firstMatch = null;
+  nodes.forEach(node => {
+    const idx = node.textContent.toLowerCase().indexOf(term);
+    if (idx >= 0) {
+      const span = document.createElement('span');
+      span.className = 'highlight';
+      const before = node.textContent.substring(0, idx);
+      const match = node.textContent.substring(idx, idx + term.length);
+      const after = node.textContent.substring(idx + term.length);
+      const parent = node.parentNode;
+      parent.replaceChild(document.createTextNode(after), node);
+      parent.insertBefore(span, parent.lastChild);
+      span.appendChild(document.createTextNode(match));
+      parent.insertBefore(document.createTextNode(before), span);
+      if (!firstMatch) firstMatch = span;
+    }
+  });
+}
+
+// 大纲高亮
+document.querySelectorAll('nav#sidebar a').forEach(a => {
+  a.addEventListener('click', function() {
+    document.querySelectorAll('nav#sidebar a.active').forEach(x => x.classList.remove('active'));
+    this.classList.add('active');
+  });
+});
+</script>
+
+</body>
+</html>
