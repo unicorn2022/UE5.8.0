@@ -116,6 +116,7 @@ p{margin-bottom:14px}
 <div class="sidebar-header">UE5.8 多线程渲染</div>
 <div class="sidebar-search"><input id="navSearch" type="text" placeholder="搜索章节标题..." oninput="filterNav()"></div>
 <nav id="sideNav">
+<a href="../../index.html" style="color:var(--c-accent);font-weight:600;border-left:3px solid var(--c-accent);background:var(--c-accent-dim);">&#x2190; 返回总目录</a>
 <a href="#s1" class="active">一、概述与定位</a>
 <a href="#s2">二、顶层架构设计</a>
 <a href="#s2-1" class="sub">2.1 TaskGraph 任务图系统</a>
@@ -191,7 +192,7 @@ p{margin-bottom:14px}
 </div>
 <p>顶层架构的核心理念可以简单概括为<b>"分离关注点 + 异步流水线"</b>：</p>
 <ul>
-<li><span class="code-inline">GameThread</span> -- 运行游戏逻辑，产生渲染命令，<b>绝不打阻塞等待</b> RenderThread。</li>
+<li><span class="code-inline">GameThread</span> -- 运行游戏逻辑，产生渲染命令，<b>绝不阻塞等待</b> RenderThread。</li>
 <li><span class="code-inline">RenderThread</span> -- 执行 <span class="code-inline">DeferredShadingRenderer::Render()</span> 全流程，负责场景遍历、Pass 调度、DrawCall 生成。</li>
 <li><span class="code-inline">RHIThread</span> -- 独立线程，将 RenderThread 产出的 RHI 命令缓冲<b>解码为真实的 GPU API 调用</b>（D3D12/Vulkan），达到 CPU 与 GPU 完全解耦。</li>
 <li><span class="code-inline">Worker Threads</span> -- TaskGraph 动态管理的线程池，承载 ParallelFor 和各类异步 Task。</li>

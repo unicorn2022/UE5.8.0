@@ -52,8 +52,8 @@ strong{color:#f0f0f0;}
 .code-block .code-header .copy-btn:hover{color:#e0e0e0;border-color:#4FC3F7;}
 .code-block .code-header .path{color:#707070;}
 .code-block pre{margin:0;padding:14px 16px;overflow-x:auto;counter-reset:line;}
-.code-block pre code{font-family:"Cascadia Code","Fira Code","JetBrains Mono","Consolas",monospace;font-size:0.82rem;line-height:1.55;color:#c8c8c8;display:grid;grid-template-columns:auto 1fr;gap:0 12px;}
-.code-block pre code .ln{color:#505050;text-align:right;user-select:none;min-width:24px;}
+.code-block pre code{font-family:"Cascadia Code","Fira Code","JetBrains Mono","Consolas",monospace;font-size:0.82rem;line-height:1.55;color:#c8c8c8;}
+.code-block pre code .ln{color:#505050;text-align:right;user-select:none;display:inline-block;width:36px;margin-right:12px;}
 .code-block pre code .kw{color:#c586c0;}
 .code-block pre code .ty{color:#4FC3F7;}
 .code-block pre code .fn{color:#dcdcaa;}
@@ -110,6 +110,7 @@ td code{background:#1a1a26;padding:1px 6px;border-radius:3px;font-size:0.82rem;c
     <input type="text" id="searchInput" placeholder="搜索章节内容..." oninput="searchContent()">
   </div>
   <nav>
+    <a href="../../index.html" style="color:#FFA726;font-weight:600;border-left:2px solid #FFA726;padding-left:18px;">&#x2190; 返回总目录</a>
     <a href="#s1">1. 概述与定位</a>
     <a href="#s2" class="l2">1.1 编译全链路</a>
     <a href="#s3" class="l2">1.2 核心概念</a>
