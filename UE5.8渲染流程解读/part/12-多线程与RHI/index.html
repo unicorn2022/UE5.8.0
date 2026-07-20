@@ -523,19 +523,277 @@ a:hover{text-decoration:underline}
 <!-- ===== 4. FRenderCommandFence 与同步原语 ===== -->
 <section class="section-block" id="sync-primitives">
   <h2>4. FRenderCommandFence 与同步原语</h2>
-  <p class="section-desc">跨线程同步是保证渲染正确性的关键。FRenderCommandFence、RHI Fence 和事件（Fence/Event）等同步原语确保 GameThread 对渲染资源的访问不会与 GPU 执行产生数据竞争。</p>
+  <p class="section-desc">跨线程同步是保证渲染正确性的关键。FRenderCommandFence、RHI Fence 和 GPU Fence 等同步原语确保 GameThread 对渲染资源的访问不会与 GPU 执行产生数据竞争。</p>
+
+  <h3>4.1 核心同步类型</h3>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-label">GameThread &#8594; RenderThread</div>
+      <div class="card-title">FRenderCommandFence</div>
+      <div class="card-desc">
+        GameThread 等待 RenderThread 完成所有已提交渲染命令的核心同步原语。内部实现为引用计数 + <code>FGraphEventRef</code>：GameThread 调用 <code>BeginFence()</code> 时记录 RenderThread 队列尾部位置；调用 <code>Wait()</code> 时阻塞直到 RenderThread 消费完该位置之前的所有命令。
+        <br/><br/>
+        <strong>使用场景：</strong>确保下一帧游戏逻辑执行前渲染状态同步（如 UObject 的渲染代理更新）；关卡流送时确保已卸载关卡的渲染资源已完全释放（避免 UObject 析构时 RenderThread 仍在引用）。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-label">RenderThread &#8594; RHIThread</div>
+      <div class="card-title">FRHICommandListFence</div>
+      <div class="card-desc">
+        RenderThread 等待 RHIThread 完成 GPU 命令提交的同步原语。当 RHIThread 启用时，RenderThread 提交的命令队列可能尚未被 RHIThread 消费，<code>FRHICommandListFence</code> 确保 RHIThread 已执行完指定命令列表中的所有命令。
+        <br/><br/>
+        <strong>使用场景：</strong>Buffer Readback 后确保 GPU 写入完成再读取 CPU 端数据（Staging Buffer 映射）；渲染资源（Texture/Buffer）释放前确认 RHI 线程不再持有对底层 D3D12/Vulkan 资源的引用。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-label">GPU 端同步</div>
+      <div class="card-title">FGPUFenceRHIRef</div>
+      <div class="card-desc">
+        GPU 端同步原语，实现跨 Command Queue 或跨帧的 GPU-GPU 同步。基于 D3D12 Fence / Vulkan Timeline Semaphore 实现，由 GPU 直接信号通知，不经过 CPU 线程。
+        <br/><br/>
+        <strong>使用场景：</strong>AsyncCompute 完成后 Graphics 队列读取 Compute 输出结果（如 Lumen 光照评估结果供 BasePass 使用）；多 GPU AFR（Alternate Frame Rendering）帧间同步——确保前一 GPU 完成帧渲染后下一 GPU 开始渲染。
+      </div>
+    </div>
+  </div>
+
+  <h3>4.2 FlushRenderingCommands 详解</h3>
+
+  <p><code>FlushRenderingCommands()</code> 是 GameThread 阻塞等待 RenderThread + RHIThread 完成所有已提交命令的<strong>全局同步点</strong>。它内部依次执行：发送 <code>FRenderCommandFence</code> 并 Wait → 如果需要，再发送 <code>FRHICommandListFence</code> 并 Wait，确保两个线程都处理完所有已排队命令。</p>
+
+  <ul class="info-list">
+    <li><strong>截帧/截图：</strong>调用 <code>FlushRenderingCommands()</code> 确保渲染管线完全刷新后，再通过 Readback 获取最终帧缓冲内容。如果不同步，Readback 可能读到上一帧或未完成的帧数据。</li>
+    <li><strong>资源释放（World 卸载）：</strong>切换关卡或卸载 World 时，需确保渲染线程不再持有对即将销毁的 UObject（如 UTexture、UMaterial）的引用。否则 RenderThread 访问已释放内存导致 Crash。</li>
+    <li><strong>渲染到纹理 Readback：</strong>将场景渲染到 RenderTarget 后，如果 GameThread 需要立即使用该 RenderTarget 的内容（如保存到文件、传给 UI），必须先 Flush 确保内容已写入。</li>
+  </ul>
+
+  <div class="info-callout warn">
+    <strong>&#9888; 性能警告：</strong>过度使用 <code>FlushRenderingCommands</code> 是渲染性能的常见杀手——它完全破坏线程流水线并行，导致 GameThread 停顿等待所有渲染工作完成。平均每次调用增加 <strong>2-8ms</strong> 额外延迟（取决于队列深度和 GPU 负载）。<br/><br/>
+    <strong>替代方案：</strong>异步 Readback + Fence 轮询（GameThread 定期检查 Fence 状态，不阻塞主循环）；延迟资源释放到下一帧（通过 <code>BeginCleanup()</code> 注册延迟析构回调，等待 RenderThread 自然完成引用）。
+  </div>
+
+  <div class="code-block"><code><span class="cmt">// FRenderCommandFence 创建与等待的标准模式</span>
+<span class="kw">class</span> <span class="fn">FMyRenderResource</span>
+<span class="arrow">{</span>
+    <span class="fn">FRenderCommandFence</span> ReleaseFence;
+
+    <span class="kw">void</span> <span class="fn">BeginRelease</span><span class="arrow">()</span>
+    <span class="arrow">{</span>
+        <span class="cmt">// 步骤 1：在 RenderThread 上释放 GPU 资源</span>
+        <span class="fn">ENQUEUE_RENDER_COMMAND</span>(ReleaseMyResource)(
+            [<span class="kw">this</span>](<span class="fn">FRHICommandListImmediate</span>&amp; RHICmdList)
+            <span class="arrow">{</span>
+                <span class="cmt">// 释放 RHI 资源（Texture/Buffer/SRV 等）</span>
+                TextureRHI.<span class="fn">SafeRelease</span>();
+                BufferRHI.<span class="fn">SafeRelease</span>();
+            });
+
+        <span class="cmt">// 步骤 2：在 RenderThread 队列末尾插入 Fence</span>
+        ReleaseFence.<span class="fn">BeginFence</span>();
+    }
+
+    <span class="kw">bool</span> <span class="fn">IsReady</span><span class="arrow">()</span> <span class="kw">const</span>
+    <span class="arrow">{</span>
+        <span class="cmt">// 非阻塞检查：Fence 是否已被 RenderThread 通过</span>
+        <span class="kw">return</span> ReleaseFence.<span class="fn">IsFenceComplete</span>();
+    }
+
+    <span class="kw">void</span> <span class="fn">WaitForRelease</span><span class="arrow">()</span>
+    <span class="arrow">{</span>
+        <span class="cmt">// 阻塞等待：GameThread 停顿直到 RenderThread 完成释放</span>
+        <span class="cmt">// 仅在必须确认资源已释放时调用（如关卡卸载完成回调）</span>
+        ReleaseFence.<span class="fn">Wait</span>();
+    }
+<span class="arrow">}</span>;</code></div>
 </section>
 
 <!-- ===== 5. RHI 命令队列 ===== -->
 <section class="section-block" id="rhi-command-queue">
   <h2>5. RHI 命令队列</h2>
-  <p class="section-desc">FRHICommandList 将高层渲染操作序列化为平台无关的命令流，RHI 线程批量提交到 GPU 驱动。命令队列支持立即模式（Immediate）和延迟提交模式，影响渲染性能和内存使用。</p>
+  <p class="section-desc">FRHICommandList 将高层渲染操作序列化为平台无关的命令流，RHI 线程批量提交到 GPU 驱动。命令队列支持 Immediate 和 Deferred 两种模式，直接影响渲染吞吐量和延迟。</p>
+
+  <h3>5.1 FRHICommandList 结构</h3>
+
+  <p><code>FRHICommandList</code> 是 RHI 层的核心抽象——它将 RenderThread 发出的渲染指令（如 <code>SetRenderTarget</code>、<code>DrawPrimitive</code>、<code>SetShaderParameter</code>）逐一序列化为 <code>FRHICommand*</code> 派生类对象，存储在命令内存缓冲区中。RHIThread（或 Immediate 模式下的 RenderThread）消费这些命令并翻译为平台 API 调用。</p>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-title">1. 录制（Record）</div>
+      <div class="card-desc">
+        用户代码调用 <code>RHICmdList.SetRenderTarget()</code>、<code>RHICmdList.DrawPrimitive()</code>、<code>RHICmdList.SetShaderParameter()</code> 等 RHI 接口函数。这些函数内部不直接调用 D3D12/Vulkan API，而是通过 <code>RHICMD_*</code> 宏生成对应的 <code>FRHICommand*</code> 对象，将参数序列化到命令内存缓冲区（<code>FRHICommandList::Bypass()</code> 或 Deferred 模式下的线性分配器 <code>FMemStack</code>）。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">2. 提交（Submit）</div>
+      <div class="card-desc">
+        RenderThread 完成当前帧的所有 Pass 注册后，通过 <code>FRHICommandListExecutor::Submit()</code>（或 RDG 的 <code>GraphBuilder.Execute()</code> 自动触发）将命令队列标记为就绪状态。在 Deferred 模式下，Submit 只设置信号量/事件，不实际执行命令——RHIThread 随后异步消费。在 Immediate 模式下，Submit 直接在当前线程执行所有命令。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">3. 执行（Execute）</div>
+      <div class="card-desc">
+        RHIThread（或 Immediate 模式下的 RenderThread）遍历命令队列中的每个 <code>FRHICommand</code> 对象，调用其 <code>Execute()</code> 虚函数。每个 <code>Execute()</code> 实现将参数翻译为对应的 D3D12 <code>ID3D12GraphicsCommandList</code> API 调用或 Vulkan <code>VkCommandBuffer</code> 函数调用，最终通过驱动提交到 GPU Command Queue。
+      </div>
+    </div>
+  </div>
+
+  <h3>5.2 Immediate vs Deferred 上下文</h3>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-title">Immediate 模式</div>
+      <div class="card-desc">
+        <code>r.RHIThread.Enable=0</code> 时生效。RHI 命令直接在当前线程（通常 RenderThread 兼任）执行，<strong>提交即执行</strong>。不经过中间队列缓冲，<code>RHICmdList.DrawPrimitive()</code> 调用直接触发 D3D12/Vulkan API 调用。
+        <br/><br/>
+        &#9650; <strong>优点：</strong>零延迟——渲染命令立即提交到 GPU 驱动，减少一帧输入端延迟（适合 VR 场景）。
+        <br/><br/>
+        &#9660; <strong>缺点：</strong>无流水线并行——RenderThread 在调用 D3D12/Vulkan API 时阻塞，无法与 RHIThread 形成流水线。RenderThread 每帧时间增加 15-30%。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">Deferred 模式（默认）</div>
+      <div class="card-desc">
+        <code>r.RHIThread.Enable=1</code>（默认值）时生效。命令先录制到线性分配器的内存缓冲区中，RHIThread 异步消费和执行。RenderThread 注册完 Pass 后在 <code>GraphBuilder.Execute()</code> 处批量提交，然后立即返回处理下一帧。
+        <br/><br/>
+        &#9650; <strong>优点：</strong>RenderThread 与 RHIThread 完全流水线化——RenderThread 处理第 N+1 帧的 Pass 时，RHIThread 仍在提交第 N 帧的 GPU 命令。吞吐量显著提升。
+        <br/><br/>
+        &#9660; <strong>缺点：</strong>增加 1 帧延迟——从 RenderThread 提交到 GPU 实际开始执行存在固定的一帧间隔。
+      </div>
+    </div>
+  </div>
+
+  <h3>5.3 FRHICommand 宏生成机制</h3>
+
+  <p>每个 RHI 函数调用对应一个 <code>FRHICommand*</code> 派生类。UE 通过 <code>RHICMD_*</code> 系列宏自动生成两类回调：（1）<strong>录制回调</strong>——在调用线程上执行，将参数存储到命令对象中；（2）<strong>执行回调</strong>——在 RHIThread（或 Immediate 模式）上执行，调用平台 API。</p>
+
+  <div class="code-block"><code><span class="cmt">// ===== 步骤 1：RHI 接口声明（RHICommandList.h） =====</span>
+<span class="kw">void</span> <span class="fn">FRHICommandList::DrawPrimitive</span>(<span class="fn">uint32</span> BaseVertexIndex, <span class="fn">uint32</span> NumPrimitives, <span class="fn">uint32</span> NumInstances)
+<span class="arrow">{</span>
+    <span class="cmt">// 条件编译：Deferred 模式 vs Immediate 模式</span>
+<span class="cmt">#if</span> <span class="kw">RHI_COMMAND_LIST_DEBUG</span>  <span class="cmt">// Immediate 模式（简化版）</span>
+    <span class="fn">GetContext</span>().<span class="fn">RHIDrawPrimitive</span>(BaseVertexIndex, NumPrimitives, NumInstances);
+<span class="cmt">#else</span>                         <span class="cmt">// Deferred 模式（录制命令）</span>
+    <span class="kw">ALLOC_COMMAND</span>(<span class="fn">FRHICommandDrawPrimitive</span>)(BaseVertexIndex, NumPrimitives, NumInstances);
+<span class="cmt">#endif</span>
+<span class="arrow">}</span>
+
+<span class="cmt">// ===== 步骤 2：宏展开后生成的命令类（RHICommandListCommandExec.inl） =====</span>
+<span class="kw">struct</span> <span class="fn">FRHICommandDrawPrimitive</span> : <span class="kw">public</span> <span class="fn">FRHICommand</span>&lt;<span class="fn">FRHICommandDrawPrimitive</span>&gt;
+<span class="arrow">{</span>
+    <span class="cmt">// --- 录制端参数存储 ---</span>
+    <span class="fn">uint32</span> BaseVertexIndex;
+    <span class="fn">uint32</span> NumPrimitives;
+    <span class="fn">uint32</span> NumInstances;
+
+    <span class="cmt">// --- 执行端（在 RHIThread 上调用）---</span>
+    <span class="fn">RHI_API</span> <span class="kw">void</span> <span class="fn">Execute</span>(<span class="fn">FRHICommandListBase</span>&amp; CmdList) <span class="kw">override</span>
+    <span class="arrow">{</span>
+        <span class="cmt">// 多态派发到平台实现：FD3D12DynamicRHI / FVulkanDynamicRHI 等</span>
+        <span class="fn">RHISTAT</span>(DrawPrimitive);
+        <span class="fn">INTERNAL_DECORATOR_CONTEXT</span>(CmdList).<span class="fn">RHIDrawPrimitive</span>(
+            BaseVertexIndex, NumPrimitives, NumInstances);
+    <span class="arrow">}</span>
+<span class="arrow">}</span>;</code></div>
+
+  <p>这套宏生成机制的优势在于：渲染代码只需写一次 <code>RHICmdList.DrawPrimitive(...)</code>，编译器根据 <code>r.RHIThread.Enable</code> 的值自动选择 Immediate 或 Deferred 路径。所有 <code>FRHICommand</code> 派生类的命令内存从 <code>FMemStack</code> 线性分配器中分配，无碎片、无锁竞争，单帧结束后整体回退。</p>
+
 </section>
 
 <!-- ===== 6. FDynamicRHI 与平台抽象 ===== -->
 <section class="section-block" id="platform-abstraction">
   <h2>6. FDynamicRHI 与平台抽象</h2>
   <p class="section-desc">FDynamicRHI 是 RHI 的平台抽象层接口，提供 D3D12、Vulkan、Metal 等后端适配。上层渲染代码通过统一接口操作 GPU 资源，无需关心平台差异。</p>
+
+  <h3>6.1 FDynamicRHI 接口体系</h3>
+
+  <p><code>FDynamicRHI</code> 定义了约 <strong>300+</strong> 纯虚函数，覆盖完整的 GPU 操作接口。它是一个抽象基类，由平台特化子类（<code>FD3D12DynamicRHI</code>、<code>FVulkanDynamicRHI</code>、<code>FMetalDynamicRHI</code> 等）实现。所有上层渲染代码通过 <code>GDynamicRHI</code> 全局指针（在 <code>DynamicRHI.h</code> 中声明）间接调用，无需关心后端是 D3D12 还是 Vulkan。</p>
+
+  <ul class="info-list">
+    <li><strong>资源创建：</strong><code>RHICreateTexture()</code>、<code>RHICreateBuffer()</code>、<code>RHICreateShader()</code>、<code>RHICreateRenderTarget()</code>、<code>RHICreateVertexDeclaration()</code> — 创建 GPU 资源并返回平台无关句柄（<code>FTextureRHIRef</code>、<code>FBufferRHIRef</code> 等）。</li>
+    <li><strong>状态设置：</strong><code>RHISetRenderTarget()</code>、<code>RHISetPipelineState()</code>、<code>RHISetShaderParameter()</code>、<code>RHISetViewport()</code>、<code>RHISetBlendState()</code>、<code>RHISetDepthStencilState()</code> — 设置 GPU 管线的各种状态，对应 D3D12 PSO 或 Vulkan Pipeline 的各组件。</li>
+    <li><strong>绘制：</strong><code>RHIDrawPrimitive()</code>、<code>RHIDrawIndexedPrimitive()</code>、<code>RHIDrawPrimitiveIndirect()</code>、<code>RHIDispatchComputeShader()</code> — 实际触发 GPU 执行的绘制和计算命令。</li>
+    <li><strong>查询：</strong><code>RHICreateRenderQuery()</code>（Occlusion Query）、<code>RHICreateTimestampQuery()</code>（GPU 时间戳）— GPU 端查询对象，用于遮挡剔除和 GPU Profiling。时间戳查询是 <code>stat gpu</code> 的数据源。</li>
+    <li><strong>资源锁定与传输：</strong><code>RHILockTexture()</code> / <code>RHIUnlockTexture()</code>、<code>RHIReadSurfaceData()</code>、<code>RHIUpdateTexture()</code>、<code>RHIUpdateBuffer()</code> — CPU-GPU 数据传输，包括 Staging Buffer 映射和 Readback 路径。</li>
+    <li><strong>屏障管理：</strong><code>RHIBeginTransitions()</code> / <code>RHIEndTransitions()</code>（UE5.x 新接口）— 批量资源状态转换，替代旧版的逐个资源屏障调用。内部映射到 D3D12 <code>ResourceBarrier(count, barriers[])</code> 或 Vulkan <code>vkCmdPipelineBarrier()</code>。</li>
+  </ul>
+
+  <h3>6.2 D3D12RHI vs VulkanRHI 实现差异</h3>
+
+  <table class="info-table">
+    <thead>
+      <tr><th>特性</th><th>D3D12RHI</th><th>VulkanRHI</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>命令列表</td>
+        <td><code>ID3D12GraphicsCommandList</code> — 硬件命令列表，录制后可提交到 Command Queue，支持 Bundle（可重用命令序列）</td>
+        <td><code>VkCommandBuffer</code> — 从 <code>VkCommandPool</code> 分配，支持 Primary/Secondary 两级命令缓冲</td>
+      </tr>
+      <tr>
+        <td>资源屏障</td>
+        <td><code>D3D12_RESOURCE_BARRIER</code> — 三种类型：Transition、Aliasing、UAV。支持批量提交 <code>ResourceBarrier(count, barriers[])</code></td>
+        <td><code>VkImageMemoryBarrier</code> / <code>VkBufferMemoryBarrier</code> — 分别处理 Image Layout 转换和 Buffer 访问同步，通过 <code>vkCmdPipelineBarrier()</code> 提交</td>
+      </tr>
+      <tr>
+        <td>描述符</td>
+        <td><code>ID3D12DescriptorHeap</code> (CBV/SRV/UAV Heap) — 描述符堆按类型分组，CBV/SRV/UAV 共享堆，Sampler 独立堆。支持 Descriptor Table（Root Signature 中的描述符范围）</td>
+        <td><code>VkDescriptorPool</code> + <code>VkDescriptorSet</code> — 描述符池按类型配额，DescriptorSet 通过 <code>vkUpdateDescriptorSets()</code> 绑定具体资源</td>
+      </tr>
+      <tr>
+        <td>根签名/管线布局</td>
+        <td><code>ID3D12RootSignature</code> — 定义 Shader 可见的资源绑定布局（Root Constants + Root Descriptors + Descriptor Tables），绑定效率极高</td>
+        <td><code>VkPipelineLayout</code> — 定义 DescriptorSetLayout + PushConstant 的范围，功能上等价于 Root Signature</td>
+      </tr>
+      <tr>
+        <td>PSO</td>
+        <td><code>ID3D12PipelineState</code> — 编译为单一对象（Graphics PSO 包含 VS/PS/GS 等所有 Shader + 全部状态；Compute PSO 仅 CS）</td>
+        <td><code>VkPipeline</code> + <code>VkPipelineCache</code> — VkPipeline 是完整管线对象；VkPipelineCache 缓存编译结果到磁盘，加速后续启动</td>
+      </tr>
+      <tr>
+        <td>绑定模型</td>
+        <td>Resource Binding Tier 2/3 (SM6.0+) — Tier 2 支持 CBV/SRV/UAV 描述符堆完全可见；Tier 3 支持无界描述符表</td>
+        <td>Standard Descriptor Set Binding — 通过 DescriptorSet 编号绑定资源，PushDescriptor 扩展允许直接写入描述符到 Command Buffer</td>
+      </tr>
+      <tr>
+        <td>光追</td>
+        <td>DXR <code>ID3D12RaytracingAccelerationStructure</code> — TLAS/BLAS 两级加速结构，DispatchRays() 启动光追管线</td>
+        <td><code>VK_KHR_ray_tracing</code> / <code>VK_KHR_acceleration_structure</code> — 功能上完整对等 DXR，vkCmdTraceRaysKHR() 启动光追</td>
+      </tr>
+      <tr>
+        <td>Mesh Shader</td>
+        <td><code>ID3D12MeshShader</code> (SM6.6+) — 原生 Mesh Shader 管线，DispatchMesh() 替代传统 VS/GS/IA</td>
+        <td><code>VK_EXT_mesh_shader</code> — Vulkan 扩展，提供 vkCmdDrawMeshTasksEXT()，功能对等 D3D12</td>
+      </tr>
+      <tr>
+        <td>内存管理</td>
+        <td><code>ID3D12Resource::Map/Unmap</code> (显式) — 资源分为 Committed（独立分配）、Placed（Heap 内偏移）、Reserved（虚拟地址）。D3D12 不暴露 VkDeviceMemory 概念</td>
+        <td><code>VkDeviceMemory</code> + <code>vkAllocateMemory()</code> (显式) — 三步骤：vkCreateImage/Buffer → vkAllocateMemory → vkBindImageMemory/BufferMemory。需手动管理内存类型和对齐</td>
+      </tr>
+      <tr>
+        <td>屏障批处理</td>
+        <td><code>ResourceBarrier(count, barriers[])</code> — 一次性提交多个资源屏障，驱动层面合并相邻屏障</td>
+        <td><code>vkCmdPipelineBarrier()</code> — 一次调用可混合 Image Barrier、Buffer Barrier、Memory Barrier，支持多 Stage 和多 Access Mask 组合</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>6.3 资源创建路径</h3>
+
+  <p>从 RDG 声明纹理到 D3D12 创建 Committed Resource 的完整调用链，展示 RHI 层如何在 RDG 和平台 API 之间桥接：</p>
+
+  <div class="call-chain">
+    <div class="chain-main">FRDGBuilder::CreateTexture(Desc, Name) &#8594; FDynamicRHI::RHICreateTexture()</div>
+    <div class="chain-step">Ray Step 1<span class="chain-arrow">&#8594;</span>RDG 调用 <code>FRDGBuilder::CreateTexture(Desc, Name)</code> — 声明纹理资源，记录到 RDG 资源表中，但不立即分配物理内存</div>
+    <div class="chain-step">Ray Step 2<span class="chain-arrow">&#8594;</span>Execute 阶段 TransientResourceAllocator 决定实际分配时机（Transient 资源按 Pass 间隔复用内存），调用 <code>FDynamicRHI::RHICreateTexture()</code></div>
+    <div class="chain-step">Ray Step 3<span class="chain-arrow">&#8594;</span><code>FDynamicRHI</code> 多态派发到 <code>FD3D12DynamicRHI::RHICreateTexture()</code> 或 <code>FVulkanDynamicRHI::RHICreateTexture()</code></div>
+    <div class="chain-step">Ray Step 4<span class="chain-arrow">&#8594;</span>D3D12: <code>CreateCommittedResource(D3D12_HEAP_TYPE_DEFAULT, ...)</code> — 创建 Committed 资源 + 隐式 Heap 分配</div>
+    <div class="chain-step">Ray Step 5<span class="chain-arrow">&#8594;</span>Vulkan: <code>vkCreateImage()</code> + <code>vkAllocateMemory()</code> + <code>vkBindImageMemory()</code> — 三步骤显式分配</div>
+  </div>
+
+  <div class="info-callout purple">
+    <strong>RHI 层的核心价值：</strong>所有上层渲染代码（<code>FDeferredShadingSceneRenderer</code>、<code>FBasePassMeshProcessor</code>、<code>FLumenSceneLighting</code> 等）<strong>无需关心后端是 D3D12 还是 Vulkan</strong>。一套 <code>FDynamicRHI</code> 接口覆盖所有 GPU 操作，平台差异被隔离在 <code>FD3D12DynamicRHI</code> / <code>FVulkanDynamicRHI</code> 的实现层。这也意味着 UE 新增平台支持只需实现一个 <code>FDynamicRHI</code> 子类，而非修改上层渲染管线的任何代码。
+  </div>
+
 </section>
 
 <!-- ===== 7. 管道状态对象（PSO） ===== -->
