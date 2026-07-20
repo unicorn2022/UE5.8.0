@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多线程与RHI — UE5.8.0 渲染流程解读</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --card: #131318;
+  --code: #09090d;
+  --accent: #4FC3F7;
+  --accent-dim: rgba(79,195,247,0.12);
+  --text: #e0e0e0;
+  --text-dim: #909090;
+  --border: rgba(255,255,255,0.06);
+  --font-sans: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  --font-mono: 'Cascadia Code','Fira Code','Consolas',monospace;
+  --warn: #FFB74D;
+  --warn-dim: rgba(255,183,77,0.08);
+  --warn-border: rgba(255,183,77,0.2);
+  --green: #81C784;
+  --green-dim: rgba(129,199,132,0.12);
+  --green-border: rgba(129,199,132,0.2);
+  --purple: #CE93D8;
+  --purple-dim: rgba(206,147,216,0.08);
+  --purple-border: rgba(206,147,216,0.2);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:15px}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--text);line-height:1.72;min-height:100vh}
+a{color:var(--accent);text-decoration:none;transition:0.2s}
+a:hover{text-decoration:underline}
+
+/* ===== 面包屑导航 ===== */
+.breadcrumb{max-width:1200px;margin:0 auto;padding:16px 24px 0;font-size:0.85rem;color:var(--text-dim)}
+.breadcrumb a{color:var(--text-dim)}
+.breadcrumb a:hover{color:var(--accent)}
+.breadcrumb span{color:var(--text)}
+
+/* ===== Hero ===== */
+.hero{text-align:center;padding:60px 24px 48px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:800px;height:400px;background:radial-gradient(ellipse at center,rgba(79,195,247,0.08) 0%,transparent 70%);pointer-events:none}
+.hero h1{font-size:2.4rem;font-weight:800;letter-spacing:0.5px;position:relative}
+.hero h1 span{color:var(--accent)}
+.hero .subtitle{margin-top:12px;font-size:1.05rem;color:var(--text-dim);max-width:720px;margin-inline:auto;position:relative}
+.hero .meta{margin-top:20px;display:flex;gap:16px;justify-content:center;flex-wrap:wrap;position:relative}
+.hero .meta .tag{font-family:var(--font-mono);font-size:0.8rem;padding:4px 14px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-dim)}
+
+/* ===== 章节通用 ===== */
+.section-block{max-width:1100px;margin:0 auto 56px;padding:0 24px}
+.section-block h2{font-size:1.5rem;color:var(--accent);margin-bottom:8px}
+.section-block h3{font-size:1.15rem;color:#fff;margin:24px 0 10px}
+.section-block h4{font-size:0.95rem;color:var(--accent);margin:16px 0 8px;font-weight:600}
+.section-block p{color:var(--text-dim);margin-bottom:10px;font-size:0.92rem}
+.section-block .section-desc{color:var(--text-dim);margin-bottom:20px;font-size:0.92rem}
+.section-block code{font-family:var(--font-mono);font-size:0.85rem;background:var(--code);padding:1px 6px;border-radius:3px;color:var(--accent)}
+
+/* ===== 代码块 ===== */
+.code-block{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:12px 0;font-size:0.8rem;line-height:1.65}
+.code-block code{font-family:var(--font-mono);color:#c8ccd4}
+.code-block .kw{color:#c586c0}
+.code-block .fn{color:#7ec8e3}
+.code-block .cmt{color:#6a9955}
+.code-block .num{color:#b5cea8}
+.code-block .str{color:#ce9178}
+.code-block .arrow{color:var(--text-dim)}
+
+/* ===== 表格 ===== */
+.info-table{width:100%;border-collapse:collapse;font-size:0.88rem;margin:12px 0}
+.info-table th{text-align:left;padding:10px 14px;background:var(--card);color:var(--accent);border-bottom:2px solid rgba(255,255,255,0.08);font-weight:600;font-family:var(--font-mono);font-size:0.78rem}
+.info-table td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top;color:var(--text-dim)}
+.info-table tr:hover td{background:var(--accent-dim)}
+.info-table td code{font-family:var(--font-mono);font-size:0.8rem;background:rgba(79,195,247,0.08);padding:1px 6px;border-radius:3px;color:var(--accent)}
+.info-table td:first-child{font-family:var(--font-mono);font-size:0.8rem;color:var(--accent);white-space:nowrap}
+
+/* ===== CVar 表格 ===== */
+.cvar-table-wrap{overflow-x:auto;margin:12px 0}
+.cvar-table{width:100%;border-collapse:collapse;font-size:0.85rem}
+.cvar-table th{text-align:left;padding:8px 12px;background:var(--card);color:var(--accent);border-bottom:2px solid rgba(255,255,255,0.08);font-weight:600;font-family:var(--font-mono);font-size:0.78rem}
+.cvar-table td{padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:top;color:var(--text-dim)}
+.cvar-table tr:hover td{background:var(--accent-dim)}
+.cvar-table td:first-child{font-family:var(--font-mono);font-size:0.78rem;color:var(--accent);white-space:nowrap}
+.cvar-table .cvar-default{font-family:var(--font-mono);font-size:0.75rem;color:rgba(129,199,132,0.8)}
+
+/* ===== 调用链 ===== */
+.call-chain{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:16px 20px;margin:14px 0;font-size:0.85rem;line-height:1.7}
+.call-chain .chain-main{font-family:var(--font-mono);color:var(--accent);font-weight:600;margin-bottom:6px}
+.call-chain .chain-step{font-family:var(--font-mono);font-size:0.8rem;color:var(--text-dim);padding-left:16px;margin-bottom:3px}
+.call-chain .chain-arrow{color:var(--text-dim);margin:0 4px}
+
+/* ===== 卡片网格 ===== */
+.card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:16px 0}
+.info-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:18px;transition:all 0.2s}
+.info-card:hover{border-color:rgba(79,195,247,0.3)}
+.info-card .card-title{font-size:0.95rem;font-weight:700;color:#fff;margin-bottom:8px}
+.info-card .card-desc{font-size:0.85rem;color:var(--text-dim);line-height:1.55}
+.info-card .card-desc code{font-size:0.78rem}
+.info-card .card-label{font-family:var(--font-mono);font-size:0.72rem;color:var(--warn);letter-spacing:0.5px;margin-bottom:4px}
+
+/* ===== 提示框 ===== */
+.info-callout{margin:14px 0;padding:14px 18px;border-radius:8px;font-size:0.88rem;line-height:1.65}
+.info-callout.accent{background:var(--accent-dim);border:1px solid rgba(79,195,247,0.2);color:var(--text-dim)}
+.info-callout.accent strong{color:var(--accent)}
+.info-callout.warn{background:var(--warn-dim);border:1px solid var(--warn-border);color:var(--text-dim)}
+.info-callout.warn strong{color:var(--warn)}
+.info-callout.green{background:var(--green-dim);border:1px solid var(--green-border);color:var(--text-dim)}
+.info-callout.green strong{color:var(--green)}
+.info-callout.purple{background:var(--purple-dim);border:1px solid var(--purple-border);color:var(--text-dim)}
+.info-callout.purple strong{color:var(--purple)}
+
+/* ===== SVG 容器 ===== */
+.svg-section{max-width:1300px;margin:0 auto 56px;padding:0 24px}
+.svg-section h2{text-align:center;font-size:1.5rem;color:var(--accent);margin-bottom:8px}
+.svg-section .section-desc{text-align:center;color:var(--text-dim);margin-bottom:24px;font-size:0.92rem}
+.svg-container{overflow-x:auto;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px 16px}
+
+/* ===== 列表 ===== */
+.info-list{padding-left:1.4em;font-size:0.9rem;color:var(--text-dim);margin:8px 0}
+.info-list li{margin-bottom:5px}
+.info-list li code{font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 6px;border-radius:3px;color:var(--accent)}
+
+/* ===== 源码索引 ===== */
+.source-index{display:flex;flex-direction:column;gap:10px;margin:12px 0}
+.source-item{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 18px;transition:all 0.2s}
+.source-item:hover{border-color:rgba(79,195,247,0.3)}
+.source-item .src-path{font-family:var(--font-mono);font-size:0.76rem;color:var(--accent);margin-bottom:4px;word-break:break-all}
+.source-item .src-funcs{font-size:0.82rem;color:var(--text-dim)}
+
+/* ===== Footer ===== */
+.footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);color:var(--text-dim);font-size:0.83rem}
+
+/* ===== 回到顶部 ===== */
+.back-top{position:fixed;bottom:32px;right:32px;width:40px;height:40px;border-radius:50%;background:var(--card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--text-dim);transition:all 0.2s;z-index:100}
+.back-top:hover{color:var(--accent);border-color:var(--accent);text-decoration:none}
+
+/* ===== 响应式 ===== */
+@media(max-width:768px){
+  .hero{padding:40px 18px 32px}
+  .hero h1{font-size:1.6rem}
+  .card-grid{grid-template-columns:1fr}
+  .svg-container{padding:12px 8px}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 面包屑导航 ===== -->
+<nav class="breadcrumb">
+  <a href="../../index.html">首页</a> &nbsp;&rsaquo;&nbsp;
+  <a href="../01-管线总览/index.html">管线总览</a> &nbsp;&rsaquo;&nbsp;
+  <span>多线程与RHI</span>
+</nav>
+
+<!-- ===== Hero ===== -->
+<section class="hero">
+  <h1>多线程<span>与RHI</span></h1>
+  <p class="subtitle">GameThread / RenderThread / RHIThread 三线程模型、TaskGraph 调度、RHI 命令队列与平台抽象。</p>
+  <div class="meta">
+    <span class="tag">GameThread</span>
+    <span class="tag">RenderThread</span>
+    <span class="tag">RHIThread</span>
+    <span class="tag">TaskGraph</span>
+    <span class="tag">FRHICommandList</span>
+    <span class="tag">AsyncCompute</span>
+  </div>
+</section>
+
+<!-- ===== 1. 管线中的位置 ===== -->
+<section class="section-block" id="pipeline-position">
+  <h2>1. 管线中的位置</h2>
+  <p class="section-desc">UE5.8 的多线程渲染架构将游戏逻辑、渲染命令生成、GPU 命令提交三个核心环节分配到独立线程，通过 TaskGraph 系统实现细粒度的任务调度和并行执行。</p>
+</section>
+
+<!-- ===== 2. 三线程模型 ===== -->
+<section class="section-block" id="three-thread-model">
+  <h2>2. 三线程模型</h2>
+  <p class="section-desc">GameThread 负责游戏逻辑和渲染状态设置，RenderThread 负责渲染命令的生成和 RDG Pass 调度，RHIThread 负责将 RHI 命令提交到 GPU 驱动。三线程以异步流水线方式运行，减少 GPU 空闲等待。</p>
+</section>
+
+<!-- ===== 3. TaskGraph 调度 ===== -->
+<section class="section-block" id="taskgraph">
+  <h2>3. TaskGraph 调度</h2>
+  <p class="section-desc">TaskGraph 是 UE5 的通用任务图调度系统，渲染模块大量使用 NamedThread 和 TaskGraph Task 来组织渲染工作，支持前置任务（Prereqs）和异步回调。</p>
+</section>
+
+<!-- ===== 4. FRenderCommandFence 与同步原语 ===== -->
+<section class="section-block" id="sync-primitives">
+  <h2>4. FRenderCommandFence 与同步原语</h2>
+  <p class="section-desc">跨线程同步是保证渲染正确性的关键。FRenderCommandFence、RHI Fence 和事件（Fence/Event）等同步原语确保 GameThread 对渲染资源的访问不会与 GPU 执行产生数据竞争。</p>
+</section>
+
+<!-- ===== 5. RHI 命令队列 ===== -->
+<section class="section-block" id="rhi-command-queue">
+  <h2>5. RHI 命令队列</h2>
+  <p class="section-desc">FRHICommandList 将高层渲染操作序列化为平台无关的命令流，RHI 线程批量提交到 GPU 驱动。命令队列支持立即模式（Immediate）和延迟提交模式，影响渲染性能和内存使用。</p>
+</section>
+
+<!-- ===== 6. FDynamicRHI 与平台抽象 ===== -->
+<section class="section-block" id="platform-abstraction">
+  <h2>6. FDynamicRHI 与平台抽象</h2>
+  <p class="section-desc">FDynamicRHI 是 RHI 的平台抽象层接口，提供 D3D12、Vulkan、Metal 等后端适配。上层渲染代码通过统一接口操作 GPU 资源，无需关心平台差异。</p>
+</section>
+
+<!-- ===== 7. 管道状态对象（PSO） ===== -->
+<section class="section-block" id="pso">
+  <h2>7. 管道状态对象（PSO）</h2>
+  <p class="section-desc">PSO（Pipeline State Object）封装了 GPU 管线的完整状态——Shader 绑定、混合模式、光栅化状态、深度模板状态等。PSO 缓存机制避免了每帧重新创建管线状态的开销，直接影响 DrawCall 效率。</p>
+</section>
+
+<!-- ===== 8. AsyncCompute 并行 ===== -->
+<section class="section-block" id="async-compute">
+  <h2>8. AsyncCompute 并行</h2>
+  <p class="section-desc">AsyncCompute 允许 Compute Shader 工作与 Graphics 管线并行执行，典型应用包括 Nanite 裁剪、Lumen 光照评估、PostProcess 降噪等 Compute-heavy Pass 与 BasePass 并行。</p>
+</section>
+
+<!-- ===== 9. CVar 速查与性能分析 ===== -->
+<section class="section-block" id="cvar-reference">
+  <h2>9. CVar 速查与性能分析</h2>
+  <p class="section-desc">多线程渲染和 RHI 相关的常用 Console Variable 参考，涵盖线程开关、RHI 调试、GPU 性能分析和 PSO 缓存管理。</p>
+</section>
+
+<!-- ===== Footer ===== -->
+<footer class="footer">
+  <p>UE5.8.0 渲染流程解读 — 多线程与RHI 深度解读 | 基于 RHICommandList.h + TaskGraph + FDynamicRHI 源码分析</p>
+  <p style="margin-top:6px;font-size:0.78rem">GameThread &middot; RenderThread &middot; RHIThread &middot; TaskGraph &middot; FRHICommandList &middot; AsyncCompute &middot; PSO</p>
+</footer>
+
+<!-- 回到顶部 -->
+<a href="#" class="back-top" title="回到顶部">&#9650;</a>
+
+</body>
+</html>

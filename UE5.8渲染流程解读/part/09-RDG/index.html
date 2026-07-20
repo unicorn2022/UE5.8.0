@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RDG — UE5.8.0 渲染流程解读</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --card: #131318;
+  --code: #09090d;
+  --accent: #4FC3F7;
+  --accent-dim: rgba(79,195,247,0.12);
+  --text: #e0e0e0;
+  --text-dim: #909090;
+  --border: rgba(255,255,255,0.06);
+  --font-sans: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  --font-mono: 'Cascadia Code','Fira Code','Consolas',monospace;
+  --warn: #FFB74D;
+  --warn-dim: rgba(255,183,77,0.08);
+  --warn-border: rgba(255,183,77,0.2);
+  --green: #81C784;
+  --green-dim: rgba(129,199,132,0.12);
+  --green-border: rgba(129,199,132,0.2);
+  --purple: #CE93D8;
+  --purple-dim: rgba(206,147,216,0.08);
+  --purple-border: rgba(206,147,216,0.2);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:15px}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--text);line-height:1.72;min-height:100vh}
+a{color:var(--accent);text-decoration:none;transition:0.2s}
+a:hover{text-decoration:underline}
+
+/* ===== 面包屑导航 ===== */
+.breadcrumb{max-width:1200px;margin:0 auto;padding:16px 24px 0;font-size:0.85rem;color:var(--text-dim)}
+.breadcrumb a{color:var(--text-dim)}
+.breadcrumb a:hover{color:var(--accent)}
+.breadcrumb span{color:var(--text)}
+
+/* ===== Hero ===== */
+.hero{text-align:center;padding:60px 24px 48px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:800px;height:400px;background:radial-gradient(ellipse at center,rgba(79,195,247,0.08) 0%,transparent 70%);pointer-events:none}
+.hero h1{font-size:2.4rem;font-weight:800;letter-spacing:0.5px;position:relative}
+.hero h1 span{color:var(--accent)}
+.hero .subtitle{margin-top:12px;font-size:1.05rem;color:var(--text-dim);max-width:720px;margin-inline:auto;position:relative}
+.hero .meta{margin-top:20px;display:flex;gap:16px;justify-content:center;flex-wrap:wrap;position:relative}
+.hero .meta .tag{font-family:var(--font-mono);font-size:0.8rem;padding:4px 14px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-dim)}
+
+/* ===== 章节通用 ===== */
+.section-block{max-width:1100px;margin:0 auto 56px;padding:0 24px}
+.section-block h2{font-size:1.5rem;color:var(--accent);margin-bottom:8px}
+.section-block h3{font-size:1.15rem;color:#fff;margin:24px 0 10px}
+.section-block h4{font-size:0.95rem;color:var(--accent);margin:16px 0 8px;font-weight:600}
+.section-block p{color:var(--text-dim);margin-bottom:10px;font-size:0.92rem}
+.section-block .section-desc{color:var(--text-dim);margin-bottom:20px;font-size:0.92rem}
+.section-block code{font-family:var(--font-mono);font-size:0.85rem;background:var(--code);padding:1px 6px;border-radius:3px;color:var(--accent)}
+
+/* ===== 代码块 ===== */
+.code-block{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:12px 0;font-size:0.8rem;line-height:1.65}
+.code-block code{font-family:var(--font-mono);color:#c8ccd4}
+.code-block .kw{color:#c586c0}
+.code-block .fn{color:#7ec8e3}
+.code-block .cmt{color:#6a9955}
+.code-block .num{color:#b5cea8}
+.code-block .str{color:#ce9178}
+.code-block .arrow{color:var(--text-dim)}
+
+/* ===== 表格 ===== */
+.info-table{width:100%;border-collapse:collapse;font-size:0.88rem;margin:12px 0}
+.info-table th{text-align:left;padding:10px 14px;background:var(--card);color:var(--accent);border-bottom:2px solid rgba(255,255,255,0.08);font-weight:600;font-family:var(--font-mono);font-size:0.78rem}
+.info-table td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top;color:var(--text-dim)}
+.info-table tr:hover td{background:var(--accent-dim)}
+.info-table td code{font-family:var(--font-mono);font-size:0.8rem;background:rgba(79,195,247,0.08);padding:1px 6px;border-radius:3px;color:var(--accent)}
+.info-table td:first-child{font-family:var(--font-mono);font-size:0.8rem;color:var(--accent);white-space:nowrap}
+
+/* ===== CVar 表格 ===== */
+.cvar-table-wrap{overflow-x:auto;margin:12px 0}
+.cvar-table{width:100%;border-collapse:collapse;font-size:0.85rem}
+.cvar-table th{text-align:left;padding:8px 12px;background:var(--card);color:var(--accent);border-bottom:2px solid rgba(255,255,255,0.08);font-weight:600;font-family:var(--font-mono);font-size:0.78rem}
+.cvar-table td{padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:top;color:var(--text-dim)}
+.cvar-table tr:hover td{background:var(--accent-dim)}
+.cvar-table td:first-child{font-family:var(--font-mono);font-size:0.78rem;color:var(--accent);white-space:nowrap}
+.cvar-table .cvar-default{font-family:var(--font-mono);font-size:0.75rem;color:rgba(129,199,132,0.8)}
+
+/* ===== 调用链 ===== */
+.call-chain{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:16px 20px;margin:14px 0;font-size:0.85rem;line-height:1.7}
+.call-chain .chain-main{font-family:var(--font-mono);color:var(--accent);font-weight:600;margin-bottom:6px}
+.call-chain .chain-step{font-family:var(--font-mono);font-size:0.8rem;color:var(--text-dim);padding-left:16px;margin-bottom:3px}
+.call-chain .chain-arrow{color:var(--text-dim);margin:0 4px}
+
+/* ===== 卡片网格 ===== */
+.card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:16px 0}
+.info-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:18px;transition:all 0.2s}
+.info-card:hover{border-color:rgba(79,195,247,0.3)}
+.info-card .card-title{font-size:0.95rem;font-weight:700;color:#fff;margin-bottom:8px}
+.info-card .card-desc{font-size:0.85rem;color:var(--text-dim);line-height:1.55}
+.info-card .card-desc code{font-size:0.78rem}
+.info-card .card-label{font-family:var(--font-mono);font-size:0.72rem;color:var(--warn);letter-spacing:0.5px;margin-bottom:4px}
+
+/* ===== 提示框 ===== */
+.info-callout{margin:14px 0;padding:14px 18px;border-radius:8px;font-size:0.88rem;line-height:1.65}
+.info-callout.accent{background:var(--accent-dim);border:1px solid rgba(79,195,247,0.2);color:var(--text-dim)}
+.info-callout.accent strong{color:var(--accent)}
+.info-callout.warn{background:var(--warn-dim);border:1px solid var(--warn-border);color:var(--text-dim)}
+.info-callout.warn strong{color:var(--warn)}
+.info-callout.green{background:var(--green-dim);border:1px solid var(--green-border);color:var(--text-dim)}
+.info-callout.green strong{color:var(--green)}
+.info-callout.purple{background:var(--purple-dim);border:1px solid var(--purple-border);color:var(--text-dim)}
+.info-callout.purple strong{color:var(--purple)}
+
+/* ===== SVG 容器 ===== */
+.svg-section{max-width:1300px;margin:0 auto 56px;padding:0 24px}
+.svg-section h2{text-align:center;font-size:1.5rem;color:var(--accent);margin-bottom:8px}
+.svg-section .section-desc{text-align:center;color:var(--text-dim);margin-bottom:24px;font-size:0.92rem}
+.svg-container{overflow-x:auto;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px 16px}
+
+/* ===== 列表 ===== */
+.info-list{padding-left:1.4em;font-size:0.9rem;color:var(--text-dim);margin:8px 0}
+.info-list li{margin-bottom:5px}
+.info-list li code{font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 6px;border-radius:3px;color:var(--accent)}
+
+/* ===== 源码索引 ===== */
+.source-index{display:flex;flex-direction:column;gap:10px;margin:12px 0}
+.source-item{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 18px;transition:all 0.2s}
+.source-item:hover{border-color:rgba(79,195,247,0.3)}
+.source-item .src-path{font-family:var(--font-mono);font-size:0.76rem;color:var(--accent);margin-bottom:4px;word-break:break-all}
+.source-item .src-funcs{font-size:0.82rem;color:var(--text-dim)}
+
+/* ===== Footer ===== */
+.footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);color:var(--text-dim);font-size:0.83rem}
+
+/* ===== 回到顶部 ===== */
+.back-top{position:fixed;bottom:32px;right:32px;width:40px;height:40px;border-radius:50%;background:var(--card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--text-dim);transition:all 0.2s;z-index:100}
+.back-top:hover{color:var(--accent);border-color:var(--accent);text-decoration:none}
+
+/* ===== 响应式 ===== */
+@media(max-width:768px){
+  .hero{padding:40px 18px 32px}
+  .hero h1{font-size:1.6rem}
+  .card-grid{grid-template-columns:1fr}
+  .svg-container{padding:12px 8px}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 面包屑导航 ===== -->
+<nav class="breadcrumb">
+  <a href="../../index.html">首页</a> &nbsp;&rsaquo;&nbsp;
+  <a href="../01-管线总览/index.html">管线总览</a> &nbsp;&rsaquo;&nbsp;
+  <span>RDG</span>
+</nav>
+
+<!-- ===== Hero ===== -->
+<section class="hero">
+  <h1>RDG<span>渲染依赖图</span></h1>
+  <p class="subtitle">FRDGBuilder 依赖图构建：Pass 注册/执行、Transient 资源池、自动屏障插入、验证层与调试工具。</p>
+  <div class="meta">
+    <span class="tag">FRDGBuilder</span>
+    <span class="tag">AddPass</span>
+    <span class="tag">TransientResourceAllocator</span>
+    <span class="tag">RDG Debug</span>
+    <span class="tag">GraphViz Dump</span>
+  </div>
+</section>
+
+<!-- ===== 1. 管线中的位置 ===== -->
+<section class="section-block" id="pipeline-position">
+  <h2>1. 管线中的位置</h2>
+  <p class="section-desc">RDG（Render Dependency Graph）是 UE5.8 渲染管线的核心调度框架，FRDGBuilder 负责管理所有渲染 Pass 的依赖关系、资源生命周期和自动屏障插入，是整个延迟渲染流程的"骨架"。</p>
+</section>
+
+<!-- ===== 2. 核心概念 ===== -->
+<section class="section-block" id="core-concepts">
+  <h2>2. 核心概念</h2>
+  <p class="section-desc">RDG 的核心概念包括 Pass、资源（Texture/Buffer）、依赖边、Transient 资源分配和自动屏障系统，这些共同构成了 GPU 管线的高效调度模型。</p>
+</section>
+
+<!-- ===== 3. Pass 注册与执行 ===== -->
+<section class="section-block" id="pass-registration">
+  <h2>3. Pass 注册与执行</h2>
+  <p class="section-desc">每个渲染 Pass 通过 AddPass 注册到 FRDGBuilder 中，声明其输入/输出资源，RDG 自动分析跨 Pass 依赖关系并决定执行顺序。</p>
+</section>
+
+<!-- ===== 4. 资源生命周期 ===== -->
+<section class="section-block" id="resource-lifecycle">
+  <h2>4. 资源生命周期</h2>
+  <p class="section-desc">RDG 资源由 FRDGBuilder 统一管理生命周期，从创建到最后一次被引用结束后自动释放，避免手动资源管理的内存泄漏和使用后释放（UAF）问题。</p>
+</section>
+
+<!-- ===== 5. Transient 资源分配 ===== -->
+<section class="section-block" id="transient-allocation">
+  <h2>5. Transient 资源分配</h2>
+  <p class="section-desc">TransientResourceAllocator 负责临时资源的池化分配与别名复用，通过分析资源活跃区间（Live Range）将不重叠的资源分配到同一物理显存块，显著降低显存占用。</p>
+</section>
+
+<!-- ===== 6. 依赖分析与自动屏障 ===== -->
+<section class="section-block" id="dependency-barriers">
+  <h2>6. 依赖分析与自动屏障</h2>
+  <p class="section-desc">RDG 根据 Pass 间资源的读写关系自动插入 RHI 屏障（UAV Barrier、Render Target Transition 等），确保正确的 GPU 数据依赖和缓存一致性。</p>
+</section>
+
+<!-- ===== 7. 自定义 RDG Pass 完整模板 ===== -->
+<section class="section-block" id="custom-pass">
+  <h2>7. 自定义 RDG Pass 完整模板</h2>
+  <p class="section-desc">从 Shader 参数结构体定义到 AddPass 注册，展示一个完整的自定义 RDG Pass 编写模板，包含 Shader 实现和 C++ 调度代码。</p>
+</section>
+
+<!-- ===== 8. RDG 验证层 ===== -->
+<section class="section-block" id="validation">
+  <h2>8. RDG 验证层</h2>
+  <p class="section-desc">RDG 内置验证层可以检测未使用的资源声明、资源访问冲突、Pass 执行顺序错误等问题，是开发阶段定位渲染 bug 的重要工具。</p>
+</section>
+
+<!-- ===== 9. RDG Dump 与调试 ===== -->
+<section class="section-block" id="dump-debug">
+  <h2>9. RDG Dump 与调试</h2>
+  <p class="section-desc">通过 GraphViz 导出、调试标记和 RDG Insights 等工具，可视化分析实际的渲染图依赖结构，定位性能瓶颈和依赖错误。</p>
+</section>
+
+<!-- ===== 10. 性能与陷阱 ===== -->
+<section class="section-block" id="performance-pitfalls">
+  <h2>10. 性能与陷阱</h2>
+  <p class="section-desc">RDG 使用中的常见性能陷阱，包括过度细分的 Pass 导致编译开销过大、不必要的资源拷贝、Transient 资源过度分配等问题及最佳实践。</p>
+</section>
+
+<!-- ===== 11. CVar 速查 ===== -->
+<section class="section-block" id="cvar-reference">
+  <h2>11. CVar 速查</h2>
+  <p class="section-desc">与 RDG 相关的常用 Console Variable 参考，涵盖调试、验证、Dump 和性能调优相关的命令行开关。</p>
+</section>
+
+<!-- ===== 12. 核心源码索引 ===== -->
+<section class="section-block" id="source-index">
+  <h2>12. 核心源码索引</h2>
+  <p class="section-desc">RDG 框架在 UE5.8 引擎源码中的关键文件和入口点索引，方便快速定位相关实现。</p>
+</section>
+
+<!-- ===== Footer ===== -->
+<footer class="footer">
+  <p>UE5.8.0 渲染流程解读 — RDG 渲染依赖图深度解读 | 基于 RenderGraphBuilder.h + RenderGraphResources.h + RenderGraphUtils.h 源码分析</p>
+  <p style="margin-top:6px;font-size:0.78rem">FRDGBuilder &middot; AddPass &middot; TransientResourceAllocator &middot; 自动屏障 &middot; 验证层 &middot; GraphViz Dump</p>
+</footer>
+
+<!-- 回到顶部 -->
+<a href="#" class="back-top" title="回到顶部">&#9650;</a>
+
+</body>
+</html>
