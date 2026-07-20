@@ -169,18 +169,219 @@ a:hover{text-decoration:underline}
 <section class="section-block" id="pipeline-position">
   <h2>1. 管线中的位置</h2>
   <p class="section-desc">RDG（Render Dependency Graph）是 UE5.8 渲染管线的核心调度框架，FRDGBuilder 负责管理所有渲染 Pass 的依赖关系、资源生命周期和自动屏障插入，是整个延迟渲染流程的"骨架"。</p>
+
+  <p><code>FRDGBuilder</code> 在 <code>Render()</code> 函数中 L1829 附近创建：<code>FRDGBuilder GraphBuilder(RHICmdList, ...)</code>。它属于管线段 1（视图与管线初始化）中最早构建的核心对象之一，立即跟随 <code>FGPUScene</code> 的更新。构造后紧接着预热 RDG 黑板：<code>Substrate::InitialiseSubstrateFrameSceneData(GraphBuilder, ...)</code> 和 <code>HairStrands::InitialiseHairStrandsFrameSceneData(GraphBuilder, ...)</code>，将 Substrate/HairStrands 的帧级场景数据注入。</p>
+
+  <p>RDG 覆盖管线中几乎所有渲染 Pass——从管线段 4（PrePass + Nanite）到段 8（后处理），全部通过 <code>GraphBuilder.AddPass()</code> 注册。真正的 GPU 提交发生在管线段 9 收尾前，<code>GraphBuilder.Execute()</code>（L4423-L4456）一次性将所有注册的 Pass 编译为依赖图、分配 Transient 资源、插入屏障、调度执行。</p>
+
+  <p>以下是 <code>FDeferredShadingSceneRenderer::Render()</code> 中 RDG 相关的关键行号：</p>
+
+  <table class="info-table">
+    <thead>
+      <tr><th>行号</th><th>事件</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>L1829</td>
+        <td><code>FRDGBuilder GraphBuilder(...)</code></td>
+        <td>构造 RDG 依赖图构建器，注册所有后续 Pass。参数包括 RHICmdList、ShaderPlatform、GSupportsEfficientAsyncCompute 等。</td>
+      </tr>
+      <tr>
+        <td>L2241</td>
+        <td><code>FinishGatherDynamicMeshElements</code></td>
+        <td>MeshDrawCommand 生成（RDG 外部执行，但决定了后续 BasePass/DepthPass 中可见的 DrawCall 列表）。</td>
+      </tr>
+      <tr>
+        <td>L2476-2534</td>
+        <td>PrePass + Nanite 光栅化</td>
+        <td>首批 RDG Pass 注册：深度预通道（<code>RenderPrePass</code>）和 Nanite 主光栅化（<code>Nanite::RenderMainPass</code>），生成 SceneDepth 和 Nanite VisBuffer。</td>
+      </tr>
+      <tr>
+        <td>L2729</td>
+        <td><code>Nanite::BuildShadingCommands</code></td>
+        <td>提前构建 Nanite 着色命令（CPU 端着色命令构建，不注册 GPU Pass，但为后续 Nanite BasePass 着色做准备）。</td>
+      </tr>
+      <tr>
+        <td>L3098</td>
+        <td><code>RenderBasePass</code></td>
+        <td>最大 RDG Pass 组：传统几何硬件光栅化 + Nanite Compute Shader 着色，写入 GBuffer A/B/C/D/E。</td>
+      </tr>
+      <tr>
+        <td>L3507</td>
+        <td><code>RenderLights</code></td>
+        <td>延迟光照计算：Clustered Deferred Shading 光源遍历，读取 GBuffer 评估 BRDF 贡献。</td>
+      </tr>
+      <tr>
+        <td>L4057</td>
+        <td><code>RenderTranslucency</code></td>
+        <td>半透明前向渲染：按混合模式排序，支持折射扭曲和 OIT 乱序透明。</td>
+      </tr>
+      <tr>
+        <td>L4274</td>
+        <td><code>AddPostProcessingPasses</code></td>
+        <td>后处理管线：Bloom、Tonemap、DOF、MotionBlur、TSR 等，全部通过 RDG 注册。</td>
+      </tr>
+      <tr>
+        <td>L4423-4456</td>
+        <td><code>GraphBuilder.Execute()</code></td>
+        <td>提交所有 Pass：触发依赖图编译、拓扑排序、Transient 资源分配、屏障插入、Pass 调度执行，帧渲染收尾。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-callout accent">
+    <strong>RDG 的核心价值：</strong>将传统命令式资源管理（手动 <code>CreateTexture</code> / <code>ReleaseTexture</code> / <code>RHICmdList.TransitionResource</code>）转变为<strong>声明式依赖图</strong>。Pass 只需声明"我需要读 Texture A、写 Texture B"，RDG 自动处理：资源分配与回收、跨 Pass 屏障插入（UAV Barrier / RT Transition）、无重叠资源的内存别名复用。这不仅消除了一大类资源管理 bug，还通过 Transient 资源池显著降低了显存峰值占用。
+  </div>
 </section>
 
 <!-- ===== 2. 核心概念 ===== -->
 <section class="section-block" id="core-concepts">
   <h2>2. 核心概念</h2>
   <p class="section-desc">RDG 的核心概念包括 Pass、资源（Texture/Buffer）、依赖边、Transient 资源分配和自动屏障系统，这些共同构成了 GPU 管线的高效调度模型。</p>
+
+  <h3>2.1 三大原语</h3>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-label">原语 1</div>
+      <div class="card-title">FRDGBuilder</div>
+      <div class="card-desc">
+        渲染依赖图构建器，源码位于 <code>RenderGraphBuilder.h</code>。职责：注册 Pass、创建图资源、构建依赖图、在 <code>Execute()</code> 时调度执行。单帧生命周期：构造 → AddPass/CreateTexture → Execute → 析构。关键方法：<code>AddPass()</code> 注册渲染 Pass、<code>CreateTexture()</code> 创建图纹理句柄、<code>CreateBuffer()</code> 创建图缓冲区句柄、<code>QueueTextureExtraction()</code> 将图资源移出供后续使用。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-label">原语 2</div>
+      <div class="card-title">FRDGTextureRef / FRDGBufferRef</div>
+      <div class="card-desc">
+        编译时引用计数句柄，并非实际 GPU 资源。仅在 <code>Execute()</code> 时由 TransientResourceAllocator 实际分配。不可跨帧持有（FRDGBuilder 析构后失效）。使用 <code>QueueTextureExtraction</code> 将资源移出 RDG 图供后续管线阶段使用。支持 External Texture 注册（<code>RegisterExternalTexture</code>）将已有池化纹理借入 RDG。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-label">原语 3</div>
+      <div class="card-title">RDG Pass</div>
+      <div class="card-desc">
+        四种类型：Raster（<code>ERDGPassFlags::Raster</code>，图形管线）、Compute（<code>ERDGPassFlags::Compute</code>，计算管线）、AsyncCompute（异步计算队列）、Copy（资源拷贝）。每个 Pass 声明包含：参数结构体（<code>SHADER_PARAMETER_STRUCT</code>）+ 执行 Lambda + Pass Flags。Pass 间通过资源引用隐式建立依赖关系——无需手动指定执行顺序。
+      </div>
+    </div>
+  </div>
+
+  <h3>2.2 访问声明与依赖推导</h3>
+
+  <p>每个 Pass 声明对资源的访问方式（Read/Write），RDG 据此自动判定 Pass 间依赖、插入资源屏障、分析内存别名机会。访问模式由参数结构体中的宏自动推导：<code>SHADER_PARAMETER_RDG_TEXTURE</code> 声明读访问，<code>SHADER_PARAMETER_RDG_TEXTURE_UAV</code> 声明写访问，<code>SHADER_PARAMETER_RDG_BUFFER_SRV</code> / <code>SHADER_PARAMETER_RDG_BUFFER_UAV</code> 同理。</p>
+
+  <div class="info-callout accent">
+    <strong>"注册 vs 实际分配"是 RDG 最核心的设计理念：</strong><code>CreateTexture</code> 只是声明意图，实际 GPU 内存分配发生在 <code>Execute()</code> 阶段，由 RDG 根据生命周期分析统一优化。这意味着：<strong>(1)</strong> 创建了但从未被 Pass 引用的资源根本不会分配；<strong>(2)</strong> 生命周期不重叠的多个资源可能共享同一块显存（别名复用）；<strong>(3)</strong> Pass 被裁剪时其输出资源也一并消除。
+  </div>
 </section>
 
 <!-- ===== 3. Pass 注册与执行 ===== -->
 <section class="section-block" id="pass-registration">
   <h2>3. Pass 注册与执行</h2>
   <p class="section-desc">每个渲染 Pass 通过 AddPass 注册到 FRDGBuilder 中，声明其输入/输出资源，RDG 自动分析跨 Pass 依赖关系并决定执行顺序。</p>
+
+  <p>每个 RDG Pass 通过 <code>AddPass</code> 注册。RDG 在编译时通过 C++ 模板元编程反射参数结构体，提取所有资源引用和访问模式。这是 RDG 区别于传统手动渲染框架的核心机制——<strong>编译期类型推导</strong>使得资源依赖关系在 Pass 注册时自动建立，无需手动维护 Barrier 顺序。</p>
+
+  <h3>3.1 AddPass 内部流程</h3>
+
+  <div class="call-chain">
+    <div class="chain-main">FRDGBuilder::AddPass(PassName, ParameterStruct, PassFlags, Lambda)</div>
+    <div class="chain-step">1. Lambda 参数捕获 → 编译时通过 <code>TParameterStructTypeInfo</code> 进行类型推导，反射遍历参数结构体中的所有 <code>SHADER_PARAMETER_RDG_*</code> 声明</div>
+    <div class="chain-step">2. 遍历参数结构体反射信息，注册每个参数：Texture SRV/UAV、Buffer SRV/UAV、RenderTarget、UniformBuffer</div>
+    <div class="chain-step">3. 根据访问方式（Read/Write）建立资源依赖边（Producer → Consumer），写方为 Producer，读方为 Consumer</div>
+    <div class="chain-step">4. 当所有 Pass 注册完毕，<code>Execute()</code> 调用内部 <code>Compile()</code> 进行拓扑排序</div>
+    <div class="chain-step">5. 按排序结果依次 Dispatch Pass Lambda 到 RHI 命令列表</div>
+  </div>
+
+  <h3>3.2 拓扑排序与无用 Pass 裁剪</h3>
+
+  <p>RDG 在 <code>Execute()</code> 阶段对已注册的所有 Pass 执行编译分析，核心包含三个优化步骤：</p>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-title">拓扑排序</div>
+      <div class="card-desc">
+        RDG 将 Pass 构建为 DAG 节点，通过 Kahn 算法（入度归零）进行拓扑排序。依赖边由资源引用自动生成：Pass B 读取 Pass A 写入的资源 → A 必须在 B 之前执行。多个无依赖的 Pass 可以并行提交（AsyncCompute 队列）。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">无用 Pass 裁剪（Culling）</div>
+      <div class="card-desc">
+        只有对最终输出有贡献的 Pass 才会执行。最终输出 = 被 <code>QueueTextureExtraction</code> 提取的资源 + External 注册且外部可见的资源。无下游消费者的 Pass 被自动剔除——即便有 GPU 副作用也不会执行。SceneColor/SceneDepth 外提 Pass 不会被裁剪。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">Pass 合并</div>
+      <div class="card-desc">
+        相邻的同类型 Pass（无依赖关系、无屏障需求）可被 RDG 合并为单个 Dispatch 以减少 CPU 开销。合并条件包括：同 Pass 类型（Raster/Compute/Copy）、无资源依赖冲突、无跨 Pass 屏障。最终的 SceneColor/SceneDepth 外提 Pass 和带外部副作用的 Pass 不会被合并。
+      </div>
+    </div>
+  </div>
+
+  <h3>3.3 注册示例</h3>
+
+  <h4>Raster Pass 注册</h4>
+
+  <div class="code-block"><code><span class="cmt">// 全屏 Raster Pass 注册 — 使用 FPixelShaderUtils 便捷接口</span>
+<span class="kw">struct</span> <span class="fn">FMyFullscreenPS</span> : <span class="kw">FGlobalShader</span>
+{
+    <span class="fn">DECLARE_GLOBAL_SHADER</span>(FMyFullscreenPS);
+
+    <span class="fn">SHADER_USE_PARAMETER_STRUCT</span>(FMyFullscreenPS, FGlobalShader);
+
+    <span class="fn">BEGIN_SHADER_PARAMETER_STRUCT</span>(FParameters, )
+        <span class="fn">SHADER_PARAMETER_RDG_TEXTURE</span>(Texture2D, InputTexture)
+        <span class="fn">SHADER_PARAMETER_SAMPLER</span>(SamplerState, InputSampler)
+        <span class="fn">RENDER_TARGET_BINDING_SLOTS</span>()
+    <span class="fn">END_SHADER_PARAMETER_STRUCT</span>()
+};
+
+<span class="cmt">// 注册 Pass</span>
+<span class="kw">auto</span>* PassParameters = GraphBuilder.<span class="fn">AllocParameters</span>&lt;FMyFullscreenPS::FParameters&gt;();
+PassParameters-&gt;InputTexture = SceneColorTexture;
+PassParameters-&gt;InputSampler = <span class="fn">TStaticSamplerState</span>&lt;SF_Bilinear&gt;::GetRHI();
+PassParameters-&gt;RenderTargets[<span class="num">0</span>] = <span class="fn">FRenderTargetBinding</span>(OutputTexture, ERenderTargetLoadAction::ELoad);
+
+<span class="fn">FPixelShaderUtils::AddFullscreenPass</span>(
+    GraphBuilder,
+    View.ShaderMap,
+    RDG_EVENT_NAME(<span class="str">"MyFullscreenPass"</span>),
+    Shader,
+    PassParameters,
+    View.ViewRect);</code></div>
+
+  <h4>Compute Pass 注册</h4>
+
+  <div class="code-block"><code><span class="cmt">// Compute Pass 注册 — 使用 FComputeShaderUtils 便捷接口</span>
+<span class="kw">struct</span> <span class="fn">FMyComputeCS</span> : <span class="kw">FGlobalShader</span>
+{
+    <span class="fn">DECLARE_GLOBAL_SHADER</span>(FMyComputeCS);
+
+    <span class="fn">SHADER_USE_PARAMETER_STRUCT</span>(FMyComputeCS, FGlobalShader);
+
+    <span class="fn">BEGIN_SHADER_PARAMETER_STRUCT</span>(FParameters, )
+        <span class="fn">SHADER_PARAMETER_RDG_TEXTURE</span>(Texture2D, InputTexture)
+        <span class="fn">SHADER_PARAMETER_RDG_TEXTURE_UAV</span>(RWTexture2D, OutputUAV)
+        <span class="fn">SHADER_PARAMETER</span>(FVector2f, TextureSize)
+    <span class="fn">END_SHADER_PARAMETER_STRUCT</span>()
+};
+
+<span class="cmt">// 注册 Pass</span>
+<span class="kw">auto</span>* PassParameters = GraphBuilder.<span class="fn">AllocParameters</span>&lt;FMyComputeCS::FParameters&gt;();
+PassParameters-&gt;InputTexture = InputRDGTexture;
+PassParameters-&gt;OutputUAV = GraphBuilder.<span class="fn">CreateUAV</span>(OutputRDGTexture);
+PassParameters-&gt;TextureSize = FVector2f(Width, Height);
+
+<span class="fn">FComputeShaderUtils::AddPass</span>(
+    GraphBuilder,
+    RDG_EVENT_NAME(<span class="str">"MyComputePass"</span>),
+    ERDGPassFlags::Compute,
+    Shader,
+    PassParameters,
+    FIntVector(GroupCountX, GroupCountY, <span class="num">1</span>));</code></div>
+
+  <div class="info-callout warn">
+    <strong>Lambda 中不要做重量级 CPU 操作：</strong>Lambda 在 <code>Execute()</code> 阶段于 RenderThread 执行，直接阻塞 GPU 提交。材质编译、纹理流送、资源加载等应在 Pass 注册前完成，仅保留 RHI 命令录制在 Lambda 中。如果某个 Pass 的 Lambda 耗时超过 0.1ms，考虑将前置 CPU 工作提前到注册阶段完成，或通过 TaskGraph 异步化。
+  </div>
 </section>
 
 <!-- ===== 4. 资源生命周期 ===== -->
