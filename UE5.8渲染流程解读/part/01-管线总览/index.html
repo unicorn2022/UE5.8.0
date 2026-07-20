@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>渲染管线总览 — UE5.8.0 渲染流程解读</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --card: #131318;
+  --code: #09090d;
+  --accent: #4FC3F7;
+  --accent-dim: rgba(79,195,247,0.12);
+  --text: #e0e0e0;
+  --text-dim: #909090;
+  --border: rgba(255,255,255,0.06);
+  --font-sans: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  --font-mono: 'Cascadia Code','Fira Code','Consolas',monospace;
+  --warn: #FFB74D;
+  --warn-dim: rgba(255,183,77,0.08);
+  --warn-border: rgba(255,183,77,0.2);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:15px}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--text);line-height:1.72;min-height:100vh}
+a{color:var(--accent);text-decoration:none;transition:0.2s}
+a:hover{text-decoration:underline}
+
+/* ===== 面包屑导航 ===== */
+.breadcrumb{max-width:1200px;margin:0 auto;padding:16px 24px 0;font-size:0.85rem;color:var(--text-dim)}
+.breadcrumb a{color:var(--text-dim)}
+.breadcrumb a:hover{color:var(--accent)}
+.breadcrumb span{color:var(--text)}
+
+/* ===== Hero ===== */
+.hero{text-align:center;padding:60px 24px 48px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:800px;height:400px;background:radial-gradient(ellipse at center,rgba(79,195,247,0.08) 0%,transparent 70%);pointer-events:none}
+.hero h1{font-size:2.4rem;font-weight:800;letter-spacing:0.5px;position:relative}
+.hero h1 span{color:var(--accent)}
+.hero .subtitle{margin-top:12px;font-size:1.05rem;color:var(--text-dim);max-width:720px;margin-inline:auto;position:relative}
+.hero .meta{margin-top:20px;display:flex;gap:16px;justify-content:center;flex-wrap:wrap;position:relative}
+.hero .meta .tag{font-family:var(--font-mono);font-size:0.8rem;padding:4px 14px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-dim)}
+
+/* ===== 概述段 ===== */
+.overview-section{max-width:1000px;margin:0 auto 56px;padding:0 24px}
+.overview-section h2{font-size:1.5rem;color:var(--accent);margin-bottom:16px}
+.overview-section p{color:var(--text-dim);margin-bottom:12px;font-size:0.95rem}
+.overview-section .callout{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:16px 20px;margin-top:16px;font-size:0.9rem}
+.overview-section .callout strong{color:var(--accent)}
+
+/* ===== SVG 流程图区域 ===== */
+.svg-section{max-width:1300px;margin:0 auto 56px;padding:0 24px}
+.svg-section h2{text-align:center;font-size:1.5rem;color:var(--accent);margin-bottom:8px}
+.svg-section .section-desc{text-align:center;color:var(--text-dim);margin-bottom:28px;font-size:0.92rem}
+.svg-container{overflow-x:auto;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px 16px}
+.svg-container svg{display:block;min-width:1100px;margin:0 auto}
+
+/* ===== 阶段卡片区域 ===== */
+.detail-section{max-width:1100px;margin:0 auto 60px;padding:0 24px}
+.detail-section h2{text-align:center;font-size:1.5rem;color:var(--accent);margin-bottom:28px}
+
+.stage-detail{background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:16px;overflow:hidden;transition:all 0.2s}
+.stage-detail:hover{border-color:rgba(79,195,247,0.3)}
+.stage-detail summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:16px;padding:20px 24px;user-select:none}
+.stage-detail summary::-webkit-details-marker{display:none}
+.stage-detail summary::before{content:'\25B6';font-size:0.7rem;color:var(--text-dim);transition:transform 0.2s;flex-shrink:0}
+.stage-detail[open] summary::before{transform:rotate(90deg)}
+
+.stage-header{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
+.stage-header .stage-num{font-family:var(--font-mono);font-size:0.72rem;color:var(--accent);letter-spacing:1px}
+.stage-header h3{font-size:1.1rem;font-weight:700;color:#fff;margin:0}
+.stage-header .stage-range{font-family:var(--font-mono);font-size:0.72rem;color:rgba(79,195,247,0.5)}
+
+.stage-body{padding:0 24px 24px;border-top:1px solid var(--border)}
+.stage-purpose{font-size:0.9rem;color:var(--text-dim);padding-top:16px;margin-bottom:16px}
+
+.call-chain{margin-bottom:18px}
+.call-chain h4{font-size:0.82rem;color:var(--accent);margin-bottom:8px;letter-spacing:0.5px}
+.call-chain pre{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:14px 18px;overflow-x:auto;font-size:0.8rem;line-height:1.65}
+.call-chain code{font-family:var(--font-mono);color:#c8ccd4}
+.call-chain code .fn{color:#7ec8e3}
+.call-chain code .cmt{color:#6a9955}
+.call-chain code .arrow{color:var(--text-dim)}
+
+.stage-output{margin-bottom:18px}
+.stage-output h4{font-size:0.82rem;color:var(--accent);margin-bottom:8px;letter-spacing:0.5px}
+.stage-output ul{padding-left:1.4em;font-size:0.88rem;color:var(--text-dim)}
+.stage-output ul li{margin-bottom:4px}
+.stage-output ul li code{font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 6px;border-radius:3px;color:var(--accent)}
+
+.deep-link{display:inline-block;font-size:0.85rem;margin-top:4px;font-weight:500}
+.deep-link:hover{text-decoration:none;opacity:0.85}
+
+/* ===== 阶段间数据流 ===== */
+.flow-section{max-width:1100px;margin:0 auto 60px;padding:0 24px}
+.flow-section h2{text-align:center;font-size:1.5rem;color:var(--accent);margin-bottom:24px}
+.flow-list{display:flex;flex-direction:column;gap:12px}
+.flow-item{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 20px;font-size:0.88rem}
+.flow-item .flow-from{font-family:var(--font-mono);font-size:0.78rem;color:var(--accent);flex-shrink:0;min-width:60px;text-align:right}
+.flow-item .flow-arrow-sym{color:var(--text-dim);flex-shrink:0;font-size:1rem}
+.flow-item .flow-to{font-family:var(--font-mono);font-size:0.78rem;color:var(--accent);flex-shrink:0;min-width:60px}
+.flow-item .flow-desc{color:var(--text-dim);font-size:0.83rem}
+
+/* ===== 异步标注区域 ===== */
+.async-section{max-width:1100px;margin:0 auto 60px;padding:0 24px}
+.async-section h2{text-align:center;font-size:1.5rem;color:var(--warn);margin-bottom:8px}
+.async-section .section-desc{text-align:center;color:var(--text-dim);margin-bottom:28px;font-size:0.92rem}
+.async-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.async-card{background:var(--warn-dim);border:1px solid var(--warn-border);border-radius:8px;padding:18px;font-size:0.88rem}
+.async-card .async-phase{font-family:var(--font-mono);font-size:0.72rem;color:var(--warn);letter-spacing:1px;margin-bottom:6px}
+.async-card .async-title{font-weight:700;color:#fff;margin-bottom:6px}
+.async-card .async-desc{color:var(--text-dim);font-size:0.83rem;line-height:1.55}
+.async-card .async-desc code{font-family:var(--font-mono);font-size:0.8rem;background:rgba(255,183,77,0.08);padding:1px 5px;border-radius:3px;color:var(--warn)}
+
+/* ===== 跳转链接区域 ===== */
+.links-section{max-width:1100px;margin:0 auto 80px;padding:0 24px}
+.links-section h2{text-align:center;font-size:1.5rem;color:var(--accent);margin-bottom:24px}
+.links-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.link-card{display:block;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px 20px;transition:all 0.2s;color:var(--text)}
+.link-card:hover{border-color:var(--accent);transform:translateY(-2px);text-decoration:none;box-shadow:0 6px 20px rgba(0,0,0,0.4)}
+.link-card .link-num{font-family:var(--font-mono);font-size:0.7rem;color:var(--accent);margin-bottom:4px}
+.link-card .link-title{font-size:1rem;font-weight:700;color:#fff;margin-bottom:4px}
+.link-card .link-desc{font-size:0.82rem;color:var(--text-dim)}
+
+/* ===== Footer ===== */
+.footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);color:var(--text-dim);font-size:0.83rem}
+
+/* ===== 回到顶部 ===== */
+.back-top{position:fixed;bottom:32px;right:32px;width:40px;height:40px;border-radius:50%;background:var(--card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--text-dim);transition:all 0.2s;z-index:100}
+.back-top:hover{color:var(--accent);border-color:var(--accent);text-decoration:none}
+
+/* ===== 响应式 ===== */
+@media(max-width:768px){
+  .hero{padding:40px 18px 32px}
+  .hero h1{font-size:1.6rem}
+  .stage-detail summary{padding:14px 16px;gap:10px}
+  .stage-body{padding:0 16px 20px}
+  .svg-container{padding:12px 8px}
+  .flow-item{flex-wrap:wrap;gap:8px;padding:12px 16px}
+  .links-grid{grid-template-columns:1fr}
+  .async-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 面包屑导航 ===== -->
+<nav class="breadcrumb">
+  <a href="../../index.html">首页</a> &nbsp;&rsaquo;&nbsp; <span>渲染管线总览</span>
+</nav>
+
+<!-- ===== Hero ===== -->
+<section class="hero">
+  <h1>渲染管线<span>总览</span></h1>
+  <p class="subtitle">以 <code style="font-family:var(--font-mono);background:var(--code);padding:2px 6px;border-radius:4px;font-size:0.9rem">FDeferredShadingSceneRenderer::Render()</code> 为入口，逐阶段拆解 UE5.8.0 一帧渲染的完整流程 —— 从视图初始化到帧收尾，共九个阶段约 2600 行代码。</p>
+  <div class="meta">
+    <span class="tag">九阶段管线</span>
+    <span class="tag">DeferredShadingRenderer.cpp</span>
+    <span class="tag">L1826 - L4456</span>
+    <span class="tag">约 2600 行</span>
+    <span class="tag">RDG 驱动</span>
+  </div>
+</section>
+
+<!-- ===== 概述段 ===== -->
+<section class="overview-section">
+  <h2>Render 函数定位</h2>
+  <p><code style="font-family:var(--font-mono);font-size:0.9rem;background:var(--code);padding:2px 6px;border-radius:3px">FDeferredShadingSceneRenderer::Render()</code> 是 UE5.8 延迟渲染管线的总入口函数，位于 <strong>DeferredShadingRenderer.cpp 第 1826 行</strong>，横跨约 2600 行代码到第 4456 行结束。该函数以 RDG（Render Dependency Graph, 渲染依赖图）为全帧资源调度中枢，将一帧渲染划分为九个逻辑阶段。</p>
+  <p>Render 函数接受 <code style="font-family:var(--font-mono);font-size:0.9rem;background:var(--code);padding:2px 6px;border-radius:3px">FRDGBuilder&amp; GraphBuilder</code> 和 <code style="font-family:var(--font-mono);font-size:0.9rem;background:var(--code);padding:2px 6px;border-radius:3px">FSceneRenderUpdateInputs*</code> 两个核心参数，前者负责构建渲染依赖图并自动管理临时资源的生命周期，后者携带当前帧的更新输入数据（场景更新、渲染器组等）。</p>
+  <div class="callout">
+    <strong>关键数据流特征：</strong>Render 函数按严格顺序组织阶段，前序阶段产出的 GPU 资源（深度、G-Buffer、场景颜色等）通过 RDG 的 <code style="font-family:var(--font-mono);font-size:0.88rem;background:var(--code);padding:1px 5px;border-radius:3px">FRDGTextureRef</code> 引用传递给后续阶段。同时，大量独立的 CPU 子任务（光源收集、Nanite 着色命令构建等）通过 TaskGraph 和 UE::Tasks 异步并行执行，以最大化 CPU 利用率。
+  </div>
+</section>
+
+<!-- ===== SVG 横向流程图 ===== -->
+<section class="svg-section">
+  <h2>九阶段总览流程图</h2>
+  <p class="section-desc">以下 SVG 展示 Render 函数内九个阶段按时间线的执行顺序。实线箭头为同步数据流依赖，虚线连接表示异步并行任务。点击 SVG 节点可跳转到对应阶段卡片。</p>
+  <div class="svg-container">
+    <svg viewBox="0 0 1200 480" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#131318"/>
+          <stop offset="100%" stop-color="#131318"/>
+        </linearGradient>
+        <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="2" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <marker id="arrowMain" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 Z" fill="#4FC3F7" opacity="0.7"/>
+        </marker>
+        <marker id="arrowDash" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 Z" fill="#FFB74D" opacity="0.5"/>
+        </marker>
+      </defs>
+
+      <!-- 背景 -->
+      <rect x="0" y="0" width="1200" height="480" fill="none"/>
+
+      <!-- 第 1 行节点：阶段 1-5 -->
+      <text x="89" y="58" text-anchor="middle" font-size="11" font-family="monospace" fill="#909090">阶段 1</text>
+      <a href="#stage1">
+        <rect x="24" y="66" width="130" height="52" rx="6" fill="#131318" stroke="rgba(79,195,247,0.2)" stroke-width="1.2"/>
+        <text x="89" y="89" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">视图与管线初始化</text>
+        <text x="89" y="107" text-anchor="middle" font-size="10" font-family="monospace" fill="rgba(79,195,247,0.5)">1826-1868</text>
+      </a>
+
+      <line x1="154" y1="92" x2="186" y2="92" stroke="#4FC3F7" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowMain)"/>
+
+      <text x="260" y="58" text-anchor="middle" font-size="11" font-family="monospace" fill="#909090">阶段 2</text>
+      <a href="#stage2">
+        <rect x="195" y="66" width="130" height="52" rx="6" fill="#131318" stroke="rgba(79,195,247,0.2)" stroke-width="1.2"/>
+        <text x="260" y="89" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">光追初始化</text>
+        <text x="260" y="107" text-anchor="middle" font-size="10" font-family="monospace" fill="rgba(79,195,247,0.5)">1870-1900</text>
+      </a>
+
+      <line x1="325" y1="92" x2="357" y2="92" stroke="#4FC3F7" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowMain)"/>
+
+      <text x="431" y="58" text-anchor="middle" font-size="11" font-family="monospace" fill="#909090">阶段 3</text>
+      <a href="#stage3">
+        <rect x="366" y="66" width="130" height="52" rx="6" fill="#131318" stroke="rgba(79,195,247,0.2)" stroke-width="1.2"/>
+        <text x="431" y="89" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">视图与可见性</text>
+        <text x="431" y="107" text-anchor="middle" font-size="10" font-family="monospace" fill="rgba(79,195,247,0.5)">1902-2465</text>
+      </a>
+
+      <line x1="496" y1="92" x2="528" y2="92" stroke="#4FC3F7" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowMain)"/>
+
+      <text x="602" y="58" text-anchor="middle" font-size="11" font-family="monospace" fill="#909090">阶段 4</text>
+      <a href="#stage4">
+        <rect x="537" y="66" width="130" height="52" rx="6" fill="#131318" stroke="rgba(79,195,247,0.2)" stroke-width="1.2"/>
+        <text x="602" y="89" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">预通道与Nanite</text>
+        <text x="602" y="107" text-anchor="middle" font-size="10" font-family="monospace" fill="rgba(79,195,247,0.5)">2476-2534</text>
+      </a>
+
+      <line x1="667" y1="92" x2="699" y2="92" stroke="#4FC3F7" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowMain)"/>
+
+      <text x="773" y="58" text-anchor="middle" font-size="11" font-family="monospace" fill="#909090">阶段 5</text>
+      <a href="#stage5">
+        <rect x="708" y="66" width="130" height="52" rx="6" fill="#131318" stroke="rgba(79,195,247,0.2)" stroke-width="1.2"/>
+        <text x="773" y="89" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">BasePass</text>
+        <text x="773" y="107" text-anchor="middle" font-size="10" font-family="monospace" fill="rgba(79,195,247,0.5)">3094-3131</text>
+      </a>
+
+      <!-- 中间异步标注行 -->
+      <text x="600" y="140" text-anchor="middle" font-size="10" font-family="monospace" fill="#FFB74D" opacity="0.7">异步并行：光源收集 (GatherAndSortLights) / 光照函数图集 (UpdateLightFunctionAtlas)</text>
+
+      <!-- 第 1 行到第 2 行连接箭头 -->
+      <line x1="773" y1="118" x2="773" y2="163" stroke="#4FC3F7" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowMain)"/>
+
+      <!-- 第 2 行节点：阶段 6-9 -->
+      <text x="113" y="195" text-anchor="middle" font-size="11" font-family="monospace" fill="#909090">阶段 6</text>
+      <a href="#stage6">
+        <rect x="24" y="203" width="158" height="52" rx="6" fill="#131318" stroke="rgba(79,195,247,0.2)" stroke-width="1.2"/>
+        <text x="103" y="226" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">延迟光照</text>
+        <text x="103" y="244" text-anchor="middle" font-size="10" font-family="monospace" fill="rgba(79,195,247,0.5)">3507-3523</text>
+      </a>
+
+      <line x1="182" y1="229" x2="218" y2="229" stroke="#4FC3F7" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowMain)"/>
+
+      <text x="329" y="195" text-anchor="middle" font-size="11" font-family="monospace" fill="#909090">阶段 7</text>
+      <a href="#stage7">
+        <rect x="227" y="203" width="155" height="52" rx="6" fill="#131318" stroke="rgba(79,195,247,0.2)" stroke-width="1.2"/>
+        <text x="304" y="226" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">半透明渲染</text>
+        <text x="304" y="244" text-anchor="middle" font-size="10" font-family="monospace" fill="rgba(79,195,247,0.5)">4057-4098</text>
+      </a>
+
+      <line x1="382" y1="229" x2="438" y2="229" stroke="#4FC3F7" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowMain)"/>
+
+      <text x="545" y="195" text-anchor="middle" font-size="11" font-family="monospace" fill="#909090">阶段 8</text>
+      <a href="#stage8">
+        <rect x="447" y="203" width="155" height="52" rx="6" fill="#131318" stroke="rgba(79,195,247,0.2)" stroke-width="1.2"/>
+        <text x="524" y="226" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">后处理</text>
+        <text x="524" y="244" text-anchor="middle" font-size="10" font-family="monospace" fill="rgba(79,195,247,0.5)">4274-4382</text>
+      </a>
+
+      <line x1="602" y1="229" x2="638" y2="229" stroke="#4FC3F7" stroke-width="1.2" opacity="0.5" marker-end="url(#arrowMain)"/>
+
+      <text x="704" y="195" text-anchor="middle" font-size="11" font-family="monospace" fill="#909090">阶段 9</text>
+      <a href="#stage9">
+        <rect x="647" y="203" width="130" height="52" rx="6" fill="#131318" stroke="rgba(79,195,247,0.2)" stroke-width="1.2"/>
+        <text x="712" y="226" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">收尾</text>
+        <text x="712" y="244" text-anchor="middle" font-size="10" font-family="monospace" fill="rgba(79,195,247,0.5)">4423-4456</text>
+      </a>
+
+      <!-- 异步并行标注第 2 行 -->
+      <text x="540" y="285" text-anchor="middle" font-size="10" font-family="monospace" fill="#FFB74D" opacity="0.7">异步并行：Lumen 间接光照 / MegaLights 体积 / 体积云 (AsyncCompute)</text>
+
+      <!-- 数据流产出说明 -->
+      <rect x="24" y="310" width="1152" height="76" rx="8" fill="rgba(79,195,247,0.03)" stroke="rgba(79,195,247,0.08)" stroke-width="1"/>
+      <text x="600" y="332" text-anchor="middle" font-size="12" font-weight="bold" fill="#4FC3F7">核心数据流产出链</text>
+      <text x="600" y="354" text-anchor="middle" font-size="10" fill="#909090">
+        RendererOutput → RayTracingScene → InitViewTaskDatas → SceneTextures.Depth → SceneTextures GBuffer(A/B/C/D/E)
+      </text>
+      <text x="600" y="372" text-anchor="middle" font-size="10" fill="#909090">
+        → SceneTextures.Color（含直接/间接光照）→ SceneTextures.Color（含半透明）→ ViewFamilyTexture（最终输出帧）
+      </text>
+
+      <!-- HDMI 虚线标注 Nanite BuildShadingCommands 位置 -->
+      <line x1="667" y1="92" x2="667" y2="166" stroke="#FFB74D" stroke-width="0.8" stroke-dasharray="4,3" opacity="0.4"/>
+      <text x="672" y="134" font-size="9" font-family="monospace" fill="#FFB74D" opacity="0.6">Nanite::BuildShadingCommands 提前执行</text>
+
+      <!-- 异步虚线标注 Lumen/MegaLights/VolumetricCloud 位置 -->
+      <line x1="150" y1="255" x2="150" y2="173" stroke="#FFB74D" stroke-width="0.8" stroke-dasharray="4,3" opacity="0.4"/>
+      <text x="20" y="300" font-size="9" font-family="monospace" fill="#FFB74D" opacity="0.6">阶段 4 后提前触发 AsyncCompute Lumen</text>
+      <line x1="250" y1="255" x2="250" y2="173" stroke="#FFB74D" stroke-width="0.8" stroke-dasharray="4,3" opacity="0.4"/>
+      <text x="20" y="312" font-size="9" font-family="monospace" fill="#FFB74D" opacity="0.6">阶段 4 后提前触发 AsyncCompute MegaLights</text>
+      <line x1="350" y1="255" x2="350" y2="173" stroke="#FFB74D" stroke-width="0.8" stroke-dasharray="4,3" opacity="0.4"/>
+      <text x="20" y="324" font-size="9" font-family="monospace" fill="#FFB74D" opacity="0.6">阶段 4 后提前触发 AsyncCompute VolumetricCloud</text>
+    </svg>
+  </div>
+</section>
+
+<!-- ===== 九张可展开阶段卡片 ===== -->
+<section class="detail-section">
+  <h2>九阶段详细拆解</h2>
+
+  <!-- 阶段 1 -->
+  <details class="stage-detail" id="stage1" open>
+    <summary>
+      <span class="stage-header">
+        <span class="stage-num">阶段 1 / 9</span>
+        <h3>视图与管线初始化</h3>
+        <span class="stage-range">DeferredShadingRenderer.cpp:1826-1868</span>
+      </span>
+    </summary>
+    <div class="stage-body">
+      <p class="stage-purpose">Render 函数入口，确定渲染器输出模式、Nanite 启用状态、光追覆盖模式，并启动 RenderCapture 调试捕获。</p>
+      <div class="call-chain">
+        <h4>关键函数调用链</h4>
+        <pre><code><span class="fn">FDeferredShadingSceneRenderer::Render</span>(GraphBuilder, SceneUpdateInputs)
+  <span class="arrow">&#x2192;</span> <span class="fn">GetRendererOutput</span>()                    <span class="cmt">// 确定输出模式：FinalSceneColor / DepthPrepassOnly</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">ShouldRenderNanite</span>()                    <span class="cmt">// 判断是否启用 Nanite 虚拟几何</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">HasRayTracedOverlay</span>(ViewFamily)         <span class="cmt">// 检测光追覆盖模式</span>
+  <span class="arrow">&#x2192;</span> RenderCaptureInterface::FScopedCapture      <span class="cmt">// 调试捕获（非 Shipping 构建）</span></code></pre>
+      </div>
+      <div class="stage-output">
+        <h4>产出资源 / 状态</h4>
+        <ul>
+          <li><code>ERendererOutput RendererOutput</code> — 渲染器输出模式</li>
+          <li><code>bool bNaniteEnabled</code> — Nanite 启用标志</li>
+          <li><code>bool bHasRayTracedOverlay</code> — 光追覆盖标志</li>
+          <li>ViewState 链接到 Scene</li>
+        </ul>
+      </div>
+    </div>
+  </details>
+
+  <!-- 阶段 2 -->
+  <details class="stage-detail" id="stage2">
+    <summary>
+      <span class="stage-header">
+        <span class="stage-num">阶段 2 / 9</span>
+        <h3>光追初始化</h3>
+        <span class="stage-range">DeferredShadingRenderer.cpp:1870-1900</span>
+      </span>
+    </summary>
+    <div class="stage-body">
+      <p class="stage-purpose">更新光追几何体加速结构（BLAS/TLAS），重置 Shader Binding Table（SBT），遍历所有视图注册到 RayTracingScene。只在 <code>RHI_RAYTRACING</code> 宏启用时编译。</p>
+      <div class="call-chain">
+        <h4>关键函数调用链</h4>
+        <pre><code><span class="fn">GRayTracingGeometryManager->Update</span>(RHICmdList)
+  <span class="arrow">&#x2192;</span> <span class="fn">GRayTracingGeometryManager->ProcessBuildRequests</span>(RHICmdList)
+  <span class="arrow">&#x2192;</span> <span class="fn">RayTracingSBT.ResetMissAndCallableShaders</span>()
+  <span class="arrow">&#x2192;</span> for Views: <span class="fn">RayTracingScene.AddView</span>(ViewKey)
+  <span class="arrow">&#x2192;</span> <span class="fn">RayTracingScene.SetViewParams</span>(Handle, ViewMatrices, CullingParams)</code></pre>
+      </div>
+      <div class="stage-output">
+        <h4>产出资源 / 状态</h4>
+        <ul>
+          <li><code>FRayTracingScene</code> — 光追场景实例集，视图已注册</li>
+          <li><code>FRayTracingShaderBindingTable</code> — SBT 已重置，准备接收 Miss/Callable Shader</li>
+          <li>BLAS/TLAS 构建请求已提交</li>
+        </ul>
+      </div>
+      <a href="../../index.html" class="deep-link">参考：光追子系统模块（规划中）&#8594;</a>
+    </div>
+  </details>
+
+  <!-- 阶段 3 -->
+  <details class="stage-detail" id="stage3">
+    <summary>
+      <span class="stage-header">
+        <span class="stage-num">阶段 3 / 9</span>
+        <h3>视图与可见性初始化</h3>
+        <span class="stage-range">DeferredShadingRenderer.cpp:1902-2465</span>
+      </span>
+    </summary>
+    <div class="stage-body">
+      <p class="stage-purpose">Render 函数中最长也是最复杂的阶段（约 560 行）。完成可见性计算的全部 CPU 准备工作：光照函数图集、VSM 初始化、Lumen 场景任务、Nanite 可见性查询、距离场准备、视锥/遮挡裁剪、GPU Scene 上传。大量子任务以异步方式并行执行。</p>
+      <div class="call-chain">
+        <h4>关键函数调用链</h4>
+        <pre><code><span class="fn">OnRenderBegin</span>(GraphBuilder, SceneUpdateInputs)
+  <span class="arrow">&#x2192;</span> <span class="fn">CommitFinalPipelineState</span>()              <span class="cmt">// 提交最终管线状态</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">GSystemTextures.InitializeTextures</span>(RHICmdList, FeatureLevel)
+  <span class="arrow">&#x2192;</span> <span class="fn">UpdateLightFunctionAtlasTask</span>              <span class="cmt">// 异步：光照函数图集更新</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">VirtualShadowMapArray.Initialize</span>(...)      <span class="cmt">// VSM 页面系统初始化</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">BeginUpdateLumenSceneTasks</span>(...)           <span class="cmt">// Lumen 场景更新任务启动</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">NaniteVisibility.BeginVisibilityFrame</span>()   <span class="cmt">// Nanite 可见性帧开始</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">PrepareDistanceFieldScene</span>(...)            <span class="cmt">// 全局距离场准备</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">BeginInitViews</span>(GraphBuilder, ...)         <span class="cmt">// 可见性计算入口 (视锥/遮挡裁剪)</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">Scene->GPUScene.UploadDynamicPrimitiveShaderDataForView</span>(...)  <span class="cmt">// GPU Scene 动态图元上传</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">EndInitViews</span>(GraphBuilder, ...)           <span class="cmt">// 可见性计算完成</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">Substrate::InitialiseSubstrateFrameSceneData</span>(...)  <span class="cmt">// Substrate 材质初始化</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">RunHairStrandsBookmark</span>(...)               <span class="cmt">// HairStrands 发丝初始化</span></code></pre>
+      </div>
+      <div class="stage-output">
+        <h4>产出资源 / 状态</h4>
+        <ul>
+          <li><code>FInitViewTaskDatas InitViewTaskDatas</code> — 可见性计算结果完整</li>
+          <li><code>GPUScene</code> — 动态图元着色器数据已上传至 GPU</li>
+          <li><code>NaniteVisibility</code> — 可见性查询已启动，基础通道可见性就绪</li>
+          <li><code>InstanceCullingManager</code> — 实例裁剪上下文就绪</li>
+          <li><code>VirtualShadowMapArray</code> — 虚拟阴影贴图系统已初始化</li>
+          <li><code>LumenFrameTemporaries</code> — Lumen 帧临时数据已初始化</li>
+          <li><code>GatherAndSortLightsTask</code> — 光源收集与排序异步任务已启动</li>
+        </ul>
+      </div>
+      <a href="../02-Nanite/index.html" class="deep-link">深入：Nanite 可见性 &#8594;</a>
+    </div>
+  </details>
+
+  <!-- 阶段 4 -->
+  <details class="stage-detail" id="stage4">
+    <summary>
+      <span class="stage-header">
+        <span class="stage-num">阶段 4 / 9</span>
+        <h3>预通道与 Nanite 渲染</h3>
+        <span class="stage-range">DeferredShadingRenderer.cpp:2476-2534</span>
+      </span>
+    </summary>
+    <div class="stage-body">
+      <p class="stage-purpose">执行深度预通道（Z-PrePass）以建立完整的深度缓冲和 HZB（Hierarchical Z-Buffer）层次深度，然后调用 Nanite 光栅化生成 VisBuffer 和 Nanite 深度。后续的 BasePass 和光照阶段依赖此阶段建立的深度信息进行 Early-Z 剔除。</p>
+      <div class="call-chain">
+        <h4>关键函数调用链（RenderPrepassAndVelocity Lambda）</h4>
+        <pre><code><span class="fn">AddClearDepthStencilPass</span>(GraphBuilder, Depth.Target, Clear, Clear)
+  <span class="arrow">&#x2192;</span> <span class="fn">RenderPrePass</span>(GraphBuilder, Views, Depth.Target, ...)  <span class="cmt">// 深度预通道</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">RenderVelocities</span>(GraphBuilder, Views, SceneTextures, Opaque, ...)  <span class="cmt">// DDM_AllOpaqueNoVelocity 路径时</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">RenderNanite</span>(GraphBuilder, Views, SceneTextures, ...)  <span class="cmt">// Nanite 光栅化(VisBuffer + 深度)</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">AddResolveSceneDepthPass</span>(GraphBuilder, Views, PartialDepth)
+  <span class="arrow">&#x2192;</span> <span class="fn">AddResolveSceneDepthPass</span>(GraphBuilder, Views, SceneTextures.Depth)</code></pre>
+      </div>
+      <div class="stage-output">
+        <h4>产出资源 / 状态</h4>
+        <ul>
+          <li><code>SceneTextures.Depth</code> — 完整深度缓冲（含 HZB 层次深度）</li>
+          <li><code>NaniteRasterResults</code> — Nanite 光栅化结果（VisBuffer + Nanite 深度）</li>
+          <li><code>PrimaryNaniteViews</code> — Nanite 视图压缩数据</li>
+          <li><code>SceneTextures.PartialDepth</code> — 预通道部分深度（用于透明发射器）</li>
+        </ul>
+      </div>
+      <a href="../02-Nanite/index.html" class="deep-link">深入：Nanite 光栅化管线 &#8594;</a>
+    </div>
+  </details>
+
+  <!-- 阶段 5 -->
+  <details class="stage-detail" id="stage5">
+    <summary>
+      <span class="stage-header">
+        <span class="stage-num">阶段 5 / 9</span>
+        <h3>BasePass（G-Buffer 写入）</h3>
+        <span class="stage-range">DeferredShadingRenderer.cpp:3094-3131</span>
+      </span>
+    </summary>
+    <div class="stage-body">
+      <p class="stage-purpose">将场景中所有不透明物体的材质属性写入 G-Buffer（共五张 RT：A/B/C/D/E）。传统几何体通过 FMeshDrawCommand 走硬件光栅化路径，Nanite 几何体通过 Compute Shader 着色路径直接读取 VisBuffer 输出。</p>
+      <div class="call-chain">
+        <h4>关键函数调用链</h4>
+        <pre><code><span class="fn">RenderBasePass</span>(*this, GraphBuilder, Views, SceneTextures,
+    BasePassDepthStencilAccess, ForwardScreenSpaceShadowMaskTexture,
+    InstanceCullingManager, bNaniteEnabled,
+    Scene->NaniteShadingCommands[ENaniteMeshPass::BasePass],
+    NaniteRasterResults)
+  <span class="arrow">&#x2192;</span> <span class="fn">AddResolveSceneDepthPass</span>(GraphBuilder, Views, SceneTextures.Depth)</code></pre>
+      </div>
+      <div class="stage-output">
+        <h4>产出资源 / 状态</h4>
+        <ul>
+          <li><code>GBufferA</code> — WorldNormal + PerObjectGBufferData + HasShadowCast</li>
+          <li><code>GBufferB</code> — Metallic + Specular + Roughness + ShadingModelID + SelectiveOutputMask</li>
+          <li><code>GBufferC</code> — BaseColor + IndirectIrradiance</li>
+          <li><code>GBufferD</code> — CustomData + SubsurfaceProfile</li>
+          <li><code>GBufferE</code> — PrecomputedShadowFactors + Emissive + SpecularColor</li>
+          <li><code>LightingChannelsTexture</code> — 光照通道纹理</li>
+          <li><code>SceneTextures.Depth</code> — BasePass 后深度已解析</li>
+        </ul>
+      </div>
+      <a href="../03-光照/index.html" class="deep-link">深入：延迟光照方案 &#8594;</a>
+    </div>
+  </details>
+
+  <!-- 阶段 6 -->
+  <details class="stage-detail" id="stage6">
+    <summary>
+      <span class="stage-header">
+        <span class="stage-num">阶段 6 / 9</span>
+        <h3>延迟光照计算</h3>
+        <span class="stage-range">DeferredShadingRenderer.cpp:3507-3523</span>
+      </span>
+    </summary>
+    <div class="stage-body">
+      <p class="stage-purpose">基于 G-Buffer 计算最终光照。先执行漫反射间接光照（Lumen GI + SSAO），再执行聚簇延迟着色（Clustered Deferred Shading）遍历光照网格计算直接光照。MegaLights 提供 UE5.8 新增的大量动态可投影光源支持。最后将光照结果注入半透明光照体积供阶段 7 使用。</p>
+      <div class="call-chain">
+        <h4>关键函数调用链</h4>
+        <pre><code><span class="fn">RenderDiffuseIndirectAndAmbientOcclusion</span>(GraphBuilder, ...)  <span class="cmt">// Lumen GI + SSAO</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">RenderLights</span>(GraphBuilder, SceneTextures, LightingChannelsTexture, SortedLightSet)  <span class="cmt">// Clustered Deferred Shading</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">RenderMegaLights</span>(GraphBuilder, MegaLightsContext, SceneTextures, ...)  <span class="cmt">// UE5.8 大量动态光源</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">RenderTranslucencyLightingVolume</span>(GraphBuilder, TranslucencyLightingVolumeTextures, ...)
+  <span class="arrow">&#x2192;</span> <span class="fn">RenderDeferredReflectionsAndSkyLighting</span>(GraphBuilder, ...)  <span class="cmt">// L3573 反射与天空光</span></code></pre>
+      </div>
+      <div class="stage-output">
+        <h4>产出资源 / 状态</h4>
+        <ul>
+          <li><code>SceneTextures.Color</code> — 包含直接光照 + 间接光照的半成品场景颜色</li>
+          <li><code>TranslucencyLightingVolumeTextures</code> — 半透明光照体积（供阶段 7 采样）</li>
+          <li><code>MegaLights</code> 样本/降噪结果已写入场景颜色</li>
+        </ul>
+      </div>
+      <a href="../03-光照/index.html" class="deep-link">深入：Clustered Deferred + MegaLights &#8594;</a>
+    </div>
+  </details>
+
+  <!-- 阶段 7 -->
+  <details class="stage-detail" id="stage7">
+    <summary>
+      <span class="stage-header">
+        <span class="stage-num">阶段 7 / 9</span>
+        <h3>半透明渲染</h3>
+        <span class="stage-range">DeferredShadingRenderer.cpp:4057-4098</span>
+      </span>
+    </summary>
+    <div class="stage-body">
+      <p class="stage-purpose">半透明物体采用前向渲染路径，直接采样阶段 6 产出的半透明光照体积以获取光照信息。支持扭曲效果（折射）、OIT（Order-Independent Transparency，乱序透明）、以及 HairStrands 发丝合成。</p>
+      <div class="call-chain">
+        <h4>关键函数调用链</h4>
+        <pre><code><span class="fn">RenderTranslucency</span>(*this, GraphBuilder, SceneTextures,
+    TranslucencyLightingVolumeTextures, &TranslucencyResourceMap,
+    Views, TranslucencyViewsToRender, ...)
+  <span class="arrow">&#x2192;</span> <span class="fn">RenderHairComposition</span>(GraphBuilder, ...)  <span class="cmt">// 发丝合成（AfterTranslucent 模式）</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">RenderDistortion</span>(GraphBuilder, Color, Depth, Velocity, ...)  <span class="cmt">// 折射扭曲</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">RenderVelocities</span>(GraphBuilder, Views, SceneTextures, Translucent, ...)  <span class="cmt">// 半透明速度</span></code></pre>
+      </div>
+      <div class="stage-output">
+        <h4>产出资源 / 状态</h4>
+        <ul>
+          <li><code>SceneTextures.Color</code> — 含半透明物体叠加的完整场景颜色</li>
+          <li><code>TranslucencyResourceMap</code> — 半透明渲染资源映射</li>
+          <li><code>SceneTextures.Velocity</code> — 半透明速度缓冲（用于 TSR/TAA）</li>
+        </ul>
+      </div>
+      <a href="../08-半透明与体积/index.html" class="deep-link">深入：半透明渲染 &#8594;</a>
+    </div>
+  </details>
+
+  <!-- 阶段 8 -->
+  <details class="stage-detail" id="stage8">
+    <summary>
+      <span class="stage-header">
+        <span class="stage-num">阶段 8 / 9</span>
+        <h3>后处理</h3>
+        <span class="stage-range">DeferredShadingRenderer.cpp:4274-4382</span>
+      </span>
+    </summary>
+    <div class="stage-body">
+      <p class="stage-purpose">对半透明合成后的场景颜色执行完整的后处理管线：TSR/TAA 时序抗锯齿、Bloom 泛光、DOF 景深、Tonemap 色调映射、色彩分级，最终输出到 ViewFamilyTexture。</p>
+      <div class="call-chain">
+        <h4>关键函数调用链</h4>
+        <pre><code><span class="fn">AddPostProcessingPasses</span>(GraphBuilder, View, ViewIndex,
+    GetSceneUniforms(), DiffuseIndirectMethod, ReflectionsMethod,
+    PostProcessingInputs, NaniteResults, InstanceCullingManager,
+    &VirtualShadowMapArray, LumenFrameTemporaries, MegaLightsContext,
+    SceneWithoutWaterTextures, TSRFlickeringInput, ...)
+  <span class="cmt">// 内部包含完整后处理链：TSR/TAA &#8594; Bloom &#8594; DOF &#8594; Tonemap &#8594; 色彩分级</span></code></pre>
+      </div>
+      <div class="stage-output">
+        <h4>产出资源 / 状态</h4>
+        <ul>
+          <li><code>ViewFamilyTexture</code> — 最终输出帧（含全部后处理效果）</li>
+          <li><code>SceneTextures.Color</code> — 后处理后已更新为最终屏幕颜色</li>
+          <li>TSR/TAA 历史数据已更新</li>
+          <li>Eye Adaptation（人眼自适应曝光）数据已更新</li>
+        </ul>
+      </div>
+      <a href="../07-后处理/index.html" class="deep-link">深入：后处理管线 &#8594;</a>
+    </div>
+  </details>
+
+  <!-- 阶段 9 -->
+  <details class="stage-detail" id="stage9">
+    <summary>
+      <span class="stage-header">
+        <span class="stage-num">阶段 9 / 9</span>
+        <h3>清理与收尾</h3>
+        <span class="stage-range">DeferredShadingRenderer.cpp:4423-4456</span>
+      </span>
+    </summary>
+    <div class="stage-body">
+      <p class="stage-purpose">执行帧收尾工作：OnRenderFinish 清理渲染器状态、QueueSceneTextureExtractions 提取场景纹理供外部使用（如 UI 截图）、HairStrands/HeterogeneousVolumes 后处理、释放前帧历史以复用 GPU 内存、Nanite 可见性帧结束。</p>
+      <div class="call-chain">
+        <h4>关键函数调用链</h4>
+        <pre><code><span class="fn">OnRenderFinish</span>(GraphBuilder, ViewFamilyTexture)
+  <span class="arrow">&#x2192;</span> GraphBuilder.AddDispatchHint() | GraphBuilder.FlushSetupQueue()
+  <span class="arrow">&#x2192;</span> <span class="fn">QueueSceneTextureExtractions</span>(GraphBuilder, SceneTextures)
+  <span class="arrow">&#x2192;</span> <span class="fn">HairStrands::PostRender</span>(*Scene)
+  <span class="arrow">&#x2192;</span> <span class="fn">HeterogeneousVolumes::PostRender</span>(*Scene, Views)
+  <span class="arrow">&#x2192;</span> <span class="fn">Nanite::GRayTracingManager.PostRender</span>()
+  <span class="arrow">&#x2192;</span> for Views: Views[ViewIndex].<span class="fn">PrevViewInfo = FPreviousViewInfo()</span>  <span class="cmt">// 释放帧历史</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">NaniteVisibility.FinishVisibilityFrame</span>()
+  <span class="arrow">&#x2192;</span> <span class="fn">InstanceCullingOcclusionQueryRenderer->EndFrame</span>(GraphBuilder)</code></pre>
+      </div>
+      <div class="stage-output">
+        <h4>产出资源 / 状态</h4>
+        <ul>
+          <li><code>GraphBuilder</code> — 所有 Pass 已提交，RDG 即将执行全图</li>
+          <li><code>SceneTextures</code> — 已通过 QueueTextureExtractions 提取外部引用</li>
+          <li><code>PrevViewInfo</code> — 帧历史已释放，内存可供下一帧复用</li>
+          <li><code>NaniteVisibility</code> — 可见性帧已关闭</li>
+        </ul>
+      </div>
+    </div>
+  </details>
+
+</section>
+
+<!-- ===== 阶段间数据流说明 ===== -->
+<section class="flow-section">
+  <h2>阶段间数据流</h2>
+  <p style="text-align:center;color:var(--text-dim);margin-bottom:24px;font-size:0.92rem">以下列出相邻阶段之间的关键数据传递。每个产出均为后续阶段的计算前提。</p>
+
+  <div class="flow-list">
+    <div class="flow-item">
+      <span class="flow-from">阶段 1</span>
+      <span class="flow-arrow-sym">&#x2192;</span>
+      <span class="flow-to">阶段 2</span>
+      <span class="flow-desc">产出 <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">RendererOutput</code>、<code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">bNaniteEnabled</code>、<code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">bHasRayTracedOverlay</code>，控制后续所有阶段的启用/禁用决策</span>
+    </div>
+    <div class="flow-item">
+      <span class="flow-from">阶段 2</span>
+      <span class="flow-arrow-sym">&#x2192;</span>
+      <span class="flow-to">阶段 3</span>
+      <span class="flow-desc">产出 <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">RayTracingScene</code>（视图已注册），供阶段 3 中的光追实例收集（<code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">RayTracing::CreateGatherInstancesTaskData</code>）使用</span>
+    </div>
+    <div class="flow-item">
+      <span class="flow-from">阶段 3</span>
+      <span class="flow-arrow-sym">&#x2192;</span>
+      <span class="flow-to">阶段 4</span>
+      <span class="flow-desc">产出 <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">InitViewTaskDatas</code>（可见性结果完整）、<code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">GPUScene</code>（动态图元已上传）、<code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">InstanceCullingManager</code>、<code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">NaniteBasePassVisibility</code></span>
+    </div>
+    <div class="flow-item">
+      <span class="flow-from">阶段 4</span>
+      <span class="flow-arrow-sym">&#x2192;</span>
+      <span class="flow-to">阶段 5</span>
+      <span class="flow-desc">产出 <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">SceneTextures.Depth</code>（完整深度缓冲 + HZB）、<code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">NaniteRasterResults</code>（VisBuffer + Nanite 深度），供 BasePass 的 Early-Z 和 Nanite CS 着色使用</span>
+    </div>
+    <div class="flow-item">
+      <span class="flow-from">阶段 5</span>
+      <span class="flow-arrow-sym">&#x2192;</span>
+      <span class="flow-to">阶段 6</span>
+      <span class="flow-desc">产出 <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">SceneTextures GBuffer(A/B/C/D/E)</code>（五张 RT）、<code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">LightingChannelsTexture</code>，是延迟光照计算的唯一数据源</span>
+    </div>
+    <div class="flow-item">
+      <span class="flow-from">阶段 6</span>
+      <span class="flow-arrow-sym">&#x2192;</span>
+      <span class="flow-to">阶段 7</span>
+      <span class="flow-desc">产出 <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">SceneTextures.Color</code>（含直接光照和间接光照的半成品）、<code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">TranslucencyLightingVolumeTextures</code>（半透明光照体积），供半透明前向渲染采样</span>
+    </div>
+    <div class="flow-item">
+      <span class="flow-from">阶段 7</span>
+      <span class="flow-arrow-sym">&#x2192;</span>
+      <span class="flow-to">阶段 8</span>
+      <span class="flow-desc">产出 <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">SceneTextures.Color</code>（含半透明叠加的完整场景颜色）、<code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">SceneTextures.Velocity</code>（速度缓冲），是后处理管线的输入</span>
+    </div>
+    <div class="flow-item">
+      <span class="flow-from">阶段 8</span>
+      <span class="flow-arrow-sym">&#x2192;</span>
+      <span class="flow-to">阶段 9</span>
+      <span class="flow-desc">产出 <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">ViewFamilyTexture</code>（最终输出帧），供阶段 9 通过 QueueSceneTextureExtractions 提取外部引用</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 异步并行执行标注 ===== -->
+<section class="async-section">
+  <h2>异步并行执行</h2>
+  <p class="section-desc">UE5.8 在 Render 函数中大量使用 TaskGraph 和 AsyncCompute 来最大化 CPU/GPU 利用率。以下标注了关键的异步并行点。</p>
+
+  <div class="async-grid">
+    <div class="async-card">
+      <div class="async-phase">阶段 3 — CPU 异步</div>
+      <div class="async-title">光源收集与排序</div>
+      <div class="async-desc"><code>GatherAndSortLights</code> 以 <code>UE::Tasks::TTask</code> 异步执行，在可见性计算期间并行收集场景中所有光源、按类型/重要性排序、构建 SortedLightSet。阶段 6 调用 <code>GatherAndSortLightsTask.Wait()</code> 等待结果。</div>
+    </div>
+
+    <div class="async-card">
+      <div class="async-phase">阶段 3 — CPU 异步</div>
+      <div class="async-title">光照函数图集更新</div>
+      <div class="async-desc"><code>UpdateLightFunctionAtlasTask</code> 以 <code>LaunchSceneRenderTask</code> 启动 TaskGraph 任务，异步更新光照函数图集纹理。与可见性计算并行，不阻塞主 Render 线程。</div>
+    </div>
+
+    <div class="async-card">
+      <div class="async-phase">阶段 4-5 间隙 — CPU 异步</div>
+      <div class="async-title">Nanite 着色命令构建（提前执行）</div>
+      <div class="async-desc"><code>Nanite::BuildShadingCommands</code>（L2729）在预通道完成后立即执行，而非等到 BasePass 阶段。源码注释明确："Run Nanite compute commands early in the frame to allow some task overlap on the CPU until the base pass runs." 这是 CPU 端任务重叠的典型优化。</div>
+    </div>
+
+    <div class="async-card">
+      <div class="async-phase">阶段 6 前 — GPU AsyncCompute</div>
+      <div class="async-title">Lumen 间接光照异步调度</div>
+      <div class="async-desc"><code>DispatchAsyncLumenIndirectLightingWork</code>（L3287）将 Lumen GI 计算（Surface Cache 更新 + Screen Probe Gather）以 AsyncCompute 管线提前发出，与后续的图形管线 Pass 重叠执行，最大化 GPU 利用率。</div>
+    </div>
+
+    <div class="async-card">
+      <div class="async-phase">阶段 6 前 — GPU AsyncCompute</div>
+      <div class="async-title">MegaLights 体积 Pass 异步</div>
+      <div class="async-desc"><code>DispatchAsyncMegaLightsVolumePasses</code>（L3088）以 AsyncCompute 执行 MegaLights 的体积光照注入 Pass。与 HZB 构建和 Nanite 流式加载等操作并行，减少 GPU 空闲时间。</div>
+    </div>
+
+    <div class="async-card">
+      <div class="async-phase">阶段 6 前 — GPU AsyncCompute</div>
+      <div class="async-title">体积云异步渲染</div>
+      <div class="async-desc"><code>RenderVolumetricCloud</code>（L3299-3306）在 <code>bAsyncComputeVolumetricCloud</code> 为 true 时以 AsyncCompute 路径执行。注释注明："Kick off volumetric clouds async dispatch after Lumen... so should run second and overlap opaque work after Lumen async is done."</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 去往各模块页面的链接 ===== -->
+<section class="links-section">
+  <h2>深入各模块</h2>
+  <p style="text-align:center;color:var(--text-dim);margin-bottom:24px;font-size:0.92rem">管线总览提供了九阶段全貌，以下分模块页面提供各子系统的深入源码分析。</p>
+
+  <div class="links-grid">
+    <a href="../02-Nanite/index.html" class="link-card">
+      <div class="link-num">02</div>
+      <div class="link-title">Nanite 虚拟几何</div>
+      <div class="link-desc">VisBuffer 管线、Cluster 裁剪、软件/硬件混合光栅化、材质着色命令构建</div>
+    </a>
+    <a href="../03-光照/index.html" class="link-card">
+      <div class="link-num">03</div>
+      <div class="link-title">延迟光照</div>
+      <div class="link-desc">Clustered Deferred Shading、MegaLights 随机光源采样、光源收集与排序</div>
+    </a>
+    <a href="../04-材质/index.html" class="link-card">
+      <div class="link-num">04</div>
+      <div class="link-title">材质体系</div>
+      <div class="link-desc">材质蓝图到 Shader 代码的全路径、G-Buffer 写入与材质属性编码</div>
+    </a>
+    <a href="../05-Lumen/index.html" class="link-card">
+      <div class="link-num">05</div>
+      <div class="link-title">Lumen 全局光照</div>
+      <div class="link-desc">Surface Cache + Screen Probe Gather + Radiance Cache + 反射追踪</div>
+    </a>
+    <a href="../06-VSM/index.html" class="link-card">
+      <div class="link-num">06</div>
+      <div class="link-title">VSM 虚拟阴影贴图</div>
+      <div class="link-desc">Clipmap 层级结构、页面分配与缓存、阴影投射与 One-Pass 投影</div>
+    </a>
+    <a href="../07-后处理/index.html" class="link-card">
+      <div class="link-num">07</div>
+      <div class="link-title">后处理</div>
+      <div class="link-desc">TSR/TAA 抗锯齿、Bloom、DOF 景深、Tonemap 色调映射、色彩分级</div>
+    </a>
+    <a href="../08-半透明与体积/index.html" class="link-card">
+      <div class="link-num">08</div>
+      <div class="link-title">半透明与体积</div>
+      <div class="link-desc">前向半透明合成、折射扭曲、OIT 乱序透明、体积云与体积雾</div>
+    </a>
+    <a href="../09-RDG与多线程/index.html" class="link-card">
+      <div class="link-num">09</div>
+      <div class="link-title">RDG 与多线程</div>
+      <div class="link-desc">FRDGBuilder 依赖图构建、Transient 资源池、自动屏障、TaskGraph 调度</div>
+    </a>
+    <a href="../10-光追/index.html" class="link-card">
+      <div class="link-num">10</div>
+      <div class="link-title">实时光线追踪</div>
+      <div class="link-desc">BLAS/TLAS 加速结构、SBT 管理、内联光追与动态管线、路径追踪</div>
+    </a>
+    <a href="../../index.html" class="link-card">
+      <div class="link-num">&#x2190;</div>
+      <div class="link-title">返回总览</div>
+      <div class="link-desc">回到渲染管线解读总览页，查看模块架构分层、依赖关系图和推荐阅读路径</div>
+    </a>
+  </div>
+</section>
+
+<footer class="footer">
+  基于 UE5.8.0 引擎源码分析 &nbsp;|&nbsp; DeferredShadingRenderer.cpp L1826-L4456 &nbsp;|&nbsp; 九阶段渲染管线 &nbsp;|&nbsp; 约 2600 行核心代码
+</footer>
+
+<!-- 回到顶部 -->
+<a href="#" class="back-top" title="回到顶部">&#x2191;</a>
+
+</body>
+</html>
