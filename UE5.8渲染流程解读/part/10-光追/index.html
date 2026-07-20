@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实时光线追踪 — UE5.8.0 渲染管线解读 [计划中]</title>
+<style>
+:root {
+  --bg: #0a0a0f; --card: #131318; --code: #09090d;
+  --accent: #4FC3F7; --accent-dim: rgba(79,195,247,0.12);
+  --text: #e0e0e0; --text-dim: #909090;
+  --border: rgba(255,255,255,0.06);
+  --font-sans: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  --font-mono: 'Cascadia Code','Fira Code','Consolas',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:15px}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--text);line-height:1.72;min-height:100vh}
+a{color:var(--accent);text-decoration:none;transition:0.2s}
+a:hover{text-decoration:underline}
+.breadcrumb{max-width:900px;margin:0 auto;padding:24px 24px 0;font-size:0.85rem;color:var(--text-dim)}
+.breadcrumb a{color:var(--text-dim)}
+.page-header{max-width:900px;margin:0 auto;padding:48px 24px 32px;text-align:center}
+.page-header .badge{display:inline-block;font-family:var(--font-mono);font-size:0.78rem;padding:4px 14px;border-radius:20px;background:rgba(255,183,77,0.12);color:#FFB74D;border:1px solid rgba(255,183,77,0.2);margin-bottom:16px}
+.page-header h1{font-size:2rem;font-weight:800;margin-bottom:8px}
+.page-header h1 span{color:var(--accent)}
+.page-header .stage-ref{font-size:0.88rem;color:var(--text-dim)}
+.content{max-width:900px;margin:0 auto;padding:0 24px 80px}
+.outline-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:28px;margin-bottom:20px}
+.outline-card h3{font-size:1.1rem;color:var(--accent);margin-bottom:12px}
+.outline-card ol{font-size:0.9rem;color:var(--text-dim);padding-left:1.4em}
+.outline-card ol li{margin-bottom:8px}
+.links{display:flex;gap:16px;flex-wrap:wrap;margin-top:32px;justify-content:center}
+.links a{font-family:var(--font-mono);font-size:0.85rem;padding:8px 18px;border-radius:8px;background:var(--card);border:1px solid var(--border);transition:all 0.2s}
+.links a:hover{border-color:var(--accent);text-decoration:none}
+.footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);color:var(--text-dim);font-size:0.83rem}
+@media(max-width:768px){.page-header h1{font-size:1.4rem}}
+</style>
+</head>
+<body>
+
+<nav class="breadcrumb">
+  <a href="../../index.html">首页</a> &rsaquo; <a href="../01-管线总览/index.html">渲染管线总览</a> &rsaquo; 实时光线追踪
+</nav>
+
+<header class="page-header">
+  <div class="badge">计划中</div>
+  <h1>实时光线追踪</h1>
+  <p class="stage-ref">DXR/VulkanRT + SBT + 加速结构</p>
+</header>
+
+<main class="content">
+  <div class="outline-card">
+    <h3>未来计划涵盖主题</h3>
+    <ol>
+      <li>BLAS/TLAS — 加速结构管理</li>
+      <li>SBT — Shader Binding Table 布局</li>
+      <li>内联光追 vs 动态管线 — 两种 API 路径</li>
+      <li>路径追踪参考渲染器</li>
+      <li>光追阴影/反射/AO 的集成</li>
+    </ol>
+  </div>
+
+  <div class="links">
+    <a href="../../index.html">回到首页</a>
+    <a href="../01-管线总览/index.html">管线总览</a>
+    <a href="../02-Nanite/index.html">Nanite 虚拟几何体</a>
+    <a href="../03-光照/index.html">光照系统</a>
+  </div>
+</main>
+
+<footer class="footer">
+  基于 UE5.8.0 引擎源码分析 &nbsp;|&nbsp; 2026.07 &nbsp;|&nbsp; 此章节内容正在规划中
+</footer>
+
+</body>
+</html>
