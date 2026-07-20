@@ -800,18 +800,339 @@ a:hover{text-decoration:underline}
 <section class="section-block" id="pso">
   <h2>7. 管道状态对象（PSO）</h2>
   <p class="section-desc">PSO（Pipeline State Object）封装了 GPU 管线的完整状态——Shader 绑定、混合模式、光栅化状态、深度模板状态等。PSO 缓存机制避免了每帧重新创建管线状态的开销，直接影响 DrawCall 效率。</p>
+
+  <h3>7.1 PSO 缓存系统</h3>
+
+  <p><code>FGraphicsPipelineState</code> 是完整图形 PSO 描述符。<code>FGraphicsMinimalPipelineStateId</code> 是 PSO 哈希到 ID 的映射，存储在全局 <code>PersistentIdTable</code> 中。以下展示 PSO 从创建到缓存的完整流程：</p>
+
+  <div class="call-chain">
+    <div class="chain-main">状态描述符 &#8594; 哈希 &#8594; 查表 &#8594; 命中返回 ID / 未命中编译 PSO</div>
+    <div class="chain-step">Step 1<span class="chain-arrow">&#8594;</span><code>FGraphicsPipelineStateInitializer</code> 收集所有状态参数（RHIBlendState、RHIRasterizerState、RHIDepthStencilState、VertexDeclaration、ShaderBindings）</div>
+    <div class="chain-step">Step 2<span class="chain-arrow">&#8594;</span>计算 PSO 哈希（所有状态的 CRC 组合），查找全局 <code>PersistentIdTable</code></div>
+    <div class="chain-step">Step 3<span class="chain-arrow">&#8594;</span>命中 &#8594; 返回已有 <code>FGraphicsMinimalPipelineStateId</code>，零开销复用</div>
+    <div class="chain-step">Step 4<span class="chain-arrow">&#8594;</span>未命中 &#8594; 调用 <code>FDynamicRHI::RHICreateGraphicsPipelineState()</code> 创建新 PSO，注册到 PersistentIdTable</div>
+    <div class="chain-step">Step 5<span class="chain-arrow">&#8594;</span>D3D12: <code>ID3D12Device::CreateGraphicsPipelineState()</code> &#8594; 耗时 5-100ms（首次）。Vulkan: <code>vkCreateGraphicsPipelines()</code> + <code>vkCreatePipelineCache()</code></div>
+  </div>
+
+  <h3>7.2 PSO 预编译（Precache）</h3>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-title">启动预编译</div>
+      <div class="card-desc">
+        游戏启动时遍历所有已知材质排列，预编译 PSO。通过 <code>SkipDrawOnPSOPrecaching</code>（<code>r.SkipDrawOnPSOPrecaching=1</code>）控制预编译阶段是否跳过实际绘制。启动预编译是减少游戏中 PSO Hitching 的第一道防线，通常在引擎初始化阶段批量执行。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">运行时 PSO 缓存</div>
+      <div class="card-desc">
+        材质首次可见时触发 PSO 编译请求。PSO 未命中导致 Hitching（首次编译延迟 5-100ms，缓存命中后查找时间小于 1μs）。运行时缓存使用 LRU 策略管理内存占用，最久未使用的 PSO 可能被淘汰，下次使用时需重新编译。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">磁盘缓存</div>
+      <div class="card-desc">
+        <code>r.D3D12.PSO.DiskCache=1</code> 启用 D3D12 PSO 磁盘缓存。<code>r.Vulkan.PipelineCache=1</code> 启用 Vulkan Pipeline 磁盘缓存。重启后加载缓存避免重复编译，显著减少第二次启动的 PSO 编译时间。缓存文件通常存储在项目的 Saved 目录中。
+      </div>
+    </div>
+  </div>
+
+  <h3>7.3 PSO 数量与性能影响</h3>
+
+  <table class="info-table">
+    <thead>
+      <tr><th>场景</th><th>预估 PSO 数量</th><th>影响</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>小型游戏（100 材质）</td>
+        <td>500-2000 PSO</td>
+        <td>预编译 &lt; 2s，内存占用 &lt; 5 MB</td>
+      </tr>
+      <tr>
+        <td>AA 游戏（5000 材质）</td>
+        <td>5000-20000 PSO</td>
+        <td>预编译 5-30s，内存占用 10-50 MB</td>
+      </tr>
+      <tr>
+        <td>UE5 全排列（Material + Permutation）</td>
+        <td>10^5+ 潜在 PSO</td>
+        <td>不可能全预编译，依赖运行时 PSO 缓存 + 磁盘缓存</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-callout warn">
+    <strong>&#9888; PSO 编译 Hitching：</strong>PSO 编译 Hitching 是 UE5 游戏启动和中途卡顿的主要来源之一。UE5.8 通过 PSO 预缓存（Precache PSO）、<code>SkipDrawOnPSOPrecaching</code>、磁盘缓存三级策略来缓解。建议在发布前完成一次完整的材质遍历（可在编辑器中执行 PSO 收集），确保所有常见 PSO 已写入磁盘缓存。
+  </div>
 </section>
 
 <!-- ===== 8. AsyncCompute 并行 ===== -->
 <section class="section-block" id="async-compute">
   <h2>8. AsyncCompute 并行</h2>
   <p class="section-desc">AsyncCompute 允许 Compute Shader 工作与 Graphics 管线并行执行，典型应用包括 Nanite 裁剪、Lumen 光照评估、PostProcess 降噪等 Compute-heavy Pass 与 BasePass 并行。</p>
+
+  <h3>8.1 AsyncCompute Queue 概念</h3>
+
+  <p>GPU 有两个主要命令队列——<strong>Graphics Queue</strong>（3D 渲染，包括 Draw/Dispatch/Copy）和 <strong>Compute Queue</strong>（通用计算，仅 Dispatch/Copy）。两者可并行执行，前提是无资源依赖。Desktop GPU（NVIDIA/AMD/Intel）通常提供 1 个 Graphics Queue + 1-2 个 Compute Queue。引擎通过 <code>ERDGPassFlags::AsyncCompute</code> 将 Pass 标记为 AsyncCompute，RDG 自动处理跨队列同步。</p>
+
+  <h3>8.2 AsyncCompute 并行执行</h3>
+
+  <div class="svg-container" style="margin-bottom:20px">
+    <svg viewBox="0 0 1050 340" xmlns="http://www.w3.org/2000/svg">
+
+      <!-- 标题 -->
+      <text x="525" y="26" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">AsyncCompute 并行时间线：Graphics Queue + Compute Queue</text>
+
+      <!-- ===== Graphics Queue 行 ===== -->
+      <text x="24" y="90" font-size="13" font-weight="bold" fill="#4FC3F7">Graphics</text>
+      <text x="24" y="108" font-size="13" font-weight="bold" fill="#4FC3F7">Queue</text>
+
+      <!-- Graphics 时间轴 -->
+      <line x1="100" y1="98" x2="1000" y2="98" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+
+      <!-- BasePass (2ms) → 从 x=120 到 x=320 -->
+      <rect x="120" y="80" width="200" height="36" rx="8" fill="rgba(79,195,247,0.22)" stroke="rgba(79,195,247,0.4)"/>
+      <text x="220" y="103" text-anchor="middle" font-size="11" font-weight="bold" fill="#4FC3F7">BasePass</text>
+      <text x="220" y="129" text-anchor="middle" font-size="9" fill="var(--text-dim)">2ms</text>
+
+      <!-- Lighting (1.5ms) → 从 x=320 到 x=470 -->
+      <rect x="320" y="80" width="150" height="36" rx="8" fill="rgba(79,195,247,0.15)" stroke="rgba(79,195,247,0.3)"/>
+      <text x="395" y="103" text-anchor="middle" font-size="11" fill="#4FC3F7">Lighting</text>
+      <text x="395" y="129" text-anchor="middle" font-size="9" fill="var(--text-dim)">1.5ms</text>
+
+      <!-- PostProcess (1ms) → 从 x=470 到 x=570 -->
+      <rect x="470" y="80" width="100" height="36" rx="8" fill="rgba(79,195,247,0.1)" stroke="rgba(79,195,247,0.2)"/>
+      <text x="520" y="103" text-anchor="middle" font-size="10" fill="#4FC3F7">PostProcess</text>
+      <text x="520" y="129" text-anchor="middle" font-size="9" fill="var(--text-dim)">1ms</text>
+
+      <!-- Graphics 总时间线 -->
+      <rect x="120" y="145" width="450" height="6" rx="3" fill="rgba(79,195,247,0.3)"/>
+      <text x="345" y="166" text-anchor="middle" font-size="9" fill="var(--text-dim)">Graphics 总执行时间: 4.5ms（串行）</text>
+
+      <!-- ===== Compute Queue 行 ===== -->
+      <text x="22" y="226" font-size="13" font-weight="bold" fill="#FFB74D">Compute</text>
+      <text x="22" y="244" font-size="13" font-weight="bold" fill="#FFB74D">Queue</text>
+
+      <!-- Compute 时间轴 -->
+      <line x1="100" y1="234" x2="1000" y2="234" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+
+      <!-- ShadowFilter (0.8ms) → 与 BasePass 后半段并行 -->
+      <rect x="270" y="216" width="80" height="36" rx="8" fill="rgba(255,183,77,0.22)" stroke="rgba(255,183,77,0.35)"/>
+      <text x="310" y="239" text-anchor="middle" font-size="10" fill="#FFB74D">ShadowFilter</text>
+      <text x="310" y="265" text-anchor="middle" font-size="9" fill="var(--text-dim)">0.8ms</text>
+
+      <!-- MegaLightsDenoising (1ms) → 与 Lighting 并行 -->
+      <rect x="320" y="216" width="130" height="36" rx="8" fill="rgba(255,183,77,0.22)" stroke="rgba(255,183,77,0.35)"/>
+      <text x="385" y="239" text-anchor="middle" font-size="10" fill="#FFB74D">MegaLightsDenoise</text>
+      <text x="385" y="265" text-anchor="middle" font-size="9" fill="var(--text-dim)">1ms</text>
+
+      <!-- Compute 总时间线 -->
+      <rect x="270" y="278" width="180" height="6" rx="3" fill="rgba(255,183,77,0.3)"/>
+      <text x="360" y="299" text-anchor="middle" font-size="9" fill="var(--text-dim)">Compute 与 Graphics 并行执行</text>
+
+      <!-- 并行区域高亮 -->
+      <rect x="270" y="72" width="300" height="208" rx="4" fill="none" stroke="rgba(129,199,132,0.15)" stroke-width="2" stroke-dasharray="6,3"/>
+      <text x="570" y="100" font-size="9" fill="#81C784">&#8592; 并行区域</text>
+
+      <!-- 底部结论 -->
+      <text x="525" y="330" text-anchor="middle" font-size="12" font-weight="bold" fill="#81C784">总 GPU 时间从 4.5ms（纯串行）减少到 3.5ms（并行）—— 节省约 22%</text>
+
+    </svg>
+  </div>
+
+  <h3>8.3 RDG 中的 AsyncCompute</h3>
+
+  <p>UE5 通过 RDG 的 <code>ERDGPassFlags::AsyncCompute</code> 标志将 Pass 标记为可在 Compute Queue 上执行。RDG 的依赖分析系统自动处理跨队列同步：</p>
+
+  <ul class="info-list">
+    <li><code>GraphBuilder.AddPass(..., ERDGPassFlags::AsyncCompute, ...)</code> — 注册 AsyncCompute Pass，RDG 将其与 Graphics Pass 一并纳入依赖图分析</li>
+    <li>RDG 自动分析 AsyncCompute Pass 与 Graphics Pass 之间的资源依赖关系——如果两个 Pass 读写同一资源，RDG 自动插入跨 Queue Fence 同步</li>
+    <li><strong>无依赖</strong> — 完全并行执行，Graphics 和 Compute 队列各自独立运行，无任何同步开销</li>
+    <li><strong>有依赖</strong> — RDG 自动插入跨 Queue Fence 同步。跨 Queue 同步需要 GPU Fence（比同 Queue Barrier 开销大，约 10-50μs 额外延迟），因此 AsyncCompute 适合运行时间较长（&gt;0.5ms）的 Pass，短 Pass 的 Fence 开销可能抵消并行收益</li>
+  </ul>
+
+  <h3>8.4 典型 AsyncCompute 用途</h3>
+
+  <div class="card-grid">
+    <div class="info-card">
+      <div class="card-title">Shadow Depth Filter</div>
+      <div class="card-desc">
+        阴影贴图滤波（Gaussian Blur / Poisson Sample），与 BasePass 并行执行。阴影贴图在 PrePass 阶段生成后，后续的滤波/降噪处理可在 Compute Queue 上异步执行，不占用 Graphics Queue 的带宽。滤波通常耗时 0.5-1.5ms，与 BasePass 的 2ms 图形工作重叠，几乎零额外开销。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">PostProcess Downsample/Bloom</div>
+      <div class="card-desc">
+        后处理降采样和模糊链的前半段，在 Lighting 阶段提前执行。Bloom 的降采样金字塔构建（通常 5-7 级 Mip）是 Compute-heavy 操作，1ms+ 的计算可完全隐藏在 Graphics 管线的 Lighting + Tonemap 阶段之后。最终合成阶段需要 Fence 等待 Compute 完成。
+      </div>
+    </div>
+    <div class="info-card">
+      <div class="card-title">MegaLights 降噪</div>
+      <div class="card-desc">
+        时序降噪的信号相关处理，与 PostProcess 的其他 Pass 并行。MegaLights 的降噪过程（空间滤波 + 时序累积 + 双边滤波）是典型的高并行度 Compute 任务。在 Compute Queue 上执行可与 Graphics Queue 上的 PostProcess Tonemap/Bloom 合成等 Pass 并行，有效减少后处理阶段的总体 GPU 时间。
+      </div>
+    </div>
+  </div>
+
+  <div class="info-callout accent">
+    <strong>AsyncCompute 收益取决于硬件：</strong>AsyncCompute 的收益取决于 GPU 架构和当前帧的负载均衡。NVIDIA GPU 通常能获得 15-25% 的额外吞吐量（得益于独立的多引擎调度架构），集成 GPU（如 Intel iGPU）因共享执行单元而收益较小甚至为负。建议在目标硬件上通过 <code>r.AsyncCompute</code> 开关进行 A/B 测试，确认实际收益后再开启。
+  </div>
 </section>
 
 <!-- ===== 9. CVar 速查与性能分析 ===== -->
 <section class="section-block" id="cvar-reference">
   <h2>9. CVar 速查与性能分析</h2>
-  <p class="section-desc">多线程渲染和 RHI 相关的常用 Console Variable 参考，涵盖线程开关、RHI 调试、GPU 性能分析和 PSO 缓存管理。</p>
+  <p class="section-desc">多线程渲染和 RHI 相关的常用 Console Variable 参考，涵盖线程开关、AsyncCompute、D3D12/Vulkan 特定配置、PSO 缓存管理和性能分析工具。</p>
+
+  <h4>9.1 多线程控制</h4>
+
+  <div class="cvar-table-wrap">
+    <table class="cvar-table">
+      <thead>
+        <tr><th>CVar</th><th>默认值</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>r.RHIThread.Enable</td>
+          <td class="cvar-default">1</td>
+          <td>启用 RHI 线程。关闭后 RenderThread 兼任 RHIThread，减少一帧延迟但增加 RenderThread 执行时间，总体吞吐量降低约 15-30%。VR 等延迟敏感场景可设为 0。</td>
+        </tr>
+        <tr>
+          <td>r.RenderThread.EnablebyDefault</td>
+          <td class="cvar-default">1</td>
+          <td>是否自动启用专属 RenderThread。设为 0 后渲染工作在 GameThread 上同步执行（调试用，生产环境不应关闭）。</td>
+        </tr>
+        <tr>
+          <td>r.RenderThread.TaskGraph</td>
+          <td class="cvar-default">1</td>
+          <td>RenderThread 使用 TaskGraph 调度而非独立循环。TaskGraph 模式支持更细粒度的任务交错执行，是与现代渲染架构配合的最佳实践。</td>
+        </tr>
+        <tr>
+          <td>r.RHIThread.TaskGraph</td>
+          <td class="cvar-default">1</td>
+          <td>RHIThread 使用 TaskGraph 调度。开启后 RHI 命令提交与 TaskGraph 的其他 AnyThread 任务可更高效地共享 CPU 时间片。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>9.2 AsyncCompute</h4>
+
+  <div class="cvar-table-wrap">
+    <table class="cvar-table">
+      <thead>
+        <tr><th>CVar</th><th>默认值</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>r.AsyncCompute</td>
+          <td class="cvar-default">1</td>
+          <td>全局 AsyncCompute 开关。设为 0 关闭所有 AsyncCompute 功能，所有 Compute Pass 回到 Graphics Queue 上顺序执行。用于性能对比和调试。</td>
+        </tr>
+        <tr>
+          <td>r.AsyncComputeOverlap</td>
+          <td class="cvar-default">1</td>
+          <td>允许 AsyncCompute 与 Graphics 命令并行执行。设为 0 时 Compute 命令仍走 Compute Queue，但不与 Graphics Queue 并行——Compute 提交后立即通过 Fence 等待完成再继续 Graphics。用于隔离脏数据问题。</td>
+        </tr>
+        <tr>
+          <td>r.AsyncComputeBudget</td>
+          <td class="cvar-default">1.0</td>
+          <td>AsyncCompute 时间预算（相对 Graphics 的比例）。设为 1.0 表示 Compute 预算与 Graphics 相等。减小此值限制 Compute 工作量，避免 Compute 过度抢占 Graphics 的 GPU 资源。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>9.3 D3D12 特定</h4>
+
+  <div class="cvar-table-wrap">
+    <table class="cvar-table">
+      <thead>
+        <tr><th>CVar</th><th>默认值</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>r.D3D12.AllowAsyncCompute</td>
+          <td class="cvar-default">1</td>
+          <td>D3D12 平台允许 AsyncCompute。关闭后即使 <code>r.AsyncCompute=1</code>，D3D12 后端也不创建 Compute Queue。</td>
+        </tr>
+        <tr>
+          <td>r.D3D12.PSO.DiskCache</td>
+          <td class="cvar-default">1</td>
+          <td>PSO 磁盘缓存。重启后加载缓存避免 PSOCache 抖动，显著减少第二次启动的 PSO 编译时间和 Hitching。缓存文件存储在 <code>Saved/CollectedPSOs/</code> 目录。</td>
+        </tr>
+        <tr>
+          <td>r.D3D12.PSO.PrecompileThreadPool</td>
+          <td class="cvar-default">1</td>
+          <td>使用线程池并发预编译 PSO。开启后多个 PSO 并行编译（利用多核 CPU），显著减少启动时的 PSO 预编译总耗时。</td>
+        </tr>
+        <tr>
+          <td>r.D3D12.PSO.PrecompileBatchSize</td>
+          <td class="cvar-default">128</td>
+          <td>每批预编译的 PSO 数量。控制线程池任务的粒度——批次太小导致过多线程调度开销，批次太大会导致单个批次阻塞过久。</td>
+        </tr>
+        <tr>
+          <td>r.D3D12.MaxCommandsPerCommandList</td>
+          <td class="cvar-default">10000</td>
+          <td>单个 CommandList 最大命令数。超过此限制时自动分拆为多个 CommandList 提交，避免单次 ExecuteCommandLists 包含过多命令导致驱动层瓶颈。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>9.4 Vulkan 特定</h4>
+
+  <div class="cvar-table-wrap">
+    <table class="cvar-table">
+      <thead>
+        <tr><th>CVar</th><th>默认值</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>r.Vulkan.EnableAsyncComputeQueue</td>
+          <td class="cvar-default">1</td>
+          <td>Vulkan AsyncCompute Queue。在支持 Compute Queue Family 的 Vulkan 设备上创建独立的 Compute Queue，与 Graphics Queue 并行执行。</td>
+        </tr>
+        <tr>
+          <td>r.Vulkan.PipelineCache</td>
+          <td class="cvar-default">1</td>
+          <td>Vulkan Pipeline 磁盘缓存。使用 <code>VkPipelineCache</code> 将编译结果序列化到磁盘，重启后合并缓存大幅减少 Pipeline 编译时间。</td>
+        </tr>
+        <tr>
+          <td>r.Vulkan.SubmitOnDispatch</td>
+          <td class="cvar-default">0</td>
+          <td>每个 Dispatch 立即提交。设为 1 时每个 Compute Dispatch 立即 <code>vkQueueSubmit()</code>（调试用，会显著降低性能——每次 Submit 有 0.1-0.5ms 的驱动层开销）。</td>
+        </tr>
+        <tr>
+          <td>r.Vulkan.RebuildDescriptorSets</td>
+          <td class="cvar-default">0</td>
+          <td>强制每帧重建 Descriptor Sets。设为 1 时禁用 Descriptor Set 缓存复用（调试用，用于排查描述符绑定相关的渲染错误，生产环境不应开启）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>9.5 Unreal Insights 线程可视化</h4>
+
+  <p>Unreal Insights 是 UE 的官方性能分析工具，提供线程级和 GPU 级的时序可视化。渲染多线程分析的推荐工作流程：</p>
+
+  <ul class="info-list">
+    <li>使用 <code>UnrealInsights.exe</code> 打开 <code>.utrace</code> 文件（在引擎目录 <code>Engine/Binaries/Win64/</code> 下）。采集 trace 时使用控制台命令 <code>trace.start</code> 和 <code>trace.stop</code>。</li>
+    <li><strong>Timing 视图</strong>展示三条线程的并行度（水平轨道区分线程）——每条线程以独立轨道显示，可直观观察 GameThread、RenderThread、RHIThread 之间的重叠区域和等待间隙。</li>
+    <li><strong>GPU 轨道</strong>展示各 Pass 的 GPU 执行时间线，按 Queue 分轨道（Graphics Queue 和 AsyncCompute Queue 分开显示）——可直接观察到 AsyncCompute Pass 与 Graphics Pass 的并行程度。</li>
+    <li><strong>关注指标：</strong>
+      <ul style="margin-top:4px">
+        <li><strong>RenderThread 瓶颈</strong> — 红色区域占比 &gt; 80% 表示串行瓶颈严重，需优化 InitViews 可见性计算或 RDG Pass 注册逻辑</li>
+        <li><strong>RHIThread Bubble</strong> — 空闲等待 RenderThread 提交命令的时间段，说明 RenderThread 产生命令的速度不足以填满 RHIThread，可考虑增加 RDG Pass 粒度</li>
+        <li><strong>AsyncCompute 利用率</strong> — 过低表示任务分配不均匀或 AsyncCompute Pass 太少，无法形成有效并行。过高可能导致 Graphics Queue 缺少 GPU 资源</li>
+      </ul>
+    </li>
+  </ul>
+
+  <div class="info-callout green">
+    <strong>&#x2705; 建议：</strong>性能分析时始终采集 <code>.utrace</code> 文件，对比启用/关闭 <code>r.RHIThread.Enable</code> 和 <code>r.AsyncCompute</code> 的差异。通过 Trace 可精确定位同步点（Fence Wait）和线程空闲时间，比 <code>stat unit</code> 的聚合数值更能揭示瓶颈根因。典型的性能调优流程：先关闭 RHIThread 确认单线程基线，再逐步开启优化项并对比 trace 中的并行度改善。
+  </div>
 </section>
 
 <!-- ===== Footer ===== -->
