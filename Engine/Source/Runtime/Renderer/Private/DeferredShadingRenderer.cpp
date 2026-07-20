@@ -414,6 +414,7 @@ DECLARE_CYCLE_STAT(TEXT("DeferredShadingSceneRenderer UpdateDownsampledDepthSurf
 DECLARE_CYCLE_STAT(TEXT("DeferredShadingSceneRenderer Render Init"), STAT_FDeferredShadingSceneRenderer_Render_Init, STATGROUP_SceneRendering);
 DECLARE_CYCLE_STAT(TEXT("DeferredShadingSceneRenderer FXSystem PreRender"), STAT_FDeferredShadingSceneRenderer_FXSystem_PreRender, STATGROUP_SceneRendering);
 DECLARE_CYCLE_STAT(TEXT("DeferredShadingSceneRenderer AllocGBufferTargets"), STAT_FDeferredShadingSceneRenderer_AllocGBufferTargets, STATGROUP_SceneRendering);
+// 准备前向光照数据 — 光源注入聚簇网格用于聚簇延迟着色
 DECLARE_CYCLE_STAT(TEXT("DeferredShadingSceneRenderer PrepareForwardLightData"), STAT_FDeferredShadingSceneRenderer_PrepareForwardLightData, STATGROUP_SceneRendering);
 DECLARE_CYCLE_STAT(TEXT("DeferredShadingSceneRenderer DBuffer"), STAT_FDeferredShadingSceneRenderer_DBuffer, STATGROUP_SceneRendering);
 DECLARE_CYCLE_STAT(TEXT("DeferredShadingSceneRenderer ResolveDepth After Basepass"), STAT_FDeferredShadingSceneRenderer_ResolveDepth_After_Basepass, STATGROUP_SceneRendering);
@@ -1047,6 +1048,7 @@ bool FDeferredShadingSceneRenderer::SetupRayTracingPipelineStatesAndSBT(FRDGBuil
 	return true;
 }
 
+// 设置光追光照数据 — 准备光追Shader所需的光源数据
 void FDeferredShadingSceneRenderer::SetupRayTracingLightDataForViews(FRDGBuilder& GraphBuilder)
 {
 	if (!FamilyPipelineState[&FFamilyPipelineState::bRayTracing])
@@ -1137,6 +1139,7 @@ bool FDeferredShadingSceneRenderer::DispatchRayTracingWorldUpdates(FRDGBuilder& 
 		RayTracingScene.Build(GraphBuilder, ComputePassFlags | ERDGPassFlags::NeverCull, OutDynamicGeometryScratchBuffer);
 	}
 
+// 添加Dispatch提示 — 提示RDG可以开始执行已提交的Pass
 	GraphBuilder.AddDispatchHint();
 
 	return true;
@@ -1369,6 +1372,7 @@ void FDeferredShadingSceneRenderer::BeginInitDynamicShadows(FRDGBuilder& GraphBu
 	}
 }
 
+// 动态阴影完成初始化 — 延迟路径稍后同步以留出任务空间
 void FDeferredShadingSceneRenderer::FinishInitDynamicShadows(FRDGBuilder& GraphBuilder, FDynamicShadowsTaskData*& TaskData, FInstanceCullingManager& InstanceCullingManager)
 {
 	if (ViewFamily.EngineShowFlags.DynamicShadows && !ViewFamily.EngineShowFlags.HitProxies && !HasRayTracedOverlay(ViewFamily))
@@ -1385,6 +1389,7 @@ void FDeferredShadingSceneRenderer::FinishInitDynamicShadows(FRDGBuilder& GraphB
 	}
 }
 
+// 开发调试 — 可配置的Intentional Stall用于分析InitViews性能
 static TAutoConsoleVariable<float> CVarStallInitViews(
 	TEXT("CriticalPathStall.AfterInitViews"),
 	0.0f,
@@ -1450,6 +1455,7 @@ void FDeferredShadingSceneRenderer::RenderNanite(FRDGBuilder& GraphBuilder, cons
 	FNaniteBasePassVisibility& InNaniteBasePassVisibility,
 	TArray<Nanite::FRasterResults, TInlineAllocator<2>>& NaniteRasterResults,
 	TArray<Nanite::FPackedView, SceneRenderingAllocator>& PrimaryNaniteViews,
+// 第一级深度缓冲 — 用于Nanite异步光栅化的中间深度目标
 	FRDGTextureRef FirstStageDepthBuffer)
 {
 	LLM_SCOPE_BYTAG(Nanite);
@@ -1707,6 +1713,7 @@ void FDeferredShadingSceneRenderer::RenderNanite(FRDGBuilder& GraphBuilder, cons
 				// TODO: there's really no need for a separate query, it also doesn't really do anything anymore for the broad cases, just grabs all the chunks.
 				TArray<FConvexVolume> ViewsToRenderCullingVolumesHZB;
 				ViewsToRenderCullingVolumesHZB.Add(View.ViewFrustum);
+// 场景裁剪器调试渲染 — 可视化裁剪过程
 				FSceneInstanceCullingQuery* SceneInstanceCullQueryHZB = GetSceneExtensionsRenderers().GetRenderer<FSceneCullingRenderer>().CullInstances(GraphBuilder, ViewsToRenderCullingVolumesHZB);
 
 				TUniquePtr< Nanite::IRenderer > NaniteHLODRenderer = Nanite::IRenderer::Create(
@@ -1823,6 +1830,7 @@ extern void RayTracingDebugDisplayOnScreenMessages(FScreenMessageWriter& Writer,
 // 延迟渲染管线总入口函数
 // 完整渲染流程：可见性 → 预通道(Nanite) → 阴影(VSM) → BasePass(GBuffer) → 光照(Lumen/MegaLights) → 半透明 → 后处理
 // ------------------------------------------------------------
+// 场景更新输入检查 — 仅在非独立渲染时执行后续初始化
 void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSceneRenderUpdateInputs* SceneUpdateInputs)
 {
 	CSV_SCOPED_TIMING_STAT_EXCLUSIVE(RenderOther);
@@ -1835,7 +1843,8 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		{
 			if (View.ViewState->Scene == nullptr)
 			{
-				// link view state to the scene
+				// 关联ViewState到场景，确保每帧场景引用一致性
+		// link view state to the scene
 				View.ViewState->Scene = Scene;
 				Scene->ViewStates.Add(View.ViewState);
 			}
@@ -1849,13 +1858,13 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		{
 			// 从命令行激活视图模式时，自动启用 RayTracingDebug 显示标志以便调试
 			ViewFamily.EngineShowFlags.SetRayTracingDebug(true);
-			}
 		}
+	}
 
-		// ------------------------------------------------------------
-		// 第一阶段：视图与管线初始化 — 确定渲染器输出、Nanite启用状态、光追覆盖模式
-		// ------------------------------------------------------------
-		// 如果是场景捕获的深度预通道渲染，可走快捷路径 RenderSceneCaptureDepth
+	// ------------------------------------------------------------
+	// 第一阶段：视图与管线初始化 — 确定渲染器输出、Nanite启用状态、光追覆盖模式
+	// ------------------------------------------------------------
+	// 如果是场景捕获的深度预通道渲染，可走快捷路径 RenderSceneCaptureDepth
 	const ERendererOutput RendererOutput = GetRendererOutput();
 
 	const bool bNaniteEnabled = ShouldRenderNanite();
@@ -2017,28 +2026,34 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			);
 		}
 	}
+	// ShaderPrint视图开始 — GPU调试输出系统初始化
 	ShaderPrint::BeginViews(GraphBuilder, Views);
 
+	// ShaderPrint作用域保护 — 退出时自动调用EndViews
 	ON_SCOPE_EXIT
 	{
 		ShaderPrint::EndViews(Views);
 	};
 
+	// 场景扩展PreInitViews回调 — 允许扩展在视图初始化前设置数据
 	GetSceneExtensionsRenderers().PreInitViews(GraphBuilder);
 
 	if (SceneUpdateInputs)
 	{
+		// 准备距离场场景数据 — 更新全局距离场和网格距离场
 		PrepareDistanceFieldScene(GraphBuilder, ExternalAccessQueue, *SceneUpdateInputs);
 	}
 
 	if (RendererOutput == ERendererOutput::FinalSceneColor)
 	{
+		// 着色能量守恒初始化 — 确保多 bounce 间接光照能量守恒
 		ShadingEnergyConservation::Init(GraphBuilder, Views);
 		for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
 		{
 			FViewInfo& View = Views[ViewIndex];
 			RDG_GPU_MASK_SCOPE(GraphBuilder, View.GPUMask);
 
+			// Glint着色LUT状态初始化 — 高光闪烁效果的查找表
 			FGlintShadingLUTsStateData::Init(GraphBuilder, View);
 		}
 
@@ -2059,14 +2074,18 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 #endif
 	}
 
+	// 稀疏体积纹理(SVT)流式管理器 — 开始异步更新
 	UE::SVT::GetStreamingManager().BeginAsyncUpdate(GraphBuilder);
 
 	bool bVisualizeNanite = false;
 	if (bNaniteEnabled)
 	{
+		// 更新Nanite全局资源 — 共享的GPU缓冲区和常量
 		Nanite::GGlobalResources.Update(GraphBuilder);
+		// Nanite流式管理器 — 开始异步流式加载
 		Nanite::GStreamingManager.BeginAsyncUpdate(GraphBuilder);
 
+		// Nanite可视化数据 — 支持运行时切换Nanite调试视图模式
 		FNaniteVisualizationData& NaniteVisualization = GetNaniteVisualizationData();
 		if (Views.Num() > 0)
 		{
@@ -2076,6 +2095,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			if (DebugViewShaderMode == DVSM_ShadowCasters)
 			{
 				NaniteViewMode = FName("ShadowCasters");
+				// 自动启用VisualizeNanite显示标志 — 方便命令行调试
 				ViewFamily.EngineShowFlags.SetVisualizeNanite(true);
 			}
 
@@ -2094,7 +2114,9 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 #endif // WITH_MGPU
 
 	// By default, limit our GPU usage to only GPUs specified in the view masks.
+	// GPU Mask作用域 — 路径追踪使用所有GPU，否则仅使用视图指定的GPU
 	RDG_GPU_MASK_SCOPE(GraphBuilder, ViewFamily.EngineShowFlags.PathTracing ? FRHIGPUMask::All() : AllViewsGPUMask);
+	// RDG事件作用域 — 将后续所有Pass分组到Scene事件下
 	RDG_EVENT_SCOPE(GraphBuilder, "Scene");
 	
 	if (RendererOutput == ERendererOutput::FinalSceneColor)
@@ -2104,44 +2126,54 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 		// Force the subsurface profiles and specular profiles textures to be updated.
 		// 强制更新次表面散射/高光/Toon轮廓纹理图集
+		// 强制更新次表面散射Profile纹理 — 确保使用最新的SSS数据
 		SubsurfaceProfile::UpdateSubsurfaceProfileTexture(GraphBuilder, ShaderPlatform);
 		SpecularProfile::UpdateSpecularProfileTextureAtlas(GraphBuilder, ShaderPlatform);
 		ToonProfile::UpdateToonProfileTextureAtlas(GraphBuilder, ShaderPlatform);
 
 		// Force the rect light texture & IES texture to be updated.
+		// 强制更新矩形光源图集纹理和IES图集纹理
 		RectLightAtlas::UpdateAtlasTexture(GraphBuilder, FeatureLevel);
 		IESAtlas::UpdateAtlasTexture(GraphBuilder, ShaderPlatform);
 	}
 
+	// 获取当前活跃的场景纹理配置 — 分辨率、格式、MSAA等
 	FSceneTexturesConfig& SceneTexturesConfig = GetActiveSceneTexturesConfig();
+	// 创建RDG系统纹理 — 提供Black/White/Gray等通用纹理
 	const FRDGSystemTextures& SystemTextures = FRDGSystemTextures::Create(GraphBuilder);
 
+	// 静态光照判断 — 光追覆盖模式下禁用静态光照
 	const bool bAllowStaticLighting = !bHasRayTracedOverlay && IsStaticLightingAllowed();
 
 	// if DDM_AllOpaqueNoVelocity was used, then velocity should have already been rendered as well
 	const bool bIsEarlyDepthComplete = (DepthPass.EarlyZPassMode == DDM_AllOpaque || DepthPass.EarlyZPassMode == DDM_AllOpaqueNoVelocity);
 
 	// Use read-only depth in the base pass if we have a full depth prepass.
+	// BasePass只读深度判断 — 完整深度预通道时BasePass可只读深度，提升带宽效率
 	const bool bAllowReadOnlyDepthBasePass = bIsEarlyDepthComplete
 		&& !ViewFamily.EngineShowFlags.ShaderComplexity
 		&& !ViewFamily.UseDebugViewPS()
 		&& !ViewFamily.EngineShowFlags.Wireframe
 		&& !ViewFamily.EngineShowFlags.LightMapDensity;
 
+	// BasePass深度模板访问模式 — 只读深度+写模板 或 读写深度+写模板
 	const FExclusiveDepthStencil::Type BasePassDepthStencilAccess =
 		bAllowReadOnlyDepthBasePass
 		? FExclusiveDepthStencil::DepthRead_StencilWrite
 		: FExclusiveDepthStencil::DepthWrite_StencilWrite;
 
+	// 视图数据管理器 — 管理所有视图的UniformBuffer数据
 	FRendererViewDataManager& ViewDataManager = *GraphBuilder.AllocObject<FRendererViewDataManager>(GraphBuilder, *Scene, GetSceneUniforms(), AllViews);
 	FInstanceCullingManager& InstanceCullingManager = *GraphBuilder.AllocObject<FInstanceCullingManager>(GraphBuilder, *Scene, GetSceneUniforms(), ViewDataManager);
 
+	// 初始化ViewFamily场景纹理 — 分配SceneColor、SceneDepth、GBuffer等
 	FSceneTextures::InitializeViewFamily(GraphBuilder, ViewFamily, FamilySize);
 	FSceneTextures& SceneTextures = GetActiveSceneTextures();
 
 	{
 		RDG_EVENT_SCOPE_STAT(GraphBuilder, VisibilityCommands, "VisibilityCommands");
 		// 开始视图初始化 — 执行可见性计算（视锥裁剪、遮挡裁剪、Nanite可见性）
+		// 开始视图初始化 — 视锥裁剪、遮挡裁剪、Nanite可见性计算
 		BeginInitViews(GraphBuilder, SceneTexturesConfig, InstanceCullingManager, ExternalAccessQueue, InitViewTaskDatas);
 	}
 
@@ -2153,6 +2185,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	}
 #endif
 
+	// 持久化视图UniformBuffer扩展 — BeginFrame和PrepareView在RHI线程刷新前执行
 	extern TSet<IPersistentViewUniformBufferExtension*> PersistentViewUniformBufferExtensions;
 
 	for (IPersistentViewUniformBufferExtension* Extension : PersistentViewUniformBufferExtensions)
@@ -2238,10 +2271,12 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	}
 
 	// 完成动态网格元素收集 — 所有Mesh Draw Command在此就绪
+	// 完成动态网格元素收集 — 所有FMeshDrawCommand并行收集完成
 	InitViewTaskDatas.VisibilityTaskData->FinishGatherDynamicMeshElements(BasePassDepthStencilAccess, InstanceCullingManager, VirtualTextureUpdater.Get());
 
 	// Notify the FX system that the scene is about to be rendered.
 	// TODO: These should probably be moved to scene extensions
+	// 通知FX系统场景即将渲染 — GPU粒子模拟准备
 	if (FXSystem && Views.IsValidIndex(0))
 	{
 		SCOPE_CYCLE_COUNTER(STAT_FDeferredShadingSceneRenderer_FXSystem_PreRender);
@@ -2263,16 +2298,19 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			RDG_GPU_MASK_SCOPE(GraphBuilder, View.GPUMask);
 
 			// GPU场景上传动态图元着色器数据到GPU
+			// GPU场景更新 — 上传动态图元着色器数据（变换矩阵等）
 			Scene->GPUScene.UploadDynamicPrimitiveShaderDataForView(GraphBuilder, View);
 			Scene->GPUScene.DebugRender(GraphBuilder, GetSceneUniforms(), View);
 		}
 
 		// Must be called after all views have flushed the dynamic primitives.
+		// 实例状态初始化 — 必须在所有视图动态图元刷新后调用
 		ViewDataManager.InitInstanceState(GraphBuilder);
 
 		if (Views.Num() > 0)
 		{
 			FViewInfo& View = Views[0];
+			// 物理场更新 — 布料/破坏等物理模拟数据上传
 			Scene->UpdatePhysicsField(GraphBuilder, View);
 		}
 	}
@@ -2284,20 +2322,27 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	}
 
 	//SceneCullingInfo.SceneUniformBuffer = GetSceneUniforms().GetBuffer(GraphBuilder);
+	// 场景扩展更新视图数据 — 在所有GPU场景更新后同步
 	GetSceneExtensionsRenderers().UpdateViewData(GraphBuilder, ViewDataManager);
 
 	// Allow scene extensions to affect the scene uniform buffer after GPU scene has fully updated
+	// 场景扩展更新场景UniformBuffer — 允许扩展修改场景级UB
 	GetSceneExtensionsRenderers().UpdateSceneUniformBuffer(GraphBuilder, GetSceneUniforms());
 
 	// Must happen after visibility state & scene UB has been updated.
 	// 实例裁剪延迟处理开始（必须在可见性状态和场景UB更新后）
+	// 实例裁剪延迟处理 — 在可见性状态和UB更新后开始裁剪
 	InstanceCullingManager.BeginDeferredCulling(GraphBuilder);
 
 	// Separate fog composition can only happen when deferred fog is enabled.
+	// 分离雾合成 — 仅在启用延迟雾且视图需要雾效时
 	const bool bShouldRenderFogUsingSeparateComposition = ShouldRenderFogUsingSeparateComposition(Scene) && ShouldRenderDeferredFog(Scene) && ShouldRenderFog(ViewFamily);
 
+	// GBuffer使用判断 — 检查平台是否支持GBuffer渲染
 	const bool bUseGBuffer = IsUsingGBuffers(ShaderPlatform);
+	// 体积雾判断 — 检查是否需要渲染体积雾
 	const bool bShouldRenderVolumetricFog = ShouldRenderVolumetricFog();
+	// 局部雾体积判断 — 检查场景中是否有LFV组件
 	const bool bShouldRenderLocalFogVolume = ShouldRenderLocalFogVolume(Scene, ViewFamily);
 	const bool bShouldRenderLocalFogVolumeDuringHeightFogPass = ShouldRenderLocalFogVolumeDuringHeightFogPass(Scene, ViewFamily) || bShouldRenderFogUsingSeparateComposition;
 	const bool bShouldRenderLocalFogVolumeInVolumetricFog = ShouldRenderLocalFogVolumeInVolumetricFog(Scene, ViewFamily, bShouldRenderLocalFogVolume);
@@ -2305,21 +2350,25 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	const bool bFogComposeLocalFogVolumes = (bShouldRenderLocalFogVolumeInVolumetricFog && bShouldRenderVolumetricFog) || bShouldRenderLocalFogVolumeDuringHeightFogPass;
 	bool bHeightFogHasComposedLocalFogVolume = false;
 
+	// 延迟光照条件 — 需要SM5+、光照启用、GBuffer可用、非光追覆盖
 	const bool bRenderDeferredLighting = ViewFamily.EngineShowFlags.Lighting
 		&& FeatureLevel >= ERHIFeatureLevel::SM5
 		&& ViewFamily.EngineShowFlags.DeferredLighting
 		&& bUseGBuffer
 		&& !bHasRayTracedOverlay;
 
+	// Lumen启用检查 — 遍历所有视图检查漫反射间接光和反射方法
 	bool bAnyLumenEnabled = false;
 
 	// Virtual texturing isn't needed for depth prepass
 	if (bUseVirtualTexturing && RendererOutput != ERendererOutput::DepthPrepassOnly)
 	{
 		// Note, should happen after the GPU-Scene update to ensure rendering to runtime virtual textures is using the correctly updated scene
+		// 虚拟纹理系统结束更新 — 在GPU场景更新之后，确保RVT使用正确场景数据
 		FVirtualTextureSystem::Get().EndUpdate(GraphBuilder, MoveTemp(VirtualTextureUpdater), FeatureLevel);
 	}
 
+	// 材质缓存标签提供者更新 — 用于Nanite材质分桶
 	FMaterialCacheTagProvider::Get().Update(GraphBuilder);
 
 	UE::Tasks::TTask<FSortedLightSetSceneInfo*> GatherAndSortLightsTask;
@@ -2377,16 +2426,20 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	#endif
 
 	
+	// 遮挡查询 — 线框模式下除非视图冻结否则不启用
 	const bool bIsOcclusionTesting = DoOcclusionQueries()
 		&& (!ViewFamily.EngineShowFlags.Wireframe || bIsViewFrozen);
+	// 深度预通道渲染 — 写入SceneDepth和HiZ，后续Pass用于遮挡剔除
 	const bool bNeedsPrePass = ShouldRenderPrePass();
 
 	// Sanity check - Note: Nanite forces a Z prepass in ShouldForceFullDepthPass()
 	check(!UseNanite(ShaderPlatform) || bNeedsPrePass);
 
+	// 场景扩展PreRender回调 — 广播引擎PreRender委托
 	GetSceneExtensionsRenderers().PreRender(GraphBuilder);
 	GEngine->GetPreRenderDelegateEx().Broadcast(GraphBuilder);
 
+	// 抖动模板填充Pass — 为计算着色器LOD抖动准备模板值
 	if (DepthPass.IsComputeStencilDitherEnabled())
 	{
 		AddDitheredStencilFillPass(GraphBuilder, Views, SceneTextures.Depth.Target, DepthPass);
@@ -2396,6 +2449,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	{
 		// Must happen before any Nanite rendering in the frame
 		// Nanite流式加载完成 — 必须在任何Nanite渲染之前
+		// Nanite流式加载完成 — 必须在任何Nanite渲染之前，获取已修改资源列表
 		Nanite::GStreamingManager.EndAsyncUpdate(GraphBuilder);
 
 		const TMap<uint32, uint32> ModifiedResources = Nanite::GStreamingManager.GetAndClearModifiedResources();
@@ -2412,23 +2466,28 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	// Virtual texturing isn't needed for depth prepass
 	if (bUseVirtualTexturing && RendererOutput != ERendererOutput::DepthPrepassOnly)
 	{
+		// 虚拟纹理请求最终化 — 在EndInitViews之前完成所有VT请求
 		FVirtualTextureSystem::Get().FinalizeRequests(GraphBuilder, this);
 	}
 
 	{
 		RDG_RHI_EVENT_SCOPE_STAT(GraphBuilder, VisibilityCommands, "VisibilityCommands");
 		// 结束视图初始化 — 可见性计算完成，所有视图数据就绪
+		// 结束视图初始化 — 可见性计算完成，所有视图剔除数据就绪
 		EndInitViews(GraphBuilder, LumenFrameTemporaries, InstanceCullingManager, InitViewTaskDatas);
 	}
 
 	// Substrate initialisation is always run even when not enabled.
 	// Need to run after EndInitViews() to ensure ViewRelevance computation are completed
 	const bool bSubstrateEnabled = Substrate::IsSubstrateEnabled();
+	// Substrate帧场景数据初始化 — 始终运行即使Substrate未启用
 	Substrate::InitialiseSubstrateFrameSceneData(GraphBuilder, *Scene, ViewFamily, AllViews, ShaderPlatform);
 
+	// SVT流式管理器结束异步更新
 	UE::SVT::GetStreamingManager().EndAsyncUpdate(GraphBuilder);
 
 	FHairStrandsBookmarkParameters& HairStrandsBookmarkParameters = *GraphBuilder.AllocObject<FHairStrandsBookmarkParameters>();
+	// 头发Strands启用检查 — 创建书签参数用于后续头发渲染Pass
 	if (IsHairStrandsEnabled(EHairStrandsShaderType::All, Scene->GetShaderPlatform()) && RendererOutput == ERendererOutput::FinalSceneColor)
 	{
 		CreateHairStrandsBookmarkParameters(Scene, Views, AllViews, HairStrandsBookmarkParameters);
@@ -2452,8 +2511,10 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		}
 	}
 
+	// 外部访问队列提交 — 确保之前提交的GPU写入对后续Pass可见
 	ExternalAccessQueue.Submit(GraphBuilder);
 
+	// 天空大气渲染判断 — 检查场景天空大气组件
 	const bool bShouldRenderSkyAtmosphere = ShouldRenderSkyAtmosphere(Scene, ViewFamily.EngineShowFlags);
 	const ESkyAtmospherePassLocation SkyAtmospherePassLocation = GetSkyAtmospherePassLocation();
 	FSkyAtmospherePendingRDGResources SkyAtmospherePendingRDGResources;
@@ -2462,15 +2523,21 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		// Generate the Sky/Atmosphere look up tables overlaping the pre-pass
 		// Pass DynamicShadowsTaskData pointer in case that task needs to be waited before accessing VisibleLightInfo.ShadowsToProject
 		// (i.e FilterDynamicShadows runs on a parallel task and writes ShadowsToProject concurrently)
+		// 生成天空大气LUT — 透射率、散射等查找表
 		RenderSkyAtmosphereLookUpTables(GraphBuilder, /* out */ SkyAtmospherePendingRDGResources, InitViewTaskDatas.DynamicShadows);
 	}
 
+	// 水面信息纹理渲染 — 提供水面高度/法线等信息给Shader
 	RenderWaterInfoTexture(GraphBuilder, *this, Scene);
 
+	// 速度渲染判断 — 检查是否需要渲染运动矢量（TAA/MotionBlur需要）
 	const bool bShouldRenderVelocities = ShouldRenderVelocities();
 	const EShaderPlatform Platform = GetViewFamilyInfo(Views).GetShaderPlatform();
+	// BasePass输出速度检查 — 当前平台是否支持BasePass直接输出速度
 	const bool bBasePassCanOutputVelocity = FVelocityRendering::BasePassCanOutputVelocity(Platform);
+	// 头发Strands启用 — 检查是否有可见的头发实例
 	const bool bHairStrandsEnable = HairStrandsBookmarkParameters.HasInstances() && Views.Num() > 0 && IsHairStrandsEnabled(EHairStrandsShaderType::Strands, Platform);
+	// 强制速度输出 — 头发或扭曲效果需要强制输出速度
 	const bool bForceVelocityOutput = bHairStrandsEnable || ShouldRenderDistortion();
 
 	// ------------------------------------------------------------
@@ -2487,6 +2554,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 				: ERenderTargetLoadAction::EClear;
 
 			const ERenderTargetLoadAction DepthLoadAction = ERenderTargetLoadAction::EClear;
+			// 深度清屏 — 清除深度/模板缓冲，为预通道做准备
 			AddClearDepthStencilPass(GraphBuilder, LocalSceneTextures.Depth.Target, DepthLoadAction, StencilLoadAction);
 
 			// Draw the scene pre-pass / early z pass, populating the scene depth buffer and HiZ
@@ -2509,10 +2577,12 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		}
 
 		{
+			// 等待Nanite材质Bins缓存任务完成
 			Scene->WaitForCacheNaniteMaterialBinsTask();
 
 			if (bNaniteEnabled && InViews.Num() > 0)
 			{
+				// Nanite渲染 — GPU裁剪+软件/硬件混合光栅化+VisBuffer输出
 				RenderNanite(GraphBuilder, InViews, LocalSceneTextures, bIsEarlyDepthComplete, InNaniteBasePassVisibility, NaniteRasterResults, PrimaryNaniteViews, FirstStageDepthBuffer);
 			}
 		}
@@ -2520,6 +2590,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		if (FirstStageDepthBuffer)
 		{
 			LocalSceneTextures.PartialDepth = FirstStageDepthBuffer;
+			// 场景深度Resolve — 将深度从压缩或分块格式解析为标准格式
 			AddResolveSceneDepthPass(GraphBuilder, InViews, LocalSceneTextures.PartialDepth);
 		}
 		else
@@ -2533,12 +2604,14 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		AddResolveSceneDepthPass(GraphBuilder, InViews, LocalSceneTextures.Depth);
 	};
 
+	// DBuffer纹理创建 — 为延迟贴花分配DBufferA/B/C纹理
 	*SceneTextures.DBufferTextures = CreateDBufferTextures(GraphBuilder, SceneTextures.Config.Extent, ShaderPlatform);
 
 	// Initialise local fog volume with dummy data before volumetric cloud view initialization (further down) which can bind LFV data.
 	// Also need to do this before custom render passes (included in AllViews), as base pass rendering may bind LFV data.
 	SetDummyLocalFogVolumeForViews(GraphBuilder, AllViews);
 
+	// 自定义渲染通道 — 场景捕获、用户自定义Pass等走此路径
 	if (CustomRenderPassInfos.Num() > 0)
 	{
 		QUICK_SCOPE_CYCLE_COUNTER(STAT_CustomRenderPasses);
@@ -2580,6 +2653,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 				RenderPrepassAndVelocity(CustomRenderPassViews, DummyNaniteBasePassVisibility, NaniteRasterResults, PrimaryNaniteViews, *CustomRenderPassSceneTextures);
 
 				const FSingleLayerWaterPrePassResult* SingleLayerWaterPrePassResult = nullptr;
+				// 单层水体深度预通道 — 为水面渲染准备深度数据
 				if (ShouldRenderSingleLayerWaterDepthPrepass(CustomRenderPassViews))
 				{
 					SingleLayerWaterPrePassResult = RenderSingleLayerWaterDepthPrepass(GraphBuilder, CustomRenderPassViews, *CustomRenderPassSceneTextures, ESingleLayerWaterPrepassLocation::BeforeBasePass, NaniteRasterResults);
@@ -2599,15 +2673,18 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 					if (bNaniteEnabled)
 					{
+						// 构建Nanite BasePass着色命令 — 提前启动以允许CPU任务重叠
 						Nanite::BuildShadingCommands(GraphBuilder, *Scene, ENaniteMeshPass::BasePass, NaniteBasePassShadingCommands, Nanite::EBuildShadingCommandsMode::Custom);
 					}
 
 					// This class handles decal rendering
 					FCompositionLighting CustomRenderPassCompositionLighting(InitViewTaskDatas.Decals, CustomRenderPassViews, *CustomRenderPassSceneTextures, [this](int32 ViewIndex) { return false; });
+					// 合成光照的BasePass前处理 — DBuffer贴花在此应用
 					CustomRenderPassCompositionLighting.ProcessBeforeBasePass(GraphBuilder, *CustomRenderPassSceneTextures->DBufferTextures, InstanceCullingManager, *CustomRenderPassSceneTextures->SubstrateSceneData);
 
 					RenderBasePass(*this, GraphBuilder, CustomRenderPassViews, *CustomRenderPassSceneTextures, BasePassDepthStencilAccess, /*ForwardScreenSpaceShadowMaskTexture=*/nullptr, InstanceCullingManager, bNaniteEnabled, NaniteBasePassShadingCommands, NaniteRasterResults);
 
+					// 合成光照的BasePass后处理 — 延迟贴花、SSAO在此阶段
 					CustomRenderPassCompositionLighting.ProcessAfterBasePass(GraphBuilder, InstanceCullingManager, FCompositionLighting::EProcessAfterBasePassMode::All, *CustomRenderPassSceneTextures->SubstrateSceneData);
 
 					if (ShouldRenderSingleLayerWater(CustomRenderPassViews))
@@ -2615,6 +2692,8 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 						// GBuffer code paths in RenderSingleLayerWater don't use the bIsCameraUnderWater flag, so just pass in false.  Normally this is
 						// computed by a render extension, but those aren't run for custom render passes.
 						FSceneWithoutWaterTextures SceneWithoutWaterTextures;
+// 体积云渲染判断 — 检查是否需要渲染体积云
+						// 体积云渲染 — 光线步进追踪体积云密度
 						RenderSingleLayerWater(GraphBuilder, CustomRenderPassViews, *CustomRenderPassSceneTextures, SingleLayerWaterPrePassResult, /*bShouldRenderVolumetricCloud=*/false, SceneWithoutWaterTextures, LumenFrameTemporaries, /*bIsCameraUnderWater=*/false);
 					}
 
@@ -2622,6 +2701,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 					if (RenderOutput == FCustomRenderPassBase::ERenderOutput::BaseColor || RenderOutput == FCustomRenderPassBase::ERenderOutput::Normal ||
 						!SceneCaptureUserData.UserSceneTextureBaseColor.IsNone() || !SceneCaptureUserData.UserSceneTextureNormal.IsNone() || !SceneCaptureUserData.UserSceneTextureSceneColor.IsNone())
 					{
+						// 拷贝场景捕获结果到目标纹理 — 将渲染结果输出到RenderTarget
 						// CopySceneCaptureComponentToTarget uses scene texture uniforms
 						CustomRenderPassSceneTextures->SetupMode |= ESceneTextureSetupMode::GBuffers;
 						CustomRenderPassSceneTextures->UniformBuffer = CreateSceneTextureUniformBuffer(GraphBuilder, CustomRenderPassSceneTextures, FeatureLevel, CustomRenderPassSceneTextures->SetupMode);
@@ -2649,6 +2729,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 					const bool bNeedsClassificationPass = !Substrate::UsesStochasticLightingClassification(ShaderPlatform);
 					if (bNeedsClassificationPass)
 					{
+						// Substrate材质分类Pass — 将像素分类到不同的材质Slab
 						Substrate::AddSubstrateMaterialClassificationPass(GraphBuilder, *CustomRenderPassSceneTextures, CustomRenderPassViews);
 					}
 				}
@@ -2702,6 +2783,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 				}
 
 			#if WITH_MGPU
+				// 多GPU交叉传输 — 在多GPU配置间同步纹理数据
 				DoCrossGPUTransfers(GraphBuilder, CustomRenderPass->GetRenderTargetTexture(), CustomRenderPassViews, false, FRHIGPUMask::All(), nullptr);
 			#endif
 			}
@@ -2735,6 +2817,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 	FComputeLightGridOutput ComputeLightGridOutput = {};
 
+	// 合成光照对象 — 管理延迟贴花、SSAO等合成Pass
 	FCompositionLighting CompositionLighting(InitViewTaskDatas.Decals, Views, SceneTextures, [this](int32 ViewIndex)
 	{
 		return GetViewPipelineState(Views[ViewIndex]).AmbientOcclusionMethod == EAmbientOcclusionMethod::SSAO;
@@ -2755,6 +2838,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 		Froxel::FRenderer FroxelRenderer(bShouldGenerateFroxels, GraphBuilder, Views);
 
+		// 遮挡渲染 — HZB生成、遮挡查询、Froxel初始化
 		RenderOcclusion(GraphBuilder, SceneTextures, bIsOcclusionTesting,
 			bAsyncCompute ? &AsyncComputeParams : nullptr, FroxelRenderer);
 
@@ -2766,11 +2850,14 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	const bool bShouldRenderVolumetricCloudBase = ShouldRenderVolumetricCloud(Scene, ViewFamily.EngineShowFlags);
 	const bool bShouldRenderVolumetricCloud = bShouldRenderVolumetricCloudBase && (!ViewFamily.EngineShowFlags.VisualizeVolumetricCloudConservativeDensity && !ViewFamily.EngineShowFlags.VisualizeVolumetricCloudEmptySpaceSkipping);
 	const bool bShouldVisualizeVolumetricCloud = bShouldRenderVolumetricCloudBase && (!!ViewFamily.EngineShowFlags.VisualizeVolumetricCloudConservativeDensity || !!ViewFamily.EngineShowFlags.VisualizeVolumetricCloudEmptySpaceSkipping);
+	// 体积云异步计算判断 — 是否在异步计算管线上执行
 	const bool bAsyncComputeVolumetricCloud = IsVolumetricRenderTargetEnabled() && IsVolumetricRenderTargetAsyncCompute();
+	// 体积渲染目标需求 — 体积云是否需要离屏渲染目标
 	const bool bVolumetricRenderTargetRequired = bShouldRenderVolumetricCloud && !bHasRayTracedOverlay;
 
 	Froxel::FRenderer FroxelRenderer;
 
+	// 尝试创建ViewFamily输出纹理 — 场景捕获时此纹理为RenderTarget
 	FRDGTextureRef ViewFamilyTexture = TryCreateViewFamilyTexture(GraphBuilder, ViewFamily);
 	FRDGTextureRef ViewFamilyDepthTexture = TryCreateViewFamilyDepthTexture(GraphBuilder, ViewFamily);
 	if (RendererOutput == ERendererOutput::DepthPrepassOnly)
@@ -2787,6 +2874,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	}
 	else
 	{
+		// 基于图像的VRS准备 — 可变速率着色，根据图像内容调整着色率
 		GVRSImageManager.PrepareImageBasedVRS(GraphBuilder, ViewFamily, SceneTextures);
 
 		if (!IsForwardShadingEnabled(ShaderPlatform))
@@ -2798,6 +2886,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		// Update groom only visible in shadow
 		if (IsHairStrandsEnabled(EHairStrandsShaderType::All, Scene->GetShaderPlatform()) && RendererOutput == ERendererOutput::FinalSceneColor)
 		{
+			// 更新头发Strands书签参数 — 仅阴影可见的头发卡片/网格
 			UpdateHairStrandsBookmarkParameters(Scene, Views, HairStrandsBookmarkParameters);
 
 			// Interpolation for cards/meshes only visible in shadow needs to happen after the shadow jobs are completed
@@ -2809,6 +2898,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		}
 
 		// Early occlusion queries
+		// BasePass前遮挡查询 — DDM_AllOccluders或完整预通道时启用
 		const bool bOcclusionBeforeBasePass = ((DepthPass.EarlyZPassMode == EDepthDrawingMode::DDM_AllOccluders) || bIsEarlyDepthComplete);
 
 		if (bOcclusionBeforeBasePass)
@@ -2825,6 +2915,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 		{
 			SCOPE_CYCLE_COUNTER(STAT_WaitGatherAndSortLightsTask);
+			// 等待光源收集排序任务 — 确保前向光照数据准备就绪
 			GatherAndSortLightsTask.Wait();
 		}
 
@@ -2852,20 +2943,26 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			CSV_CUSTOM_STAT(LightCount, Unbatched, float(SortedLightSet->SortedLights.Num()) - float(SortedLightSet->UnbatchedLightStart), ECsvCustomStatOp::Set);
 		}
 
+		// 光照函数图集渲染 — 渲染IES/LightFunction到图集纹理
 		LightFunctionAtlas.RenderLightFunctionAtlas(GraphBuilder, Views);
 
+		// MegaLights光源能量增量计算 — 跟踪光源亮度变化
 		ComputeMegaLightsLightPowerDelta(GraphBuilder);
 
 		// Run before RenderSkyAtmosphereLookUpTables for cloud shadows to be valid.
+		// 初始化体积云视图数据 — 必须在天空大气LUT之前运行
 		InitVolumetricCloudsForViews(GraphBuilder, bShouldRenderVolumetricCloudBase, InstanceCullingManager);
 
+		// 异步距离场阴影投影开始 — 启动距离场阴影计算任务
 		BeginAsyncDistanceFieldShadowProjections(GraphBuilder, SceneTextures, InitViewTaskDatas.DynamicShadows);
 
 		// Run local fog volume culling before base pass and after HZB generation to benefit from more culling.
+		// 局部雾体积初始化 — BasePass之后、HZB生成之后，利用更多裁剪
 		InitLocalFogVolumesForViews(Scene, Views, ViewFamily, GraphBuilder, bShouldRenderVolumetricFog, false /*bool bUseHalfResLocalFogVolume*/);
 
 		if (bShouldRenderVolumetricCloudBase)
 		{
+			// 体积渲染目标初始化 — 为体积云分配离屏渲染目标
 			InitVolumetricRenderTargetForViews(GraphBuilder, Views, SceneTextures);
 		}
 		else
@@ -2881,6 +2978,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			// Generate the Sky/Atmosphere look up tables
 			RenderSkyAtmosphereLookUpTables(GraphBuilder, /* out */ SkyAtmospherePendingRDGResources);
 
+			// 提交天空大气LUT到场景和视图UniformBuffer — 使Shader可访问
 			SkyAtmospherePendingRDGResources.CommitToSceneAndViewUniformBuffers(GraphBuilder, /* out */ ExternalAccessQueue);
 		}
 		else if (SkyAtmospherePassLocation == ESkyAtmospherePassLocation::BeforePrePass && bShouldRenderSkyAtmosphere)
@@ -2889,6 +2987,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		}
 
 		// Capture the SkyLight using the SkyAtmosphere and VolumetricCloud component if available.
+		// 天空光照实时捕获 — 使用天空大气和体积云组件捕获Cubemap
 		const bool bRealTimeSkyCaptureEnabled = Scene->SkyLight && Scene->SkyLight->bRealTimeCaptureEnabled && Views.Num() > 0 && ViewFamily.EngineShowFlags.SkyLighting;
 		const bool bPathTracedAtmosphere = ViewFamily.EngineShowFlags.PathTracing && Views.Num() > 0 && PathTracing::UsesReferenceAtmosphere(Views[0]);
 		if (bRealTimeSkyCaptureEnabled && !bPathTracedAtmosphere)
@@ -2900,10 +2999,12 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			Scene->AllocateAndCaptureFrameSkyEnvMap(GraphBuilder, *this, MainView, bShouldRenderSkyAtmosphere, bShouldRenderVolumetricCloud, InstanceCullingManager, ExternalAccessQueue);
 		}
 
+		// 自定义深度通道位置 — 根据平台选择BeforeBasePass或AfterBasePass
 		const ECustomDepthPassLocation CustomDepthPassLocation = GetCustomDepthPassLocation(ShaderPlatform);
 		if (CustomDepthPassLocation == ECustomDepthPassLocation::BeforeBasePass)
 		{
 			QUICK_SCOPE_CYCLE_COUNTER(STAT_FDeferredShadingSceneRenderer_CustomDepthPass_BeforeBasePass);
+			// 自定义深度通道渲染 — 为需要自定义深度的对象渲染深度
 			if (RenderCustomDepthPass(GraphBuilder, SceneTextures.CustomDepth, SceneTextures.GetSceneTextureShaderParameters(FeatureLevel), NaniteRasterResults, PrimaryNaniteViews))
 			{
 				SceneTextures.SetupMode |= ESceneTextureSetupMode::CustomDepth;
@@ -2914,6 +3015,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		// Single layer water depth prepass. Needs to run before VSM page allocation. If there's a full depth prepass, it can run before the base pass, otherwise after.
 		// Running before the base pass allows for some optimizations to save work in the base pass and lighting stages.
 		const FSingleLayerWaterPrePassResult* SingleLayerWaterPrePassResult = nullptr;
+		// 单层水体深度预通道位置 — 根据深度预通道完整性选择位置
 		const ESingleLayerWaterPrepassLocation SingleLayerWaterPrepassLocation = GetSingleLayerWaterDepthPrepassLocation(bIsEarlyDepthComplete, CustomDepthPassLocation);
 		const bool bShouldRenderSingleLayerWaterDepthPrepass = !bHasRayTracedOverlay && ShouldRenderSingleLayerWaterDepthPrepass(Views);
 		if (bShouldRenderSingleLayerWaterDepthPrepass && SingleLayerWaterPrepassLocation == ESingleLayerWaterPrepassLocation::BeforeBasePass)
@@ -2924,6 +3026,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		// Lumen updates need access to sky atmosphere LUT.
 		ExternalAccessQueue.Submit(GraphBuilder);
 
+		// Lumen场景更新 — 更新Surface Cache卡片表示
 		UpdateLumenScene(GraphBuilder, LumenFrameTemporaries);
 
 		// Reset the common DitheredHalfResDepth texture.
@@ -2940,6 +3043,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 				check(SceneDepthTexture != nullptr);					// Must receive a valid texture
 				check(HalfResolutionDepthMinMaxTexture == nullptr);		// Only generate it once
 				check(QuarterResolutionDepthMinMaxTexture == nullptr);	// Only generate it once
+				// 四分之一分辨率深度MinMax纹理 — 用于体积云追踪优化
 				CreateQuarterResolutionDepthMinAndMaxFromDepthTexture(GraphBuilder, Views, SceneDepthTexture, HalfResolutionDepthMinMaxTexture, QuarterResolutionDepthMinMaxTexture);
 			}
 			else
@@ -2955,6 +3059,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		{
 			// With forward shading we need to render shadow maps early
 			ensureMsgf(!VirtualShadowMapArray.IsEnabled(), TEXT("Virtual shadow maps are not supported in the forward shading path"));
+			// 渲染阴影深度贴图 — 所有光源的阴影深度Pass
 			RenderShadowDepthMaps(GraphBuilder, InitViewTaskDatas.DynamicShadows, InstanceCullingManager, ExternalAccessQueue);
 			bShadowMapsRenderedEarly = true;
 
@@ -2965,11 +3070,14 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 				RunHairStrandsBookmark(GraphBuilder, EHairStrandsBookmark::ProcessStrandsInterpolation, HairStrandsBookmarkParameters);
 				if (!bHasRayTracedOverlay)
 				{
+					// 头发预通道 — 渲染头发深度和覆盖率到HairStrands缓冲
 					RenderHairPrePass(GraphBuilder, Scene, SceneTextures, Views, InstanceCullingManager, HairStrandsBookmarkParameters.CullingResults);
+					// 头发BasePass — 计算头发着色并合成到场景
 					RenderHairBasePass(GraphBuilder, Scene, SceneTextures, Views, InstanceCullingManager, nullptr);
 				}
 			}
 
+			// 前向阴影投影 — 将提前渲染的阴影投影到屏幕空间
 			RenderForwardShadowProjections(GraphBuilder, SceneTextures, ForwardScreenSpaceShadowMaskTexture, ForwardScreenSpaceShadowMaskHairTexture);
 
 			// With forward shading we need to render volumetric fog before the base pass
@@ -2996,6 +3104,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		
 		if (IsForwardShadingEnabled(ShaderPlatform))
 		{
+			// 间接胶囊阴影 — 为间接光照提供胶囊阴影
 			RenderIndirectCapsuleShadows(GraphBuilder, SceneTextures);
 		}
 
@@ -3003,6 +3112,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 		if (bRenderDeferredLighting && ShouldClearTranslucencyLightingVolumeInAsyncCompute())
 		{
+			// 半透明光照体积初始化 — 分配用于半透明对象光照的体积纹理
 			TranslucencyLightingVolumeTextures.Init(GraphBuilder, Views, ERDGPassFlags::AsyncCompute);
 		}
 
@@ -3056,6 +3166,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			if (bRenderDeferredLighting && SortedLightSet.MegaLightsLightStart < SortedLightSet.SortedLights.Num())
 			{
 				// MegaLights帧临时资源创建 — UE5.8大量动态可投影光源系统
+				// MegaLights帧临时资源创建 — 分配采样、降噪、合成所需纹理
 				MegaLightsContext = CreateMegaLightsFrameTemporaries(GraphBuilder, SceneTextures);
 			}
 
@@ -3073,9 +3184,11 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 				LLM_SCOPE_BYTAG(Lumen);
 				BeginGatheringLumenSurfaceCacheFeedback(GraphBuilder, Views[0], LumenFrameTemporaries);
 				// Lumen场景光照 — 更新Surface Cache + 直接光照评估
+				// Lumen场景光照 — 更新Surface Cache + 评估直接光照
 				RenderLumenSceneLighting(GraphBuilder, LumenFrameTemporaries, InitViewTaskDatas.LumenDirectLighting);
 			}
 
+			// 标记Lumen辐射度缓存 — 用于半透明反射
 			MarkLumenRadianceCacheForTranslucencyReflections(GraphBuilder, SceneTextures, LumenFrameTemporaries);
 
 			if (MegaLights::VolumeUseAsyncCompute(MegaLightsContext) && MegaLights::UseTranslucencyVolumeMarkTexture(MegaLightsContext))
@@ -3085,6 +3198,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 				bGatheredTranslucencyVolumeMarkedVoxels = true;
 			}
 
+			// MegaLights体积Pass异步调度 — 在异步计算管线执行
 			DispatchAsyncMegaLightsVolumePasses(GraphBuilder, MegaLightsContext);
 		}
 
@@ -3095,6 +3209,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 				// 第五阶段：BasePass — G-Buffer写入（传统几何硬件光栅化 + Nanite Compute Shader着色）
 				// ------------------------------------------------------------
 			// 传统几何通过FMeshDrawCommand硬件光栅化，Nanite几何通过Compute Shader着色
+			// BasePass渲染 — 写入G-Buffer(A:法线,B:材质,C:自定义数据等)
 			RenderBasePass(*this, GraphBuilder, Views, SceneTextures, BasePassDepthStencilAccess, ForwardScreenSpaceShadowMaskTexture, InstanceCullingManager, bNaniteEnabled, Scene->NaniteShadingCommands[ENaniteMeshPass::BasePass], NaniteRasterResults);
 			}
 
@@ -3109,6 +3224,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 				{
 					FNanitePickingFeedback PickingFeedback = { 0 };
 
+					// Nanite可视化Pass — 显示Cluster边界、裁剪结果等调试信息
 					Nanite::AddVisualizationPasses(
 						GraphBuilder,
 						Scene,
@@ -3134,6 +3250,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		if (!bHasRayTracedOverlay)
 		{
 			// Extract emissive from SceneColor (before lighting is applied)
+			// 提取自发光曝光照度 — 从SceneColor提取自发光用于后续曝光计算
 			ExposureIlluminanceSetup = AddSetupExposureIlluminancePass(GraphBuilder, Views, SceneTextures);
 		}
 
@@ -3153,6 +3270,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		if (bRenderDeferredLighting)
 		{
 			// mark GBufferA for saving for next frame if it's needed
+			// 提取上一帧法线 — 用于下一帧的时序重投影
 			ExtractNormalsForNextFrameReprojection(GraphBuilder, SceneTextures, Views);
 		}
 
@@ -3169,6 +3287,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			Scene->ValidateSkyLightRealTimeCapture(GraphBuilder, Views[0], SceneTextures.Color.Target);
 		}
 
+		// 体积光照贴图可视化 — 显示预计算的体积光照数据
 		VisualizeVolumetricLightmap(GraphBuilder, SceneTextures);
 
 		// Occlusion after base pass
@@ -3181,6 +3300,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 		if (!bUseGBuffer)
 		{
+			// 场景颜色Resolve — MSAA解析或格式转换
 			AddResolveSceneColorPass(GraphBuilder, Views, SceneTextures.Color);
 		}
 
@@ -3199,6 +3319,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 		if (ShouldRenderHeterogeneousVolumes(Scene) && !bHasRayTracedOverlay)
 		{
+			// 异质体积阴影渲染 — 计算体积对象的自阴影
 			RenderHeterogeneousVolumeShadows(GraphBuilder, SceneTextures);
 		}
 
@@ -3252,6 +3373,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 				NaniteShadingMask.Add(Results.ShadingMask);
 			}
 		}
+		// 从Stencil拷贝光照通道 — 在延迟贴花覆盖Stencil前保存
 		FRDGTextureRef LightingChannelsTexture = CopyStencilToLightingChannelTexture(GraphBuilder, SceneTextures.Stencil, NaniteShadingMask);
 
 		// Single layer water depth prepass. Needs to run before VSM page allocation.
@@ -3260,6 +3382,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			SingleLayerWaterPrePassResult = RenderSingleLayerWaterDepthPrepass(GraphBuilder, Views, SceneTextures, SingleLayerWaterPrepassLocation, NaniteRasterResults);
 		}
 
+		// 刷新RDG设置队列 — 确保所有Pass资源依赖关系被处理
 		GraphBuilder.FlushSetupQueue();
 
 		// Shadows, lumen and fog after base pass
@@ -3267,6 +3390,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		{
 			if (bAsyncMegaLightsGenerateSamples)
 			{
+				// MegaLights采样 — 在世界空间生成光照采样点
 				GenerateMegaLightsSamples(
 					GraphBuilder,
 					MegaLightsContext,
@@ -3284,6 +3408,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			}
 #endif // RHI_RAYTRACING
 
+			// Lumen间接光照异步调度 — 屏幕探针收集/ReSTIR在异步计算管线执行
 			DispatchAsyncLumenIndirectLightingWork(
 				GraphBuilder,
 				SceneTextures,
@@ -3308,7 +3433,9 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 			if (!bShadowMapsRenderedEarly && ShadowSceneRenderer.GetVirtualShadowMapArray().IsEnabled())
 			{
+				// 前层半透明 — 为Lumen/MegaLights/VSM提供半透明对象前层信息
 				FFrontLayerTranslucencyData FrontLayerTranslucencyData = RenderFrontLayerTranslucency(GraphBuilder, Views, SceneTextures, MegaLightsContext, true /*VSM page marking*/);
+				// VSM页面标记开始 — 分析哪些阴影页面需要渲染
 				ShadowSceneRenderer.BeginMarkVirtualShadowMapPages(GraphBuilder, SingleLayerWaterPrePassResult, FrontLayerTranslucencyData, FroxelRenderer);
 			}
 
@@ -3329,6 +3456,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			{
 				RenderShadowDepthMaps(GraphBuilder, InitViewTaskDatas.DynamicShadows, InstanceCullingManager, ExternalAccessQueue);
 			}
+			// 阴影深度渲染完成检查 — 确保所有阴影Pass已提交
 			CheckShadowDepthRenderCompleted();
 
 #if RHI_RAYTRACING
@@ -3389,6 +3517,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			if (FVirtualShadowMapArrayCacheManager* CacheManager = VirtualShadowMapArray.CacheManager)
 			{
 				// Do this even if VSMs are disabled this frame to clean up any previously extracted data
+				// VSM缓存帧数据提取 — 持久化阴影页面数据用于帧间复用
 				CacheManager->ExtractFrameData(
 					GraphBuilder,
 					VirtualShadowMapArray,
@@ -3410,6 +3539,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		// If we are not rendering velocities in depth or base pass then do that here.
 		if (bShouldRenderVelocities && !bBasePassCanOutputVelocity && (Scene->EarlyZPassMode != DDM_AllOpaqueNoVelocity))
 		{
+			// 速度渲染 — 不透明对象运动矢量（用于TAA/MotionBlur）
 			RenderVelocities(GraphBuilder, Views, SceneTextures, EVelocityPass::Opaque, bHairStrandsEnable);
 		}
 
@@ -3437,6 +3567,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		if (!IsForwardShadingEnabled(ShaderPlatform))
 		{
 			// Clear stencil to 0 now that deferred decals are done using what was setup in the base pass.
+			// 清除Stencil — 延迟贴花使用完毕，重置Stencil为0
 			AddClearStencilPass(GraphBuilder, SceneTextures.Depth.Target);
 		}
 
@@ -3463,9 +3594,11 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			SCOPED_NAMED_EVENT(RenderLighting, FColor::Emerald);
 
 			// Initialize the separated subsurface diffuse for subsurface scattering and build SSS tiles.
+			// 次表面散射初始化 — 构建SSS Tile用于高效次表面散射计算
 			RenderSubsurfaceDiffuseInitPass(GraphBuilder,Views, SceneTextures, /*out*/PrebuiltSSSTiles);
 
 			// 漫反射间接光照与环境光遮蔽（Lumen GI + SSAO）
+			// 漫反射间接光照与环境光遮蔽 — Lumen GI + SSAO合成
 			RenderDiffuseIndirectAndAmbientOcclusion(
 				GraphBuilder,
 				SceneTextures,
@@ -3481,6 +3614,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			RenderIndirectCapsuleShadows(GraphBuilder, SceneTextures);
 
 			// These modulate the scene color output from the base pass, which is assumed to be indirect lighting
+			// DFAO间接阴影 — 距离场环境光遮蔽作为间接阴影调制
 			RenderDFAOAsIndirectShadowing(GraphBuilder, SceneTextures, DynamicBentNormalAOTextures);
 
 			// Clear the translucent lighting volumes before we accumulate
@@ -3493,6 +3627,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			// Only used by ray traced shadows
 			if (IsRayTracingEnabled() && Views[0].bHasRayTracingShadows && Views[0].IsRayTracingAllowedForView())
 			{
+				// 光追Dithered LOD淡出标记 — 光追阴影需要此信息
 				RenderDitheredLODFadingOutMask(GraphBuilder, Views[0], SceneTextures.Depth.Target);
 			}
 #endif
@@ -3508,10 +3643,12 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			// 第六阶段：延迟光照计算 — 聚簇延迟着色(Clustered Deferred Shading)、MegaLights、半透明光照体积
 			// ------------------------------------------------------------
 		// 聚簇延迟着色(Clustered Deferred Shading)：遍历光照网格，计算直接光照
+		// 延迟光照直接光源渲染 — 聚簇延迟着色核心：遍历光照网格计算直接光照
 		RenderLights(GraphBuilder, SceneTextures, LightingChannelsTexture, SortedLightSet);
 
 			if (MegaLightsContext.IsValid())
 			{
+				// MegaLights渲染 — 计算大量动态光源的贡献并合成
 				RenderMegaLights(
 					GraphBuilder,
 					MegaLightsContext,
@@ -3519,6 +3656,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 					LightingChannelsTexture);
 			}
 
+			// 半透明光照体积渲染 — 将光照注入半透明光照体积纹理
 			RenderTranslucencyLightingVolume(GraphBuilder, TranslucencyLightingVolumeTextures, SortedLightSet);
 		}
 
@@ -3570,6 +3708,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 			// Render diffuse sky lighting and reflections that only operate on opaque pixels
 			// 延迟反射与天空光照 — Lumen反射 + 天空光照合成（仅不透明像素）
+			// 延迟反射与天空光照 — Lumen反射 + 天空光照合成
 			RenderDeferredReflectionsAndSkyLighting(GraphBuilder, SceneTextures, LumenFrameTemporaries, DynamicBentNormalAOTextures);
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
@@ -3577,11 +3716,14 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			RenderGlobalIlluminationPluginVisualizations(GraphBuilder, LightingChannelsTexture);
 #endif
 
+			// 次表面散射Pass — 应用次表面散射到场景颜色
 			AddSubsurfacePass(GraphBuilder, SceneTextures, Views, PrebuiltSSSTiles);
 
+			// Substrate不透明粗糙折射Pass — 透明涂层等效果
 			Substrate::AddSubstrateOpaqueRoughRefractionPasses(GraphBuilder, SceneTextures, Views);
 
 			{
+				// 头发Strands场景颜色散射 — 头发对场景光的散射贡献
 				RenderHairStrandsSceneColorScattering(GraphBuilder, SceneTextures.Color.Target, Scene, Views);
 			}
 
@@ -3625,6 +3767,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			{
 				return false;
 			}
+			// TSR主TAA配置检查 — 确定是否使用TSR
 			if (Views.Num() == 0 || GetMainTAAPassConfig(Views[0]) != EMainTAAPassConfig::TSR)
 			{
 				return false;
@@ -3684,6 +3827,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 			const bool bRecreateSceneTextures = !HasBeenProduced(SceneTextures.Velocity);
 
+			// 半透明速度渲染 — 半透明对象的运动矢量
 			RenderVelocities(GraphBuilder, Views, SceneTextures, EVelocityPass::Translucent, false, true, SceneTextures.Velocity, EarlyDepthTexture);			
 			
 			if (bRecreateSceneTextures)
@@ -4000,6 +4144,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		if (!bHasRayTracedOverlay && ShouldRenderHeterogeneousVolumes(Scene) &&
 			(GetHeterogeneousVolumesComposition() == EHeterogeneousVolumesCompositionType::BeforeTranslucent))
 		{
+			// 异质体积合成 — 将异质体积渲染结果合成到场景
 			CompositeHeterogeneousVolumes(GraphBuilder, SceneTextures);
 		}
 
@@ -4146,6 +4291,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		{
 			// Light shaft (rendered just above) can render in separate transluceny at low resolution according to r.SeparateTranslucencyScreenPercentage. 
 			// So we can only upsample that buffer if required after the light shaft bloom pass.
+			// 半透明分辨率提升 — 如果SeparateTranslucency使用了低分辨率
 			UpscaleTranslucencyIfNeeded(GraphBuilder, SceneTextures, TranslucencyViewsToRender, /* inout */ &TranslucencyResourceMap, TranslucencySharedDepthTexture);
 			TranslucencyViewsToRender = ETranslucencyView::None;
 		}
@@ -4163,6 +4309,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			{
 				for (const FViewInfo& View : Views)
 				{
+					// 路径追踪渲染 — 需要完整光追管线+PathTracing Shader
 					RenderPathTracing(GraphBuilder, View, SceneTextures.UniformBuffer, SceneTextures.Color.Target, SceneTextures.Depth.Target,PathTracingResources);
 				}
 			}
@@ -4191,9 +4338,11 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 		if (ViewFamily.EngineShowFlags.PhysicsField && Scene->PhysicsField)
 		{
+			// 物理场可视化 — 显示布料/破坏等物理模拟数据
 			RenderPhysicsField(GraphBuilder, Views, Scene->PhysicsField, SceneTextures.Color.Target);
 		}
 
+		// 距离场光照可视化 — 显示距离场AO计算结果
 		if (ViewFamily.EngineShowFlags.VisualizeDistanceFieldAO && ShouldRenderDistanceFieldLighting(Scene->DistanceFieldSceneData, Views))
 		{
 			// Use the skylight's max distance if there is one, to be consistent with DFAO shadowing on the skylight
@@ -4205,11 +4354,13 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		// Draw visualizations just before use to avoid target contamination
 		if (ViewFamily.EngineShowFlags.VisualizeMeshDistanceFields || ViewFamily.EngineShowFlags.VisualizeGlobalDistanceField)
 		{
+			// 网格距离场可视化 — 显示静态网格的距离场表示
 			RenderMeshDistanceFieldVisualization(GraphBuilder, SceneTextures);
 		}
 
 		if (bRenderDeferredLighting)
 		{
+			// Lumen杂项可视化 — Surface Cache、Radiance Cache等调试视图
 			RenderLumenMiscVisualizations(GraphBuilder, SceneTextures, LumenFrameTemporaries);
 			RenderDiffuseIndirectAndAmbientOcclusion(
 				GraphBuilder,
@@ -4223,6 +4374,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 		if (ViewFamily.EngineShowFlags.StationaryLightOverlap)
 		{
+			// 固定光源重叠可视化 — 显示固定光源影响重叠区域
 			RenderStationaryLightOverlap(GraphBuilder, SceneTextures, LightingChannelsTexture);
 		}
 
@@ -4243,9 +4395,11 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 		if (!bHasRayTracedOverlay)
 		{
+			// 稀疏体积纹理查看器 — 可视化SVT数据
 			AddSparseVolumeTextureViewerRenderPass(GraphBuilder, *this, SceneTextures);
 		}
 
+		// 半透明光照体积可视化 — 显示半透明光照体积内容
 		RenderTranslucencyVolumeVisualization(GraphBuilder, SceneTextures, TranslucencyLightingVolumeTextures);
 
 		// Resolve the scene color for post processing.
@@ -4266,6 +4420,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			{
 				// Keep scene color and depth for next frame screen space ray tracing.
 				FSceneViewState* ViewState = View.ViewState;
+// 为下一帧保留场景深度和颜色 — 屏幕空间光追/时序重投影需要
 				GraphBuilder.QueueTextureExtraction(SceneTextures.Depth.Resolve, &ViewState->PrevFrameViewInfo.DepthBuffer);
 				GraphBuilder.QueueTextureExtraction(SceneTextures.Color.Resolve, &ViewState->PrevFrameViewInfo.ScreenSpaceRayTracingInput);
 			}
@@ -4281,8 +4436,10 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			RDG_EVENT_SCOPE_STAT(GraphBuilder, Postprocessing, "PostProcessing");
 			SCOPED_NAMED_EVENT(PostProcessing, FColor::Emerald);
 
+// 完成曝光补偿曲线LUT更新 — 应用之前异步计算的LUT
 			FinishUpdateExposureCompensationCurveLUT(GraphBuilder.RHICmdList, &UpdateExposureCompensationCurveLUTTaskData);
 
+// 后处理输入数据组装 — 收集所有后处理所需的纹理和参数
 			FPostProcessingInputs PostProcessingInputs;
 			PostProcessingInputs.ViewFamilyTexture = ViewFamilyTexture;
 			PostProcessingInputs.ViewFamilyDepthTexture = ViewFamilyDepthTexture;
@@ -4361,6 +4518,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 #endif
 						}
 
+// 后处理主调用 — TSR/TAA → Bloom → DOF → Tonemap → 色彩分级
 						AddPostProcessingPasses(
 							GraphBuilder,
 							View, ViewIndex,
@@ -4383,28 +4541,35 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 		if (bUseVirtualTexturing)
 		{
+// 虚拟纹理反馈结束 — 将反馈数据写回CPU可读缓冲区
 			VirtualTexture::EndFeedback(GraphBuilder);
 		}
 
 		// After AddPostProcessingPasses in case of Lumen Visualizations writing to feedback
+// 完成Lumen Surface Cache反馈收集 — 用于下一帧的Surface Cache更新
 		FinishGatheringLumenSurfaceCacheFeedback(GraphBuilder, Views[0], LumenFrameTemporaries, SceneTextures);
 
+// 提取随机光照数据 — 用于下一帧的随机光照时序累积
 		QueueExtractStochasticLighting(GraphBuilder, LumenFrameTemporaries, FrontLayerTranslucencyData, SceneTextures);
 
 #if RHI_RAYTRACING
+// 光追场景后渲染 — 清理光追资源
 		RayTracingScene.PostRender(GraphBuilder);
 #endif
 
 		if (ViewFamily.bResolveScene && ViewFamilyTexture)
 		{
+// VRS调试预览 — 可视化可变速率着色的着色率分布
 			GVRSImageManager.DrawDebugPreview(GraphBuilder, ViewFamily, ViewFamilyTexture);
 		}
 
+// 广播引擎PostRender委托 — 允许外部系统注入自定义渲染
 		GEngine->GetPostRenderDelegateEx().Broadcast(GraphBuilder);
 	}
 
 	FinishUpdateExposureCompensationCurveLUT(GraphBuilder.RHICmdList, &UpdateExposureCompensationCurveLUTTaskData);
 	
+// 场景扩展PostRender回调 — 允许扩展在渲染结束时清理
 	GetSceneExtensionsRenderers().PostRender(GraphBuilder);
 
 #if WITH_MGPU
@@ -4420,37 +4585,45 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 		RDG_EVENT_SCOPE_STAT(GraphBuilder, FrameRenderFinish, "FrameRenderFinish");
 
+// 释放视图的前帧历史，允许GPU内存复用
 		// ------------------------------------------------------------
 		// 第九阶段：清理与收尾 — OnRenderFinish、场景纹理提取、释放帧历史
 		// ------------------------------------------------------------
+// 渲染结束回调 — 执行GPU Profiler标记、资源过渡、提交最终命令
 		OnRenderFinish(GraphBuilder, ViewFamilyTexture);
 		GraphBuilder.AddDispatchHint();
 		GraphBuilder.FlushSetupQueue();
 	}
 
+// 队列场景纹理提取 — 将RDG纹理提取到持久化资源
 	QueueSceneTextureExtractions(GraphBuilder, SceneTextures);
 
+// 头发Strands后处理 — 清理帧临时资源
 	HairStrands::PostRender(*Scene);
 	HeterogeneousVolumes::PostRender(*Scene, Views);
 
 #if RHI_RAYTRACING
+// Nanite光追管理器后处理 — 清理光追几何体更新请求
 	Nanite::GRayTracingManager.PostRender();
 #endif // RHI_RAYTRACING
 
 	// Release the view's previous frame histories so that their memory can be reused at the graph's execution.
 	for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
 	{
+// 释放视图的前帧历史 — 允许GPU内存被下一帧复用
 		Views[ViewIndex].PrevViewInfo = FPreviousViewInfo();
 	}
 
 	if (NaniteBasePassVisibility.Visibility)
 	{
+// Nanite可见性帧结束 — 清理可见性查询数据
 		NaniteBasePassVisibility.Visibility->FinishVisibilityFrame();
 		NaniteBasePassVisibility.Visibility = nullptr;
 	}
 
 	if (Scene->InstanceCullingOcclusionQueryRenderer)
 	{
+// 实例裁剪遮挡查询渲染器帧结束 — 重置查询状态
 		Scene->InstanceCullingOcclusionQueryRenderer->EndFrame(GraphBuilder);
 	}
 }
