@@ -20,7 +20,7 @@
   --warn-dim: rgba(255,183,77,0.08);
   --warn-border: rgba(255,183,77,0.2);
   --green: #81C784;
-  --green-dim: rgba(129,199,132,0.08);
+  --green-dim: rgba(129,199,132,0.12);
   --green-border: rgba(129,199,132,0.2);
   --purple: #CE93D8;
   --purple-dim: rgba(206,147,216,0.08);
@@ -409,7 +409,7 @@ a:hover{text-decoration:underline}
 
   <div class="call-chain">
     <div class="chain-main">PrepareForwardLightData(GraphBuilder, true, SortedLightSet) → ComputeLightGridOutput</div>
-    <div class="chain-step"><span class="fn">ComputeLightGrid</span>(GraphBuilder, bCullLightsToGrid, SortedLightSet, ...) — LightGridInjection.cpp L1913</div>
+    <div class="chain-step"><span class="fn">ComputeLightGrid</span>(GraphBuilder, bCullLightsToGrid, SortedLightSet, ...) — LightGridInjection.cpp L1077</div>
     <div class="chain-step">&nbsp;&nbsp;&#x21B3; 对各视图创建 Froxel（Frustum Voxel）网格数据，执行光源剔除</div>
     <div class="chain-step">&nbsp;&nbsp;&#x21B3; 将剔除后的光源列表注入 3D 聚簇网格纹理（LightGrid）</div>
     <div class="chain-step">&nbsp;&nbsp;&#x21B3; 生成 ForwardLightUniformParameters UB（Uniform Buffer）供 Shader 访问</div>
@@ -570,7 +570,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
       <tr><td>VSM_LEVEL0_DIM_PAGES_XY</td><td>128</td><td>Level 0 每维 128 页，虚拟地址空间 128x128 = 16k</td></tr>
       <tr><td>VSM_VIRTUAL_MAX_RESOLUTION_XY</td><td>16384</td><td>虚拟最大分辨率 16k x 16k</td></tr>
       <tr><td>VSM_MAX_MIP_LEVELS</td><td>8</td><td>最大 Mip 级别（16k → 8k → ... → 128）</td></tr>
-      <tr><td>VSM_RASTER_WINDOW_PAGES</td><td>--</td><td>光栅化窗口页面数</td></tr>
+      <tr><td>VSM_RASTER_WINDOW_PAGES</td><td>4</td><td>光栅化窗口页面数</td></tr>
     </tbody>
   </table>
 </section>
@@ -779,7 +779,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
       <div class="src-funcs">
         <strong>光源渲染核心：</strong>
         GatherAndSortLights(L1409) — 光源收集与四段式排序,
-        RenderLights(L1630) — 延迟光照渲染入口（Batched + Unbatched + Clustered）
+        RenderLights(L1627) — 延迟光照渲染入口（Batched + Unbatched + Clustered）
       </div>
     </div>
     <div class="source-item">
@@ -871,7 +871,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
       <div class="src-path">Engine/Source/Runtime/Renderer/Private/LightSceneInfo.h</div>
       <div class="src-funcs">
         <strong>数据结构：</strong>
-        FSortedLightSceneInfo(L115) — 单个排序光源信息,
+        FSortedLightSceneInfo(L80) — 单个排序光源信息,
         FSortedLightSetSceneInfo(L145) — 排序光源集合（含四段边界变量）
       </div>
     </div>
