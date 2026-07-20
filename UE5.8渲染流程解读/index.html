@@ -99,6 +99,7 @@ a.flow-node:hover{text-decoration:none}
 .toc-table .toc-tag{font-size:0.7rem;padding:2px 8px;border-radius:10px;white-space:nowrap}
 .toc-table .tag-done{background:rgba(129,199,132,0.12);color:#81C784}
 .toc-table .tag-planned{background:rgba(255,183,77,0.12);color:#FFB74D}
+.toc-table .tag-tutorial{background:rgba(79,195,247,0.12);color:var(--accent)}
 
 /* ===== Footer ===== */
 .footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);color:var(--text-dim);font-size:0.83rem}
@@ -415,6 +416,14 @@ a.flow-node:hover{text-decoration:none}
         <li>光追调试 → <a href="part/10-光追/index.html">光追</a></li>
       </ol>
     </div>
+    <div class="path-card">
+      <h3>&#x2463; 动手实践（编写自定义 Pass）</h3>
+      <ol>
+        <li><a href="part/01-管线总览/index.html">管线总览</a> — 理解 Pass 在一帧中的插入点</li>
+        <li><a href="part/11-自定义Pass/index.html">自定义 Pass 教程</a> — 光栅化/计算双模板 + 完整示例</li>
+        <li>→ 从 Shader 代码到 C++ 调用的端到端实践</li>
+      </ol>
+    </div>
   </div>
 </section>
 
@@ -484,12 +493,18 @@ a.flow-node:hover{text-decoration:none}
         <td class="toc-desc">BLAS/TLAS 加速结构、SBT 封装、内联光追 vs 动态管线、路径追踪器</td>
         <td><span class="toc-tag tag-planned">计划中</span></td>
       </tr>
+      <tr>
+        <td class="toc-idx">11</td>
+        <td class="toc-name"><a href="part/11-自定义Pass/index.html">自定义 Pass 教程</a></td>
+        <td class="toc-desc">从零添加自定义渲染 Pass：Shader 定义 → 参数绑定 → RDG 调度 → CVar 控制</td>
+        <td><span class="toc-tag tag-tutorial">教程</span></td>
+      </tr>
     </tbody>
   </table>
 </section>
 
 <footer class="footer">
-  基于 UE5.8.0 引擎源码分析 &nbsp;|&nbsp; 2026.07 &nbsp;|&nbsp; 九阶段渲染管线 &nbsp;|&nbsp; 10 个章节 &nbsp;|&nbsp; Nanite / Lumen / MegaLights / VSM 全覆盖
+  基于 UE5.8.0 引擎源码分析 &nbsp;|&nbsp; 2026.07 &nbsp;|&nbsp; 九阶段渲染管线 &nbsp;|&nbsp; 11 个章节 &nbsp;|&nbsp; Nanite / Lumen / MegaLights / VSM 全覆盖
 </footer>
 
 </body>
