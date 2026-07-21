@@ -141,6 +141,21 @@ a:hover{text-decoration:underline}
   .card-grid{grid-template-columns:1fr}
   .svg-container{padding:12px 8px}
 }
+
+/* ===== 目录导航 ===== */
+.toc-wrap{max-width:1100px;margin:0 auto 28px;padding:0 24px}
+.toc-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 24px}
+.toc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.toc-title{font-size:0.85rem;color:var(--accent);font-weight:700;letter-spacing:1px}
+.toc-home{font-size:0.8rem}
+.toc-home a{color:var(--text-dim);font-family:var(--font-mono);transition:color 0.2s}
+.toc-home a:hover{color:var(--accent);text-decoration:none}
+.toc-list{list-style:none;padding:0;columns:2;column-gap:20px}
+.toc-list li{margin-bottom:5px;break-inside:avoid;font-size:0.84rem}
+.toc-list a{color:var(--text-dim);transition:color 0.15s;display:inline-block;padding:1px 0}
+.toc-list a:hover{color:var(--accent);text-decoration:none}
+@media(max-width:768px){.toc-list{columns:1}}
+
 </style>
 </head>
 <body>
@@ -166,9 +181,30 @@ a:hover{text-decoration:underline}
   </div>
 </section>
 
+<nav class="toc-wrap">
+  <div class="toc-card">
+    <div class="toc-header">
+      <span class="toc-title">目录</span>
+      <span class="toc-home"><a href="../../index.html">返回首页</a></span>
+    </div>
+    <ul class="toc-list">
+<li><a href="#1管线中的位置">1. 管线中的位置</a></li>
+<li><a href="#2三线程模型">2. 三线程模型</a></li>
+<li><a href="#3TaskGraph调度">3. TaskGraph 调度</a></li>
+<li><a href="#4FRenderCommandFence与同步原语">4. FRenderCommandFence 与同步原语</a></li>
+<li><a href="#5RHI命令队列">5. RHI 命令队列</a></li>
+<li><a href="#6FDynamicRHI与平台抽象">6. FDynamicRHI 与平台抽象</a></li>
+<li><a href="#7管道状态对象PSO">7. 管道状态对象（PSO）</a></li>
+<li><a href="#8AsyncCompute并行">8. AsyncCompute 并行</a></li>
+<li><a href="#9CVar速查与性能分析">9. CVar 速查与性能分析</a></li>
+    </ul>
+  </div>
+</nav>
+
+
 <!-- ===== 1. 管线中的位置 ===== -->
 <section class="section-block" id="pipeline-position">
-  <h2>1. 管线中的位置</h2>
+  <h2 id="1管线中的位置">1. 管线中的位置</h2>
   <p class="section-desc">UE5.8 的多线程渲染架构将游戏逻辑、渲染命令生成、GPU 命令提交三个核心环节分配到独立线程，通过 TaskGraph 系统实现细粒度的任务调度和并行执行。</p>
 
   <p>渲染管线的三条关键线程构成了一个<strong>线程流水线</strong>：<code>GameThread</code> 负责主逻辑和可见性提交，<code>RenderThread</code> 负责 RDG Pass 的执行和 DrawCall 生成，<code>RHIThread</code> 负责将 RHI 命令翻译为 D3D12/Vulkan API 调用并提交到 GPU 驱动。此外，<code>AsyncCompute</code> 队列可以独立于 Graphics 管线并行执行 Compute Shader 工作（如 Nanite 裁剪、Lumen 光照评估），进一步利用 GPU 的并行能力。</p>
@@ -213,7 +249,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 2. 三线程模型 ===== -->
 <section class="section-block" id="three-thread-model">
-  <h2>2. 三线程模型</h2>
+  <h2 id="2三线程模型">2. 三线程模型</h2>
   <p class="section-desc">GameThread 负责游戏逻辑和渲染状态设置，RenderThread 负责渲染命令的生成和 RDG Pass 调度，RHIThread 负责将 RHI 命令提交到 GPU 驱动。三线程以异步流水线方式运行，减少 GPU 空闲等待。</p>
 
   <h3>2.1 线程职责边界</h3>
@@ -382,7 +418,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 3. TaskGraph 调度 ===== -->
 <section class="section-block" id="taskgraph">
-  <h2>3. TaskGraph 调度</h2>
+  <h2 id="3TaskGraph调度">3. TaskGraph 调度</h2>
   <p class="section-desc">TaskGraph 是 UE5 的通用任务图调度系统，渲染模块大量使用 NamedThread 和 TaskGraph Task 来组织渲染工作，支持前置任务（Prereqs）和异步回调。</p>
 
   <h3>3.1 FTaskGraphInterface 核心概念</h3>
@@ -522,7 +558,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 4. FRenderCommandFence 与同步原语 ===== -->
 <section class="section-block" id="sync-primitives">
-  <h2>4. FRenderCommandFence 与同步原语</h2>
+  <h2 id="4FRenderCommandFence与同步原语">4. FRenderCommandFence 与同步原语</h2>
   <p class="section-desc">跨线程同步是保证渲染正确性的关键。FRenderCommandFence、RHI Fence 和 GPU Fence 等同步原语确保 GameThread 对渲染资源的访问不会与 GPU 执行产生数据竞争。</p>
 
   <h3>4.1 核心同步类型</h3>
@@ -609,7 +645,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 5. RHI 命令队列 ===== -->
 <section class="section-block" id="rhi-command-queue">
-  <h2>5. RHI 命令队列</h2>
+  <h2 id="5RHI命令队列">5. RHI 命令队列</h2>
   <p class="section-desc">FRHICommandList 将高层渲染操作序列化为平台无关的命令流，RHI 线程批量提交到 GPU 驱动。命令队列支持 Immediate 和 Deferred 两种模式，直接影响渲染吞吐量和延迟。</p>
 
   <h3>5.1 FRHICommandList 结构</h3>
@@ -701,7 +737,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 6. FDynamicRHI 与平台抽象 ===== -->
 <section class="section-block" id="platform-abstraction">
-  <h2>6. FDynamicRHI 与平台抽象</h2>
+  <h2 id="6FDynamicRHI与平台抽象">6. FDynamicRHI 与平台抽象</h2>
   <p class="section-desc">FDynamicRHI 是 RHI 的平台抽象层接口，提供 D3D12、Vulkan、Metal 等后端适配。上层渲染代码通过统一接口操作 GPU 资源，无需关心平台差异。</p>
 
   <h3>6.1 FDynamicRHI 接口体系</h3>
@@ -798,7 +834,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 7. 管道状态对象（PSO） ===== -->
 <section class="section-block" id="pso">
-  <h2>7. 管道状态对象（PSO）</h2>
+  <h2 id="7管道状态对象PSO">7. 管道状态对象（PSO）</h2>
   <p class="section-desc">PSO（Pipeline State Object）封装了 GPU 管线的完整状态——Shader 绑定、混合模式、光栅化状态、深度模板状态等。PSO 缓存机制避免了每帧重新创建管线状态的开销，直接影响 DrawCall 效率。</p>
 
   <h3>7.1 PSO 缓存系统</h3>
@@ -869,7 +905,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 8. AsyncCompute 并行 ===== -->
 <section class="section-block" id="async-compute">
-  <h2>8. AsyncCompute 并行</h2>
+  <h2 id="8AsyncCompute并行">8. AsyncCompute 并行</h2>
   <p class="section-desc">AsyncCompute 允许 Compute Shader 工作与 Graphics 管线并行执行，典型应用包括 Nanite 裁剪、Lumen 光照评估、PostProcess 降噪等 Compute-heavy Pass 与 BasePass 并行。</p>
 
   <h3>8.1 AsyncCompute Queue 概念</h3>
@@ -982,7 +1018,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 9. CVar 速查与性能分析 ===== -->
 <section class="section-block" id="cvar-reference">
-  <h2>9. CVar 速查与性能分析</h2>
+  <h2 id="9CVar速查与性能分析">9. CVar 速查与性能分析</h2>
   <p class="section-desc">多线程渲染和 RHI 相关的常用 Console Variable 参考，涵盖线程开关、AsyncCompute、D3D12/Vulkan 特定配置、PSO 缓存管理和性能分析工具。</p>
 
   <h4>9.1 多线程控制</h4>

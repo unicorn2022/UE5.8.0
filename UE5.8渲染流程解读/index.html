@@ -116,6 +116,21 @@ a.flow-node:hover{text-decoration:none}
   .flow-parallel-row{gap:10px}
   .path-list{grid-template-columns:1fr}
 }
+
+/* ===== 目录导航 ===== */
+.toc-wrap{max-width:1100px;margin:0 auto 28px;padding:0 24px}
+.toc-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 24px}
+.toc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.toc-title{font-size:0.85rem;color:var(--accent);font-weight:700;letter-spacing:1px}
+.toc-home{font-size:0.8rem}
+.toc-home a{color:var(--text-dim);font-family:var(--font-mono);transition:color 0.2s}
+.toc-home a:hover{color:var(--accent);text-decoration:none}
+.toc-list{list-style:none;padding:0;columns:2;column-gap:20px}
+.toc-list li{margin-bottom:5px;break-inside:avoid;font-size:0.84rem}
+.toc-list a{color:var(--text-dim);transition:color 0.15s;display:inline-block;padding:1px 0}
+.toc-list a:hover{color:var(--accent);text-decoration:none}
+@media(max-width:768px){.toc-list{columns:1}}
+
 </style>
 </head>
 <body>
@@ -134,9 +149,26 @@ a.flow-node:hover{text-decoration:none}
   </div>
 </section>
 
+<nav class="toc-wrap">
+  <div class="toc-card">
+    <div class="toc-header">
+      <span class="toc-title">目录</span>
+      
+    </div>
+    <ul class="toc-list">
+<li><a href="#一帧渲染九阶段">一帧渲染九阶段</a></li>
+<li><a href="#帧内依赖关系图">帧内依赖关系图</a></li>
+<li><a href="#模块架构分层">模块架构分层</a></li>
+<li><a href="#推荐阅读路径">推荐阅读路径</a></li>
+<li><a href="#完整目录">完整目录</a></li>
+    </ul>
+  </div>
+</nav>
+
+
 <!-- ===== 九阶段时间线 ===== -->
 <section class="timeline-section">
-  <h2>一帧渲染九阶段</h2>
+  <h2 id="一帧渲染九阶段">一帧渲染九阶段</h2>
   <p class="section-desc">以 <code style="font-family:var(--font-mono);background:var(--code);padding:2px 6px;border-radius:4px;font-size:0.85rem">FDeferredShadingSceneRenderer::Render()</code> 为入口，按执行顺序展示九大关键阶段。每张卡片对应一个阶段，标注了入口函数、源码行号区间和核心职责。</p>
 
   <div class="timeline">
@@ -209,7 +241,7 @@ a.flow-node:hover{text-decoration:none}
 
 <!-- ===== 帧内依赖关系图 ===== -->
 <section class="flow-section">
-  <h2>帧内依赖关系图</h2>
+  <h2 id="帧内依赖关系图">帧内依赖关系图</h2>
   <p class="section-desc">下图展示了 Render 函数内各阶段之间的数据流和依赖关系。实线箭头表示严格的顺序依赖，虚线标记表示可异步并行的子任务。</p>
 
   <div class="flow-diagram">
@@ -267,7 +299,7 @@ a.flow-node:hover{text-decoration:none}
 
 <!-- ===== 模块架构分层 ===== -->
 <section class="arch-section">
-  <h2>模块架构分层</h2>
+  <h2 id="模块架构分层">模块架构分层</h2>
   <p class="section-desc">UE5.8 渲染体系按职能分为三层：核心管线层驱动每帧渲染流程，子系统层提供特定渲染特性，框架层构建资源管理与调度基础设施。点击卡片进入各模块详解。</p>
 
   <!-- 核心管线层 -->
@@ -373,7 +405,7 @@ a.flow-node:hover{text-decoration:none}
 
 <!-- ===== 推荐阅读路径 ===== -->
 <section class="reading-path">
-  <h2>推荐阅读路径</h2>
+  <h2 id="推荐阅读路径">推荐阅读路径</h2>
   <div class="path-list">
     <div class="path-card">
       <h3>&#x2460; 自底向上（初学者）</h3>
@@ -423,7 +455,7 @@ a.flow-node:hover{text-decoration:none}
 
 <!-- ===== 全量目录 ===== -->
 <section class="toc-section">
-  <h2>完整目录</h2>
+  <h2 id="完整目录">完整目录</h2>
   <table class="toc-table">
     <thead><tr><th>#</th><th>章节</th><th>说明</th><th>状态</th></tr></thead>
     <tbody>

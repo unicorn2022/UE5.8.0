@@ -141,6 +141,21 @@ a:hover{text-decoration:underline}
   .card-grid{grid-template-columns:1fr}
   .svg-container{padding:12px 8px}
 }
+
+/* ===== 目录导航 ===== */
+.toc-wrap{max-width:1100px;margin:0 auto 28px;padding:0 24px}
+.toc-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 24px}
+.toc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.toc-title{font-size:0.85rem;color:var(--accent);font-weight:700;letter-spacing:1px}
+.toc-home{font-size:0.8rem}
+.toc-home a{color:var(--text-dim);font-family:var(--font-mono);transition:color 0.2s}
+.toc-home a:hover{color:var(--accent);text-decoration:none}
+.toc-list{list-style:none;padding:0;columns:2;column-gap:20px}
+.toc-list li{margin-bottom:5px;break-inside:avoid;font-size:0.84rem}
+.toc-list a{color:var(--text-dim);transition:color 0.15s;display:inline-block;padding:1px 0}
+.toc-list a:hover{color:var(--accent);text-decoration:none}
+@media(max-width:768px){.toc-list{columns:1}}
+
 </style>
 </head>
 <body>
@@ -165,9 +180,33 @@ a:hover{text-decoration:underline}
   </div>
 </section>
 
+<nav class="toc-wrap">
+  <div class="toc-card">
+    <div class="toc-header">
+      <span class="toc-title">目录</span>
+      <span class="toc-home"><a href="../../index.html">返回首页</a></span>
+    </div>
+    <ul class="toc-list">
+<li><a href="#1管线中的位置">1. 管线中的位置</a></li>
+<li><a href="#2核心概念">2. 核心概念</a></li>
+<li><a href="#3Pass注册与执行">3. Pass 注册与执行</a></li>
+<li><a href="#4资源生命周期">4. 资源生命周期</a></li>
+<li><a href="#5Transient资源分配">5. Transient 资源分配</a></li>
+<li><a href="#6依赖分析与自动屏障">6. 依赖分析与自动屏障</a></li>
+<li><a href="#7自定义RDGPass完整模板">7. 自定义 RDG Pass 完整模板</a></li>
+<li><a href="#8RDG验证层">8. RDG 验证层</a></li>
+<li><a href="#9RDGDump与调试">9. RDG Dump 与调试</a></li>
+<li><a href="#10性能与陷阱">10. 性能与陷阱</a></li>
+<li><a href="#11CVar速查">11. CVar 速查</a></li>
+<li><a href="#12核心源码索引">12. 核心源码索引</a></li>
+    </ul>
+  </div>
+</nav>
+
+
 <!-- ===== 1. 管线中的位置 ===== -->
 <section class="section-block" id="pipeline-position">
-  <h2>1. 管线中的位置</h2>
+  <h2 id="1管线中的位置">1. 管线中的位置</h2>
   <p class="section-desc">RDG（Render Dependency Graph）是 UE5.8 渲染管线的核心调度框架，FRDGBuilder 负责管理所有渲染 Pass 的依赖关系、资源生命周期和自动屏障插入，是整个延迟渲染流程的"骨架"。</p>
 
   <p><code>FRDGBuilder</code> 在 <code>Render()</code> 函数中 L1829 附近创建：<code>FRDGBuilder GraphBuilder(RHICmdList, ...)</code>。它属于管线段 1（视图与管线初始化）中最早构建的核心对象之一，立即跟随 <code>FGPUScene</code> 的更新。构造后紧接着预热 RDG 黑板：<code>Substrate::InitialiseSubstrateFrameSceneData(GraphBuilder, ...)</code> 和 <code>HairStrands::InitialiseHairStrandsFrameSceneData(GraphBuilder, ...)</code>，将 Substrate/HairStrands 的帧级场景数据注入。</p>
@@ -236,7 +275,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 2. 核心概念 ===== -->
 <section class="section-block" id="core-concepts">
-  <h2>2. 核心概念</h2>
+  <h2 id="2核心概念">2. 核心概念</h2>
   <p class="section-desc">RDG 的核心概念包括 Pass、资源（Texture/Buffer）、依赖边、Transient 资源分配和自动屏障系统，这些共同构成了 GPU 管线的高效调度模型。</p>
 
   <h3>2.1 三大原语</h3>
@@ -276,7 +315,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 3. Pass 注册与执行 ===== -->
 <section class="section-block" id="pass-registration">
-  <h2>3. Pass 注册与执行</h2>
+  <h2 id="3Pass注册与执行">3. Pass 注册与执行</h2>
   <p class="section-desc">每个渲染 Pass 通过 AddPass 注册到 FRDGBuilder 中，声明其输入/输出资源，RDG 自动分析跨 Pass 依赖关系并决定执行顺序。</p>
 
   <p>每个 RDG Pass 通过 <code>AddPass</code> 注册。RDG 在编译时通过 C++ 模板元编程反射参数结构体，提取所有资源引用和访问模式。这是 RDG 区别于传统手动渲染框架的核心机制——<strong>编译期类型推导</strong>使得资源依赖关系在 Pass 注册时自动建立，无需手动维护 Barrier 顺序。</p>
@@ -386,7 +425,7 @@ PassParameters-&gt;TextureSize = FVector2f(Width, Height);
 
 <!-- ===== 4. 资源生命周期 ===== -->
 <section class="section-block" id="resource-lifecycle">
-  <h2>4. 资源生命周期</h2>
+  <h2 id="4资源生命周期">4. 资源生命周期</h2>
   <p class="section-desc">RDG 资源由 FRDGBuilder 统一管理生命周期，从创建到最后一次被引用结束后自动释放，避免手动资源管理的内存泄漏和使用后释放（UAF）问题。</p>
 
   <h3>4.1 资源状态机</h3>
@@ -543,7 +582,7 @@ GraphBuilder.AddUploadPass(UploadedBuf, &amp;CpuData, SizeInBytes);</code>
 
 <!-- ===== 5. Transient 资源分配 ===== -->
 <section class="section-block" id="transient-allocation">
-  <h2>5. Transient 资源分配</h2>
+  <h2 id="5Transient资源分配">5. Transient 资源分配</h2>
   <p class="section-desc">TransientResourceAllocator 负责临时资源的池化分配与别名复用，通过分析资源活跃区间（Live Range）将不重叠的资源分配到同一物理显存块，显著降低显存占用。</p>
 
   <h3>5.1 声明与分配分离</h3>
@@ -724,7 +763,7 @@ GraphBuilder.AddUploadPass(UploadedBuf, &amp;CpuData, SizeInBytes);</code>
 
 <!-- ===== 6. 依赖分析与自动屏障 ===== -->
 <section class="section-block" id="dependency-barriers">
-  <h2>6. 依赖分析与自动屏障</h2>
+  <h2 id="6依赖分析与自动屏障">6. 依赖分析与自动屏障</h2>
   <p class="section-desc">RDG 根据 Pass 间资源的读写关系自动插入 RHI 屏障（UAV Barrier、Render Target Transition 等），确保正确的 GPU 数据依赖和缓存一致性。</p>
 
   <h3>6.1 依赖图构建流</h3>
@@ -856,7 +895,7 @@ GraphBuilder.<span class="fn">AddPass</span>(
 
 <!-- ===== 7. 自定义 RDG Pass 完整模板 ===== -->
 <section class="section-block" id="custom-pass">
-  <h2>7. 自定义 RDG Pass 完整模板</h2>
+  <h2 id="7自定义RDGPass完整模板">7. 自定义 RDG Pass 完整模板</h2>
   <p class="section-desc">从 Shader 参数结构体定义到 AddPass 注册，展示一个完整的自定义 RDG Pass 编写模板，包含 Shader 实现和 C++ 调度代码。</p>
 
   <h3>7.1 光栅化 Pass 模板（Pixel Shader）</h3>
@@ -1054,7 +1093,7 @@ PassParameters-&gt;bDebugMode = bDebugVisualize ? <span class="num">1</span> : <
 
 <!-- ===== 8. RDG 验证层 ===== -->
 <section class="section-block" id="validation">
-  <h2>8. RDG 验证层</h2>
+  <h2 id="8RDG验证层">8. RDG 验证层</h2>
   <p class="section-desc">RDG 内置验证层可以检测未使用的资源声明、资源访问冲突、Pass 执行顺序错误等问题，是开发阶段定位渲染 bug 的重要工具。</p>
 
   <h3>8.1 启用方式</h3>
@@ -1159,7 +1198,7 @@ LogRDG: <span class="kw">Error</span>: Pass [<span class="str">SSR_IndirectCompo
 
 <!-- ===== 9. RDG Dump 与调试 ===== -->
 <section class="section-block" id="dump-debug">
-  <h2>9. RDG Dump 与调试</h2>
+  <h2 id="9RDGDump与调试">9. RDG Dump 与调试</h2>
   <p class="section-desc">通过 GraphViz 导出、调试标记和 RDG Insights 等工具，可视化分析实际的渲染图依赖结构，定位性能瓶颈和依赖错误。</p>
 
   <h3>9.1 GraphViz 可视化导出</h3>
@@ -1355,7 +1394,7 @@ LogRDG: <span class="kw">Error</span>: Pass [<span class="str">SSR_IndirectCompo
 
 <!-- ===== 10. 性能与陷阱 ===== -->
 <section class="section-block" id="performance-pitfalls">
-  <h2>10. 性能与陷阱</h2>
+  <h2 id="10性能与陷阱">10. 性能与陷阱</h2>
   <p class="section-desc">RDG 使用中的常见性能陷阱，包括过度细分的 Pass 导致编译开销过大、不必要的资源拷贝、Transient 资源过度分配等问题及最佳实践。</p>
 
   <h3>10.1 RDG 开销分析</h3>
@@ -1497,7 +1536,7 @@ GraphBuilder.<span class="fn">AddPass</span>(...,
 
 <!-- ===== 11. CVar 速查 ===== -->
 <section class="section-block" id="cvar-reference">
-  <h2>11. CVar 速查</h2>
+  <h2 id="11CVar速查">11. CVar 速查</h2>
   <p class="section-desc">与 RDG 相关的常用 Console Variable 参考，涵盖调试、验证、Dump、Pass 优化和 Transient 资源分配相关的命令行开关。</p>
 
   <h4>11.1 RDG 调试与 Dump</h4>
@@ -1608,7 +1647,7 @@ GraphBuilder.<span class="fn">AddPass</span>(...,
 
 <!-- ===== 12. 核心源码索引 ===== -->
 <section class="section-block" id="source-index">
-  <h2>12. 核心源码索引</h2>
+  <h2 id="12核心源码索引">12. 核心源码索引</h2>
   <p class="section-desc">RDG 框架在 UE5.8 引擎源码中的关键文件和入口点索引，方便快速定位相关实现。所有路径相对于 <code>Engine/Source/Runtime/</code>（除非标注为 <code>Engine/Source/Runtime/Renderer/Private/</code>）。</p>
 
   <div class="source-index">

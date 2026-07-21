@@ -141,6 +141,21 @@ a:hover{text-decoration:underline}
   .card-grid{grid-template-columns:1fr}
   .svg-container{padding:12px 8px}
 }
+
+/* ===== 目录导航 ===== */
+.toc-wrap{max-width:1100px;margin:0 auto 28px;padding:0 24px}
+.toc-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 24px}
+.toc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.toc-title{font-size:0.85rem;color:var(--accent);font-weight:700;letter-spacing:1px}
+.toc-home{font-size:0.8rem}
+.toc-home a{color:var(--text-dim);font-family:var(--font-mono);transition:color 0.2s}
+.toc-home a:hover{color:var(--accent);text-decoration:none}
+.toc-list{list-style:none;padding:0;columns:2;column-gap:20px}
+.toc-list li{margin-bottom:5px;break-inside:avoid;font-size:0.84rem}
+.toc-list a{color:var(--text-dim);transition:color 0.15s;display:inline-block;padding:1px 0}
+.toc-list a:hover{color:var(--accent);text-decoration:none}
+@media(max-width:768px){.toc-list{columns:1}}
+
 </style>
 </head>
 <body>
@@ -166,9 +181,31 @@ a:hover{text-decoration:underline}
   </div>
 </section>
 
+<nav class="toc-wrap">
+  <div class="toc-card">
+    <div class="toc-header">
+      <span class="toc-title">目录</span>
+      <span class="toc-home"><a href="../../index.html">返回首页</a></span>
+    </div>
+    <ul class="toc-list">
+<li><a href="#1管线中的位置">1. 管线中的位置</a></li>
+<li><a href="#2核心概念">2. 核心概念</a></li>
+<li><a href="#3材质与MeshDrawCommand">3. 材质与 MeshDrawCommand</a></li>
+<li><a href="#4BasePass中的材质">4. BasePass 中的材质</a></li>
+<li><a href="#5Nanite中的材质">5. Nanite 中的材质</a></li>
+<li><a href="#6半透明材质">6. 半透明材质</a></li>
+<li><a href="#7DBuffer贴花">7. DBuffer 贴花</a></li>
+<li><a href="#8材质着色模型">8. 材质着色模型</a></li>
+<li><a href="#9CVar速查">9. CVar 速查</a></li>
+<li><a href="#10核心源码索引">10. 核心源码索引</a></li>
+    </ul>
+  </div>
+</nav>
+
+
 <!-- ===== 1. 管线中的位置 ===== -->
 <section class="section-block" id="pipeline-position">
-  <h2>1. 管线中的位置</h2>
+  <h2 id="1管线中的位置">1. 管线中的位置</h2>
   <p class="section-desc">材质贯穿 UE5.8 渲染管线的多个核心阶段，从 BasePass 的 GBuffer 写入到延迟光照的 BRDF 计算，再到半透明前向着色和 Nanite 延迟材质着色。每一个渲染阶段都需要通过 <code>FMaterialRenderProxy</code> 和 <code>FMaterial</code> 获取材质属性。</p>
 
   <p>在 <code>FDeferredShadingSceneRenderer::Render()</code> 中，材质相关的关键节点如下：</p>
@@ -228,7 +265,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 2. 核心概念 ===== -->
 <section class="section-block" id="core-concepts">
-  <h2>2. 核心概念</h2>
+  <h2 id="2核心概念">2. 核心概念</h2>
   <p class="section-desc">理解 UE5.8 材质系统需要掌握从 UObject 到 GPU Shader 的完整数据转化路径。</p>
 
   <h3>2.1 材质全路径转化链</h3>
@@ -379,7 +416,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 3. 材质与 MeshDrawCommand ===== -->
 <section class="section-block" id="mesh-draw-command">
-  <h2>3. 材质与 MeshDrawCommand</h2>
+  <h2 id="3材质与MeshDrawCommand">3. 材质与 MeshDrawCommand</h2>
   <p class="section-desc">MeshDrawCommand 是渲染器内部的 DrawCall 原子封装，每条命令都绑定了一套完整的材质 Shader + 渲染状态。理解 MeshDrawCommand 的结构是理解材质渲染的关键。</p>
 
   <h3>3.1 FMeshDrawCommand 结构</h3>
@@ -464,7 +501,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 4. BasePass 中的材质 ===== -->
 <section class="section-block" id="basepass-material">
-  <h2>4. BasePass 中的材质</h2>
+  <h2 id="4BasePass中的材质">4. BasePass 中的材质</h2>
   <p class="section-desc">BasePass 是材质属性的"写入"阶段。传统几何体通过 FMeshDrawCommand 硬件光栅化写入 GBuffer，Nanite 几何体通过 Compute Shader 着色路径写入同一组 GBuffer。</p>
 
   <h3>4.1 RenderBasePass 函数签名</h3>
@@ -545,7 +582,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 5. Nanite 中的材质 ===== -->
 <section class="section-block" id="nanite-material">
-  <h2>5. Nanite 中的材质</h2>
+  <h2 id="5Nanite中的材质">5. Nanite 中的材质</h2>
   <p class="section-desc">Nanite 采用延迟材质着色（Deferred Material Shading）方案：先将所有可见三角形 ID 记录到 VisBuffer，再将像素按材质分组（Material Bin），最后用 Compute Shader 批量计算材质属性。</p>
 
   <h3>5.1 从 BuildShadingCommands 到 GBuffer 的全流程</h3>
@@ -642,7 +679,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 6. 半透明材质 ===== -->
 <section class="section-block" id="translucency">
-  <h2>6. 半透明材质</h2>
+  <h2 id="6半透明材质">6. 半透明材质</h2>
   <p class="section-desc">半透明材质使用前向渲染路径（而非延迟渲染），直接采样半透明光照体积（Translucency Lighting Volume）获取光照信息。排序策略和混合模式是半透明渲染的核心性能决策点。</p>
 
   <h3>6.1 混合模式与排序策略</h3>
@@ -677,7 +714,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 7. DBuffer 贴花 ===== -->
 <section class="section-block" id="dbuffer-decal">
-  <h2>7. DBuffer 贴花</h2>
+  <h2 id="7DBuffer贴花">7. DBuffer 贴花</h2>
   <p class="section-desc">DBuffer（Decal Buffer）贴花是 UE5 延迟贴花系统的重要组成部分。贴花材质（<code>MD_DeferredDecal</code>）通过 DBuffer 纹理投影到 GBuffer，修改不透明表面的法线、粗糙度、颜色等属性。</p>
 
   <h3>7.1 渲染流程</h3>
@@ -743,7 +780,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 8. 材质着色模型 ===== -->
 <section class="section-block" id="shading-models">
-  <h2>8. 材质着色模型</h2>
+  <h2 id="8材质着色模型">8. 材质着色模型</h2>
   <p class="section-desc">UE5.8 支持两种材质着色模型框架：传统的 <code>EMaterialShadingModel</code> 枚举系统和 UE5 新增的 Substrate 材质分类框架。</p>
 
   <h3>8.1 Substrate 材质分类框架</h3>
@@ -792,7 +829,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 9. CVar 速查 ===== -->
 <section class="section-block" id="cvar-reference">
-  <h2>9. CVar 速查</h2>
+  <h2 id="9CVar速查">9. CVar 速查</h2>
   <p class="section-desc">材质系统相关的关键控制台变量，涵盖材质编译、缓存、参数更新和 Substrate 框架。</p>
 
   <h3>9.1 材质通用</h3>
@@ -865,7 +902,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 10. 核心源码索引 ===== -->
 <section class="section-block" id="source-index">
-  <h2>10. 核心源码索引</h2>
+  <h2 id="10核心源码索引">10. 核心源码索引</h2>
   <p class="section-desc">材质系统涉及的所有源文件路径和关键类/函数汇总。</p>
 
   <div class="source-index">

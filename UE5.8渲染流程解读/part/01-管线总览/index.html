@@ -140,6 +140,21 @@ a:hover{text-decoration:underline}
   .links-grid{grid-template-columns:1fr}
   .async-grid{grid-template-columns:1fr}
 }
+
+/* ===== 目录导航 ===== */
+.toc-wrap{max-width:1100px;margin:0 auto 28px;padding:0 24px}
+.toc-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 24px}
+.toc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.toc-title{font-size:0.85rem;color:var(--accent);font-weight:700;letter-spacing:1px}
+.toc-home{font-size:0.8rem}
+.toc-home a{color:var(--text-dim);font-family:var(--font-mono);transition:color 0.2s}
+.toc-home a:hover{color:var(--accent);text-decoration:none}
+.toc-list{list-style:none;padding:0;columns:2;column-gap:20px}
+.toc-list li{margin-bottom:5px;break-inside:avoid;font-size:0.84rem}
+.toc-list a{color:var(--text-dim);transition:color 0.15s;display:inline-block;padding:1px 0}
+.toc-list a:hover{color:var(--accent);text-decoration:none}
+@media(max-width:768px){.toc-list{columns:1}}
+
 </style>
 </head>
 <body>
@@ -162,9 +177,28 @@ a:hover{text-decoration:underline}
   </div>
 </section>
 
+<nav class="toc-wrap">
+  <div class="toc-card">
+    <div class="toc-header">
+      <span class="toc-title">目录</span>
+      <span class="toc-home"><a href="../../index.html">返回首页</a></span>
+    </div>
+    <ul class="toc-list">
+<li><a href="#Render函数定位">Render 函数定位</a></li>
+<li><a href="#Render函数核心参数与概念">Render 函数核心参数与概念</a></li>
+<li><a href="#九阶段总览流程图">九阶段总览流程图</a></li>
+<li><a href="#九阶段详细拆解">九阶段详细拆解</a></li>
+<li><a href="#阶段间数据流">阶段间数据流</a></li>
+<li><a href="#异步并行执行">异步并行执行</a></li>
+<li><a href="#深入各模块">深入各模块</a></li>
+    </ul>
+  </div>
+</nav>
+
+
 <!-- ===== 概述段 ===== -->
 <section class="overview-section">
-  <h2>Render 函数定位</h2>
+  <h2 id="Render函数定位">Render 函数定位</h2>
   <p><code style="font-family:var(--font-mono);font-size:0.9rem;background:var(--code);padding:2px 6px;border-radius:3px">FDeferredShadingSceneRenderer::Render()</code> 是 UE5.8 延迟渲染管线的总入口函数，位于 <strong>DeferredShadingRenderer.cpp 第 1826 行</strong>，横跨约 2600 行代码到第 4456 行结束。该函数以 RDG（Render Dependency Graph, 渲染依赖图）为全帧资源调度中枢，将一帧渲染划分为九个逻辑阶段。</p>
   <p>Render 函数接受 <code style="font-family:var(--font-mono);font-size:0.9rem;background:var(--code);padding:2px 6px;border-radius:3px">FRDGBuilder&amp; GraphBuilder</code> 和 <code style="font-family:var(--font-mono);font-size:0.9rem;background:var(--code);padding:2px 6px;border-radius:3px">FSceneRenderUpdateInputs*</code> 两个核心参数，前者负责构建渲染依赖图并自动管理临时资源的生命周期，后者携带当前帧的更新输入数据（场景更新、渲染器组等）。</p>
   <div class="callout">
@@ -174,7 +208,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 核心参数与概念 ===== -->
 <section class="overview-section">
-  <h2>Render 函数核心参数与概念</h2>
+  <h2 id="Render函数核心参数与概念">Render 函数核心参数与概念</h2>
 
   <h3 style="font-size:1.1rem;color:#fff;margin:24px 0 10px">1. FRDGBuilder — RDG 渲染图构建器</h3>
   <p><code style="font-family:var(--font-mono);font-size:0.9rem;background:var(--code);padding:2px 6px;border-radius:3px">FRDGBuilder</code> 是 UE5 Render Dependency Graph（渲染依赖图）的核心调度器，定义在 <strong>RenderGraphBuilder.h:50</strong>。它负责管理所有渲染 Pass 的注册、临时资源的生命周期、Pass 间依赖关系和屏障转换。</p>
@@ -335,7 +369,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== SVG 横向流程图 ===== -->
 <section class="svg-section">
-  <h2>九阶段总览流程图</h2>
+  <h2 id="九阶段总览流程图">九阶段总览流程图</h2>
   <p class="section-desc">以下 SVG 展示 Render 函数内九个阶段按时间线的执行顺序。实线箭头为同步数据流依赖，虚线连接表示异步并行任务。点击 SVG 节点可跳转到对应阶段卡片。</p>
   <div class="svg-container">
     <svg viewBox="0 0 1200 480" xmlns="http://www.w3.org/2000/svg">
@@ -474,7 +508,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 九张可展开阶段卡片 ===== -->
 <section class="detail-section">
-  <h2>九阶段详细拆解</h2>
+  <h2 id="九阶段详细拆解">九阶段详细拆解</h2>
 
   <!-- 阶段 1 -->
   <details class="stage-detail" id="stage1" open>
@@ -833,7 +867,7 @@ Color = Color * Fogging.a + Fogging.rgb + Emissive
 
 <!-- ===== 阶段间数据流说明 ===== -->
 <section class="flow-section">
-  <h2>阶段间数据流</h2>
+  <h2 id="阶段间数据流">阶段间数据流</h2>
   <p style="text-align:center;color:var(--text-dim);margin-bottom:24px;font-size:0.92rem">以下列出相邻阶段之间的关键数据传递。每个产出均为后续阶段的计算前提。</p>
 
   <div class="flow-item">
@@ -897,7 +931,7 @@ Color = Color * Fogging.a + Fogging.rgb + Emissive
 
 <!-- ===== 异步并行执行标注 ===== -->
 <section class="async-section">
-  <h2>异步并行执行</h2>
+  <h2 id="异步并行执行">异步并行执行</h2>
   <p class="section-desc">UE5.8 在 Render 函数中大量使用 TaskGraph 和 AsyncCompute 来最大化 CPU/GPU 利用率。以下标注了关键的异步并行点。</p>
 
   <div class="async-grid">
@@ -941,7 +975,7 @@ Color = Color * Fogging.a + Fogging.rgb + Emissive
 
 <!-- ===== 去往各模块页面的链接 ===== -->
 <section class="links-section">
-  <h2>深入各模块</h2>
+  <h2 id="深入各模块">深入各模块</h2>
   <p style="text-align:center;color:var(--text-dim);margin-bottom:24px;font-size:0.92rem">管线总览提供了九阶段全貌，以下分模块页面提供各子系统的深入源码分析。</p>
 
   <div class="links-grid">

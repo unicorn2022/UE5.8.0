@@ -96,6 +96,21 @@ tr:hover td{background:var(--accent-dim)}
   .page-header h1{font-size:1.4rem}
   .stage-cards{grid-template-columns:1fr}
 }
+
+/* ===== 目录导航 ===== */
+.toc-wrap{max-width:1100px;margin:0 auto 28px;padding:0 24px}
+.toc-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 24px}
+.toc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.toc-title{font-size:0.85rem;color:var(--accent);font-weight:700;letter-spacing:1px}
+.toc-home{font-size:0.8rem}
+.toc-home a{color:var(--text-dim);font-family:var(--font-mono);transition:color 0.2s}
+.toc-home a:hover{color:var(--accent);text-decoration:none}
+.toc-list{list-style:none;padding:0;columns:2;column-gap:20px}
+.toc-list li{margin-bottom:5px;break-inside:avoid;font-size:0.84rem}
+.toc-list a{color:var(--text-dim);transition:color 0.15s;display:inline-block;padding:1px 0}
+.toc-list a:hover{color:var(--accent);text-decoration:none}
+@media(max-width:768px){.toc-list{columns:1}}
+
 </style>
 </head>
 <body>
@@ -109,10 +124,32 @@ tr:hover td{background:var(--accent-dim)}
   <p class="subtitle">掌握 FRDGBuilder Pass 注册、资源绑定、Pass 间数据传递的完整流程，支持光栅化与计算两种 Pass 类型</p>
 </header>
 
+<nav class="toc-wrap">
+  <div class="toc-card">
+    <div class="toc-header">
+      <span class="toc-title">目录</span>
+      <span class="toc-home"><a href="../../index.html">返回首页</a></span>
+    </div>
+    <ul class="toc-list">
+<li><a href="#1在Render函数中嵌入自定义Pass">1. 在 Render 函数中嵌入自定义 Pass</a></li>
+<li><a href="#2Pass的本质Shader参数调度">2. Pass 的本质：Shader + 参数 + 调度</a></li>
+<li><a href="#3光栅化Pass完整模板">3. 光栅化 Pass — 完整模板</a></li>
+<li><a href="#4计算Pass完整模板">4. 计算 Pass — 完整模板</a></li>
+<li><a href="#5资源绑定详解">5. 资源绑定详解</a></li>
+<li><a href="#6Pass间数据传递">6. Pass 间数据传递</a></li>
+<li><a href="#7端到端从零添加一个自定义Pass">7. 端到端：从零添加一个自定义 Pass</a></li>
+<li><a href="#8CVar控制Pass开关和参数">8. CVar 控制 Pass 开关和参数</a></li>
+<li><a href="#9常见问题与排错">9. 常见问题与排错</a></li>
+<li><a href="#10相关源码索引">10. 相关源码索引</a></li>
+    </ul>
+  </div>
+</nav>
+
+
 <main class="content">
 
 <!-- ===== 1. 管线中的位置 ===== -->
-<h2>1. 在 Render 函数中嵌入自定义 Pass</h2>
+<h2 id="1在Render函数中嵌入自定义Pass">1. 在 Render 函数中嵌入自定义 Pass</h2>
 
 <p>所有渲染工作都在 <code>FDeferredShadingSceneRenderer::Render()</code> 中通过 <strong>FRDGBuilder</strong> 注册和执行。添加自定义 Pass 的本质是：在合适的管线段选择一个插入点，向 GraphBuilder 注册一个新的 Pass，声明其输入输出资源，RDG 会自动处理依赖关系和屏障。</p>
 
@@ -144,7 +181,7 @@ tr:hover td{background:var(--accent-dim)}
 </div>
 
 <!-- ===== 2. Pass 的本质 ===== -->
-<h2>2. Pass 的本质：Shader + 参数 + 调度</h2>
+<h2 id="2Pass的本质Shader参数调度">2. Pass 的本质：Shader + 参数 + 调度</h2>
 
 <p>在 UE5 中，一个 Pass 由三个核心元素组成：</p>
 
@@ -187,7 +224,7 @@ tr:hover td{background:var(--accent-dim)}
 </div>
 
 <!-- ===== 3. 光栅化 Pass ===== -->
-<h2>3. 光栅化 Pass — 完整模板</h2>
+<h2 id="3光栅化Pass完整模板">3. 光栅化 Pass — 完整模板</h2>
 
 <p>光栅化 Pass 需要定义 Vertex Shader + Pixel Shader、绑定 RenderTarget、设置 PSO 状态。</p>
 
@@ -320,7 +357,7 @@ tr:hover td{background:var(--accent-dim)}
 }</pre>
 
 <!-- ===== 4. 计算 Pass ===== -->
-<h2>4. 计算 Pass — 完整模板</h2>
+<h2 id="4计算Pass完整模板">4. 计算 Pass — 完整模板</h2>
 
 <h3>4.1 Compute Shader（.usf）</h3>
 
@@ -422,7 +459,7 @@ tr:hover td{background:var(--accent-dim)}
 </div>
 
 <!-- ===== 5. 资源绑定 ===== -->
-<h2>5. 资源绑定详解</h2>
+<h2 id="5资源绑定详解">5. 资源绑定详解</h2>
 
 <h3>5.1 RDG 资源创建</h3>
 
@@ -487,7 +524,7 @@ tr:hover td{background:var(--accent-dim)}
 </div>
 
 <!-- ===== 6. Pass 间数据传递 ===== -->
-<h2>6. Pass 间数据传递</h2>
+<h2 id="6Pass间数据传递">6. Pass 间数据传递</h2>
 
 <h3>6.1 RDG 纹理传递（最常见）</h3>
 
@@ -535,7 +572,7 @@ BlackboardData.ResultValue = <span class="num">42</span>;
 FRDGTextureRef InputFromOtherPass = BlackboardData.ResultTexture;</pre>
 
 <!-- ===== 7. 端到端流程 ===== -->
-<h2>7. 端到端：从零添加一个自定义 Pass</h2>
+<h2 id="7端到端从零添加一个自定义Pass">7. 端到端：从零添加一个自定义 Pass</h2>
 
 <p>以下是完整步骤清单，假设我们要添加一个"将场景颜色乘系数后输出"的 Compute Pass：</p>
 
@@ -596,7 +633,7 @@ FRDGTextureRef InputFromOtherPass = BlackboardData.ResultTexture;</pre>
 </div>
 
 <!-- ===== 8. CVar 集成 ===== -->
-<h2>8. CVar 控制 Pass 开关和参数</h2>
+<h2 id="8CVar控制Pass开关和参数">8. CVar 控制 Pass 开关和参数</h2>
 
 <p>通过 TAutoConsoleVariable 让自定义 Pass 支持运行时开关和参数调节：</p>
 
@@ -642,7 +679,7 @@ FRDGTextureRef InputFromOtherPass = BlackboardData.ResultTexture;</pre>
 </div>
 
 <!-- ===== 9. 常见问题 ===== -->
-<h2>9. 常见问题与排错</h2>
+<h2 id="9常见问题与排错">9. 常见问题与排错</h2>
 
 <table>
   <thead><tr><th>问题</th><th>原因</th><th>解决</th></tr></thead>
@@ -679,7 +716,7 @@ FRDGTextureRef InputFromOtherPass = BlackboardData.ResultTexture;</pre>
 </table>
 
 <!-- ===== 10. 源码索引 ===== -->
-<h2>10. 相关源码索引</h2>
+<h2 id="10相关源码索引">10. 相关源码索引</h2>
 
 <table>
   <thead><tr><th>文件</th><th>关键内容</th></tr></thead>

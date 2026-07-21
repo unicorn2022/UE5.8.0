@@ -142,6 +142,21 @@ a:hover{text-decoration:underline}
   .compare-table{font-size:0.78rem}
   .cvar-table{font-size:0.75rem}
 }
+
+/* ===== 目录导航 ===== */
+.toc-wrap{max-width:1100px;margin:0 auto 28px;padding:0 24px}
+.toc-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 24px}
+.toc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.toc-title{font-size:0.85rem;color:var(--accent);font-weight:700;letter-spacing:1px}
+.toc-home{font-size:0.8rem}
+.toc-home a{color:var(--text-dim);font-family:var(--font-mono);transition:color 0.2s}
+.toc-home a:hover{color:var(--accent);text-decoration:none}
+.toc-list{list-style:none;padding:0;columns:2;column-gap:20px}
+.toc-list li{margin-bottom:5px;break-inside:avoid;font-size:0.84rem}
+.toc-list a{color:var(--text-dim);transition:color 0.15s;display:inline-block;padding:1px 0}
+.toc-list a:hover{color:var(--accent);text-decoration:none}
+@media(max-width:768px){.toc-list{columns:1}}
+
 </style>
 </head>
 <body>
@@ -167,9 +182,31 @@ a:hover{text-decoration:underline}
   </div>
 </section>
 
+<nav class="toc-wrap">
+  <div class="toc-card">
+    <div class="toc-header">
+      <span class="toc-title">目录</span>
+      <span class="toc-home"><a href="../../index.html">返回首页</a></span>
+    </div>
+    <ul class="toc-list">
+<li><a href="#1管线中的位置">1. 管线中的位置</a></li>
+<li><a href="#Nanite在Render函数中的时间线">Nanite 在 Render 函数中的时间线</a></li>
+<li><a href="#2核心概念">2. 核心概念</a></li>
+<li><a href="#3可见性阶段">3. 可见性阶段</a></li>
+<li><a href="#4光栅化阶段">4. 光栅化阶段</a></li>
+<li><a href="#5着色阶段">5. 着色阶段</a></li>
+<li><a href="#6流式加载">6. 流式加载</a></li>
+<li><a href="#7与传统管线交互">7. 与传统管线交互</a></li>
+<li><a href="#8CVar速查">8. CVar 速查</a></li>
+<li><a href="#9核心源码索引">9. 核心源码索引</a></li>
+    </ul>
+  </div>
+</nav>
+
+
 <!-- ===== 1. 管线中的位置 ===== -->
 <section class="section-wrap" id="position">
-  <h2>1. 管线中的位置</h2>
+  <h2 id="1管线中的位置">1. 管线中的位置</h2>
   <p class="section-desc">Nanite 在 <code>FDeferredShadingSceneRenderer::Render()</code> 管线中有三个关键介入点，分别对应可见性计算、光栅化和着色三个阶段。</p>
 
   <div class="intervene-grid">
@@ -207,7 +244,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 管线时间线 SVG ===== -->
 <section class="svg-section" id="timeline-svg">
-  <h2>Nanite 在 Render 函数中的时间线</h2>
+  <h2 id="Nanite在Render函数中的时间线">Nanite 在 Render 函数中的时间线</h2>
   <p class="section-desc">以下 SVG 展示 Nanite 在 Render 函数九个阶段中的三个介入点。实线箭头为同步依赖，虚线表示异步并行。</p>
   <div class="svg-container">
     <svg viewBox="0 0 1200 260" xmlns="http://www.w3.org/2000/svg">
@@ -294,7 +331,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 2. 核心概念 ===== -->
 <section class="section-wrap" id="concepts">
-  <h2>2. 核心概念</h2>
+  <h2 id="2核心概念">2. 核心概念</h2>
   <p class="section-desc">Nanite 虚拟几何系统的四个核心概念：层级数据结构、GPU 驱动裁剪、VisBuffer 可见性缓冲、延迟材质着色。</p>
 
   <!-- SVG: BVH -> Cluster -> Triangle 三级结构 -->
@@ -406,7 +443,7 @@ a:hover{text-decoration:underline}
 
 <!-- ===== 3. 可见性阶段 ===== -->
 <section class="section-wrap" id="visibility">
-  <h2>3. 可见性阶段</h2>
+  <h2 id="3可见性阶段">3. 可见性阶段</h2>
   <p class="section-desc">Nanite 可见性查询在 Phase 3 启动，用于确定哪些 Material Bin（RasterBin + ShadingBin）在当前帧是可见的，从而跳过不可见材质的 GPU 计算。</p>
 
   <p>可见性计算的核心入口位于 <code>DeferredShadingRenderer.cpp::1991-2017</code>，在 <code>BeginInitViews</code> 之前执行。</p>
@@ -492,7 +529,7 @@ UE::Tasks::FTask CompletedEvent;         <span class="cmt">// 异步任务完成
 
 <!-- ===== 4. 光栅化阶段 ===== -->
 <section class="section-wrap" id="rasterization">
-  <h2>4. 光栅化阶段</h2>
+  <h2 id="4光栅化阶段">4. 光栅化阶段</h2>
   <p class="section-desc">光栅化是 Nanite 核心步骤，在 GPU 端完成 BVH 裁剪 + 两级光栅化，输出 VisBuffer64 和深度缓冲。</p>
 
   <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">RenderNanite 调用</h3>
@@ -601,7 +638,7 @@ UE::Tasks::FTask CompletedEvent;         <span class="cmt">// 异步任务完成
 
 <!-- ===== 5. 着色阶段 ===== -->
 <section class="section-wrap" id="shading">
-  <h2>5. 着色阶段</h2>
+  <h2 id="5着色阶段">5. 着色阶段</h2>
   <p class="section-desc">Nanite 着色管线采用延迟材质着色方案：先将 VisBuffer 像素按材质分批（Material Bin），再用 Compute Shader 并行计算 G-Buffer 属性。</p>
 
   <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">BuildShadingCommands —— 提前执行优化</h3>
@@ -687,7 +724,7 @@ VisBuffer64 (每个像素: Depth|TriangleID|Flags)
 
 <!-- ===== 6. 流式加载 ===== -->
 <section class="section-wrap" id="streaming">
-  <h2>6. 流式加载</h2>
+  <h2 id="6流式加载">6. 流式加载</h2>
   <p class="section-desc">Nanite 流式管理器按需加载 Cluster Page 数据到 GPU 内存，支持异步 IO + GPU 驱动请求。</p>
 
   <h3 style="color:#fff;font-size:1.1rem;margin:24px 0 12px">调用时序</h3>
@@ -780,7 +817,7 @@ VisBuffer64 (每个像素: Depth|TriangleID|Flags)
 
 <!-- ===== 7. 与传统管线交互 ===== -->
 <section class="section-wrap" id="integration">
-  <h2>7. 与传统管线交互</h2>
+  <h2 id="7与传统管线交互">7. 与传统管线交互</h2>
   <p class="section-desc">Nanite 通过明确定义的接口与 VSM、Lumen、光追等子系统集成。</p>
 
   <table class="compare-table">
@@ -846,7 +883,7 @@ VisBuffer64 (每个像素: Depth|TriangleID|Flags)
 
 <!-- ===== 8. CVar 速查 ===== -->
 <section class="section-wrap" id="cvars">
-  <h2>8. CVar 速查</h2>
+  <h2 id="8CVar速查">8. CVar 速查</h2>
   <p class="section-desc">Nanite 系统的关键控制台变量，按功能分组排列。</p>
 
   <h3 style="color:#fff;font-size:1.05rem;margin:20px 0 10px">光栅化</h3>
@@ -940,7 +977,7 @@ VisBuffer64 (每个像素: Depth|TriangleID|Flags)
 
 <!-- ===== 9. 核心源码索引 ===== -->
 <section class="section-wrap" id="source-index">
-  <h2>9. 核心源码索引</h2>
+  <h2 id="9核心源码索引">9. 核心源码索引</h2>
   <p class="section-desc">所有涉及 Nanite 子系统的源文件路径和关键函数/类。</p>
 
   <table class="source-table">
