@@ -1455,7 +1455,6 @@ void FDeferredShadingSceneRenderer::RenderNanite(FRDGBuilder& GraphBuilder, cons
 	FNaniteBasePassVisibility& InNaniteBasePassVisibility,
 	TArray<Nanite::FRasterResults, TInlineAllocator<2>>& NaniteRasterResults,
 	TArray<Nanite::FPackedView, SceneRenderingAllocator>& PrimaryNaniteViews,
-// 第一级深度缓冲 — 用于Nanite异步光栅化的中间深度目标
 	FRDGTextureRef FirstStageDepthBuffer)
 {
 	LLM_SCOPE_BYTAG(Nanite);
@@ -1826,206 +1825,199 @@ extern void RenderRayTracingDebug(
 extern void RayTracingDebugDisplayOnScreenMessages(FScreenMessageWriter& Writer, const FViewInfo& View, bool bViewHasFarFieldInstances);
 #endif // RHI_RAYTRACING
 
-// ------------------------------------------------------------
-// 延迟渲染管线总入口函数
-// 完整渲染流程：可见性 → 预通道(Nanite) → 阴影(VSM) → BasePass(GBuffer) → 光照(Lumen/MegaLights) → 半透明 → 后处理
-// ------------------------------------------------------------
-// 场景更新输入检查 — 仅在非独立渲染时执行后续初始化
-void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSceneRenderUpdateInputs* SceneUpdateInputs)
-{
+void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSceneRenderUpdateInputs* SceneUpdateInputs) {
 	CSV_SCOPED_TIMING_STAT_EXCLUSIVE(RenderOther);
 
 	SCOPED_NAMED_EVENT(FDeferredShadingSceneRenderer_Render, FColor::Emerald);
 
-	for (FViewInfo& View : Views)
-	{
-		if (View.ViewState != nullptr)
-		{
-			if (View.ViewState->Scene == nullptr)
-			{
-				// 关联ViewState到场景，确保每帧场景引用一致性
-		// link view state to the scene
+	// ------------------------------------------------------------
+	//               第一阶段：视图与管线初始化
+	// ------------------------------------------------------------
+	// 1.1 遍历场景中的所有 View, 确保每个 View 的 ViewState 正确关联到当前 Scene
+	// ViewState: 跨帧持久化状态，存储 TAA 历史、时间戳等
+	for (FViewInfo& View : Views) {
+		if (View.ViewState != nullptr) {
+			if (View.ViewState->Scene == nullptr) {
 				View.ViewState->Scene = Scene;
 				Scene->ViewStates.Add(View.ViewState);
 			}
 		}
 	}
-
+	// 1.2 自动激活光追调试可视化画面
 	{
 		FRayTracingVisualizationData& RayTracingVisualizationData = GetRayTracingVisualizationData();
-
-		if (RayTracingVisualizationData.HasOverrides())
-		{
-			// 从命令行激活视图模式时，自动启用 RayTracingDebug 显示标志以便调试
+		if (RayTracingVisualizationData.HasOverrides()) {
 			ViewFamily.EngineShowFlags.SetRayTracingDebug(true);
 		}
 	}
-
-	// ------------------------------------------------------------
-	// 第一阶段：视图与管线初始化 — 确定渲染器输出、Nanite启用状态、光追覆盖模式
-	// ------------------------------------------------------------
-	// 如果是场景捕获的深度预通道渲染，可走快捷路径 RenderSceneCaptureDepth
+	// 1.3 确定渲染输出模式 (仅深度 or 完整管线)
 	const ERendererOutput RendererOutput = GetRendererOutput();
-
+	// 1.4 确定 Nanite 是否启用
 	const bool bNaniteEnabled = ShouldRenderNanite();
+	// 1.5 确定是否存在光追覆盖层 (检测当前 ViewFamily 是否需要渲染光追调试可视化叠加层)
 	const bool bHasRayTracedOverlay = HasRayTracedOverlay(ViewFamily);
-
-#if !UE_BUILD_SHIPPING
-	RenderCaptureInterface::FScopedCapture RenderCapture(GCaptureNextDeferredShadingRendererFrame-- == 0, GraphBuilder, TEXT("DeferredShadingSceneRenderer"));
-	// 防止每20亿帧后溢出
-	GCaptureNextDeferredShadingRendererFrame = FMath::Max(-1, GCaptureNextDeferredShadingRendererFrame);
-#endif
+	// 1.6 非 Shipping 模式下, 初始化 GPU 帧捕获
+	#if !UE_BUILD_SHIPPING
+		RenderCaptureInterface::FScopedCapture RenderCapture(
+			GCaptureNextDeferredShadingRendererFrame-- == 0, // 倒计时到 0 时触发捕获
+			GraphBuilder, 
+			TEXT("DeferredShadingSceneRenderer")
+		);
+		GCaptureNextDeferredShadingRendererFrame = FMath::Max(-1, GCaptureNextDeferredShadingRendererFrame); // 防止无限递减
+	#endif
 
 	// ------------------------------------------------------------
-	// 第二阶段：光追初始化 — 更新光追几何体、重置着色器绑定表(SBT)、注册视图
+	//					第二阶段：光追初始化
 	// ------------------------------------------------------------
+	// GPU 调试标记
 	GPU_MESSAGE_SCOPE(GraphBuilder);
-
-#if RHI_RAYTRACING
-	if (SceneUpdateInputs)
-	{
-		RHI_BREADCRUMB_EVENT_STAT(GraphBuilder.RHICmdList, RayTracingGeometry, "RayTracingGeometry");
-
-		GRayTracingGeometryManager->Update(GraphBuilder.RHICmdList);
-
-		// TODO: should only process build requests once per frame
-		GRayTracingGeometryManager->ProcessBuildRequests(GraphBuilder.RHICmdList);
-	}
-
-	FRayTracingShaderBindingTable& RayTracingSBT = Scene->RayTracingSBT;
-	FRayTracingScene& RayTracingScene = Scene->RayTracingScene;
-	RayTracingSBT.ResetMissAndCallableShaders();
-
-	for (FViewInfo& View : Views)
-	{
-		if (IStereoRendering::IsStereoEyeView(View) && IStereoRendering::IsASecondaryView(View))
-		{
-			continue;
+	// 光追初始化
+	#if RHI_RAYTRACING
+		// 2.1 光追几何体更新
+		if (SceneUpdateInputs) {
+			RHI_BREADCRUMB_EVENT_STAT(GraphBuilder.RHICmdList, RayTracingGeometry, "RayTracingGeometry");
+			// 2.1.1 检查所有光追几何体(BLAS)是否需要重建, 如静态网格被加载/卸载、骨骼网格变形等
+			GRayTracingGeometryManager->Update(GraphBuilder.RHICmdList);
+			// 2.1.2 执行实际的 BLAS 构建/重建请求，将几何体上传到 GPU 构建加速结构
+			// TODO: should only process build requests once per frame
+			GRayTracingGeometryManager->ProcessBuildRequests(GraphBuilder.RHICmdList);
 		}
 
-		View.SetRayTracingSceneViewHandle(RayTracingScene.AddView(View.GetViewKey()));
-		RayTracingScene.SetViewParams(View.GetRayTracingSceneViewHandle(), View.ViewMatrices, View.RayTracingCullingParameters);
-	}
-#endif // RHI_RAYTRACING
+		// 2.2 重置着色器绑定表(SBT)
+		// SBT (Shader Binding Table): 光追中的"函数表", GPU 根据命中事件查表决定调用哪个 Shader
+		FRayTracingShaderBindingTable& RayTracingSBT = Scene->RayTracingSBT;
+		RayTracingSBT.ResetMissAndCallableShaders();
+		
+		// 2.3 视图注册
+		FRayTracingScene& RayTracingScene = Scene->RayTracingScene;
+		for (FViewInfo& View : Views) {
+			// 2.3.1 跳过 VR 副眼
+			if (IStereoRendering::IsStereoEyeView(View) && IStereoRendering::IsASecondaryView(View)) continue;
+			// 2.3.2 设置 View Handle, 后续光追 Pass 通过它找到对应 TLAS
+			View.SetRayTracingSceneViewHandle(RayTracingScene.AddView(View.GetViewKey()));
+			// 2.3.3 设置 View 参数 
+			RayTracingScene.SetViewParams(View.GetRayTracingSceneViewHandle(), View.ViewMatrices, View.RayTracingCullingParameters);
+		}
+	#endif // RHI_RAYTRACING
 
 	// ------------------------------------------------------------
-	// 第三阶段：视图与可见性初始化 — OnRenderBegin启动可见性计算、提交管线状态、初始化GPU场景
+	//				第三阶段：视图与可见性初始化
 	// ------------------------------------------------------------
+	// 启动可见性计算, 返回的任务数据句柄贯穿后续所有 Pass
 	FInitViewTaskDatas InitViewTaskDatas = OnRenderBegin(GraphBuilder, SceneUpdateInputs);
 
-#if RHI_RAYTRACING
-	if (RendererOutput == FSceneRenderer::ERendererOutput::FinalSceneColor && FamilyPipelineState[&FFamilyPipelineState::bRayTracing])
-	{
-		GRayTracingGeometryManager->PreRender();
-	}
-#endif // RHI_RAYTRACING
+	// 3.1 光追预渲染
+	#if RHI_RAYTRACING
+		if (RendererOutput == FSceneRenderer::ERendererOutput::FinalSceneColor && FamilyPipelineState[&FFamilyPipelineState::bRayTracing]) {
+			GRayTracingGeometryManager->PreRender();
+		}
+	#endif // RHI_RAYTRACING
 
-	// 曝光补偿曲线LUT更新
+	// 3.2 更新曝光补偿曲线LUT
 	FUpdateExposureCompensationCurveLUTTaskData UpdateExposureCompensationCurveLUTTaskData;
 	BeginUpdateExposureCompensationCurveLUT(Views, &UpdateExposureCompensationCurveLUTTaskData);
 
-	FRDGExternalAccessQueue ExternalAccessQueue;
-	TUniquePtr<FVirtualTextureUpdater> VirtualTextureUpdater;
-	FLumenSceneFrameTemporaries LumenFrameTemporaries(Views);
+	// 3.3 声明资源生命周期管理对象
+	FRDGExternalAccessQueue ExternalAccessQueue;				// Render 线程外部访问 RDG 资源
+	TUniquePtr<FVirtualTextureUpdater> VirtualTextureUpdater;	// VT 更新器
+	FLumenSceneFrameTemporaries LumenFrameTemporaries(Views);	// Lumen 临时帧数据
 
-	// GPU场景作用域管理（自动处理Begin/End）
+	// 3.4 GPU 场景作用域管理器: 自动调用 GPUScene.Begin/EndRender()
 	FGPUSceneScopeBeginEndHelper GPUSceneScopeBeginEndHelper(GraphBuilder, Scene->GPUScene, GPUSceneDynamicContext);
 
+	// 3.5 更新 VT, 仅深度的 Pass 不需要 VT
 	const bool bUseVirtualTexturing = UseVirtualTexturing(ShaderPlatform);
-
-	// Virtual texturing isn't needed for depth prepass
-	if (bUseVirtualTexturing && RendererOutput != ERendererOutput::DepthPrepassOnly)
-	{
+	if (bUseVirtualTexturing && RendererOutput != ERendererOutput::DepthPrepassOnly) {
+		// 3.5.1 启动 VT 更新
 		FVirtualTextureUpdateSettings Settings(ViewFamily);
 		VirtualTextureUpdater = FVirtualTextureSystem::Get().BeginUpdate(GraphBuilder, FeatureLevel, this, Settings);
+		// 3.5.2 将上一帧 GPU 端记录的需求反馈, 驱动本帧的页面优先级和分配决策
 		VirtualTextureFeedbackBegin(GraphBuilder, Views, GetActiveSceneTexturesConfig().Extent);
 	}
 
-	if (SceneUpdateInputs)
-	{
+	// 3.6 提交最终管线状态
+	if (SceneUpdateInputs) {
 		{
-			// 提交最终管线状态 — 计算并提交渲染器依赖拓扑的最终状态
-				TRACE_CPUPROFILER_EVENT_SCOPE(CommitFinalPipelineState);
-			for (FSceneRenderer* Renderer : SceneUpdateInputs->Renderers)
-			{
-				// Compute & commit the final state of the entire dependency topology of the renderer.
+			TRACE_CPUPROFILER_EVENT_SCOPE(CommitFinalPipelineState);
+			// 计算并锁定整个依赖拓扑的最终状态, 之后整帧不再变化, 避免中途状态变化导致逻辑矛盾
+			for (FSceneRenderer* Renderer : SceneUpdateInputs->Renderers) {
 				static_cast<FDeferredShadingSceneRenderer*>(Renderer)->CommitFinalPipelineState();
 			}
 		}
 
-		// Initialize global system textures (pass-through if already initialized).
+		// 初始化系统默认纹理
 		GSystemTextures.InitializeTextures(GraphBuilder.RHICmdList, FeatureLevel);
 	}
 
+	// 3.7 异步更新光照函数图集, 其更新不依赖可见性结果
 	UE::Tasks::TTask<void> UpdateLightFunctionAtlasTask;
-	if (LightFunctionAtlas.IsLightFunctionAtlasEnabled())
-	{
-		// 光照函数图集异步更新任务
-		UpdateLightFunctionAtlasTask = LaunchSceneRenderTask<void>(TEXT("UpdateLightFunctionAtlas"), [this]
-			{
-				UpdateLightFunctionAtlasTaskFunction();
-			}, UE::Tasks::FTask());
+	if (LightFunctionAtlas.IsLightFunctionAtlasEnabled()) {
+		UpdateLightFunctionAtlasTask = LaunchSceneRenderTask<void>(
+			TEXT("UpdateLightFunctionAtlas"), 
+			[this] { UpdateLightFunctionAtlasTaskFunction();},
+			UE::Tasks::FTask() // 无前置依赖，立即调度
+		);
 	}
 
+	// 3.8 获取阴影渲染器, 保证其生命周期覆盖整帧
 	FShadowSceneRenderer& ShadowSceneRenderer = GetSceneExtensionsRenderers().GetRenderer<FShadowSceneRenderer>();
+
+	// 3.9 更新 SDF/VSM/Lumen/Nanite
 	{
-		// 1. Update global distance field view origin
-		// This needs to be done prior to start Lumen scene lighting to ensure GlobalDistanceFieldData->CameraVelocityOffset is updated
-		if (SceneUpdateInputs)
-		{
-			// 更新全局距离场视点（需在Lumen场景光照之前完成）
+		// 3.9.1 更新全局距离场
+		if (SceneUpdateInputs) {
+			// 必须比 Lumen 更早执行, 以保证 GlobalDistanceFieldData->CameraVelocityOffset 被更新
 			UpdateGlobalDistanceFieldViewOrigin(*SceneUpdateInputs);
 		}
 
-		if (RendererOutput == ERendererOutput::FinalSceneColor)
-		{
-			// 2. Update lumen scene
-
+		// 3.9.2 初始化 VSM + Lumen
+		if (RendererOutput == ERendererOutput::FinalSceneColor) {
 			InitViewTaskDatas.LumenFrameTemporaries = &LumenFrameTemporaries;
-	
+			// 3.9.2.1 初始化 VSM
 			// Important that this uses consistent logic throughout the frame, so evaluate once and pass in the flag from here
-			// NOTE: Must be done after  system texture initialization
+			// NOTE: Must be done after system texture initialization
 			const bool bEnableVirtualShadowMaps = UseVirtualShadowMaps(ShaderPlatform, FeatureLevel) && ViewFamily.EngineShowFlags.DynamicShadows && !bHasRayTracedOverlay;
-			// 虚拟阴影贴图(VSM)初始化 — 基于页面的虚拟化阴影系统，专为Nanite设计
 			VirtualShadowMapArray.Initialize(GraphBuilder, Scene->GetVirtualShadowMapCache(), bEnableVirtualShadowMaps, ViewFamily.EngineShowFlags);
-	
-			if (InitViewTaskDatas.LumenFrameTemporaries)
-			{
+			
+			// 3.9.2.2 初始化 Lumen
+			if (InitViewTaskDatas.LumenFrameTemporaries) {
 				BeginUpdateLumenSceneTasks(GraphBuilder, *InitViewTaskDatas.LumenFrameTemporaries);
 			}
-	
+			
+			// 3.9.2.3 收集对所有 Lumen 光源的引用
 			BeginGatherLumenLights(*InitViewTaskDatas.LumenFrameTemporaries, InitViewTaskDatas.LumenDirectLighting, InitViewTaskDatas.VisibilityTaskData, UpdateLightFunctionAtlasTask);
 		}
 
-		if (bNaniteEnabled)
-		{
+		// 3.9.3 Nanite CPU Culling
+		if (bNaniteEnabled) {
+			// 3.9.3.1 收集所有 View 的视锥体, ！！！所有 View 共享相同的 Culling 结果！！！
 			TArray<FConvexVolume, TInlineAllocator<2>> NaniteCullingViews;
-
-			// For now we'll share the same visibility results across all views
-			for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
-			{
+			for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++) {
 				FViewInfo& View = Views[ViewIndex];
 				NaniteCullingViews.Add(View.ViewFrustum);
 			}
 
+			// 3.9.3.2 使用 BasePass 对应的 可见性状态 + 光栅化管线配置 + 材质着色管线配置
 			FNaniteVisibility& NaniteVisibility = Scene->NaniteVisibility[ENaniteMeshPass::BasePass];
 			const FNaniteRasterPipelines&  NaniteRasterPipelines  = Scene->NaniteRasterPipelines[ENaniteMeshPass::BasePass];
 			const FNaniteShadingPipelines& NaniteShadingPipelines = Scene->NaniteShadingPipelines[ENaniteMeshPass::BasePass];
 
-			// Nanite可见性帧开始 — 执行预裁剪可见性查询
+			// 3.9.3.3 开始 Nanite 可见性帧
 			NaniteVisibility.BeginVisibilityFrame();
 
+			// 3.9.3.4 启动 Nanite CPU 端 UPrimitiveComponent 级别的 Culling
 			NaniteBasePassVisibility.Visibility = &NaniteVisibility;
 			NaniteBasePassVisibility.Query = NaniteVisibility.BeginVisibilityQuery(
 				Allocator,
 				*Scene,
-				NaniteCullingViews,
-				&NaniteRasterPipelines,
-				&NaniteShadingPipelines,
-				InitViewTaskDatas.VisibilityTaskData->GetComputeRelevanceTask()
+				NaniteCullingViews,			// 所有 View 的视锥体
+				&NaniteRasterPipelines,		// 光栅化管线配置: 如 裁剪参数、输出模式 等
+				&NaniteShadingPipelines,	// 材质着色管线配置: 如 ShadingBin 分类、材质着色 Compute Shader 的 Dispatch 参数、Material Slots 引用 等
+				InitViewTaskDatas.VisibilityTaskData->GetComputeRelevanceTask() // 前置依赖
 			);
 		}
 	}
+	
 	// ShaderPrint视图开始 — GPU调试输出系统初始化
 	ShaderPrint::BeginViews(GraphBuilder, Views);
 
@@ -2057,21 +2049,21 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			FGlintShadingLUTsStateData::Init(GraphBuilder, View);
 		}
 
-#if RHI_RAYTRACING
-		if (FamilyPipelineState[&FFamilyPipelineState::bRayTracing])
-		{
-			InitViewTaskDatas.RayTracingGatherInstances = RayTracing::CreateGatherInstancesTaskData(Allocator, *Scene, Views.Num());
-
-			for (FViewInfo& View : Views)
+		#if RHI_RAYTRACING
+			if (FamilyPipelineState[&FFamilyPipelineState::bRayTracing])
 			{
-				const FPerViewPipelineState& ViewPipelineState = GetViewPipelineState(View);
+				InitViewTaskDatas.RayTracingGatherInstances = RayTracing::CreateGatherInstancesTaskData(Allocator, *Scene, Views.Num());
 
-				RayTracing::AddView(*InitViewTaskDatas.RayTracingGatherInstances, View, ViewPipelineState.DiffuseIndirectMethod, ViewPipelineState.ReflectionsMethod);
+				for (FViewInfo& View : Views)
+				{
+					const FPerViewPipelineState& ViewPipelineState = GetViewPipelineState(View);
+
+					RayTracing::AddView(*InitViewTaskDatas.RayTracingGatherInstances, View, ViewPipelineState.DiffuseIndirectMethod, ViewPipelineState.ReflectionsMethod);
+				}
+
+				RayTracing::BeginGatherInstances(*InitViewTaskDatas.RayTracingGatherInstances, InitViewTaskDatas.VisibilityTaskData->GetFrustumCullTask());
 			}
-
-			RayTracing::BeginGatherInstances(*InitViewTaskDatas.RayTracingGatherInstances, InitViewTaskDatas.VisibilityTaskData->GetFrustumCullTask());
-		}
-#endif
+		#endif
 	}
 
 	// 稀疏体积纹理(SVT)流式管理器 — 开始异步更新
@@ -2109,9 +2101,9 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		}
 	}
 
-#if WITH_MGPU
-	ComputeGPUMasks(&GraphBuilder.RHICmdList);
-#endif // WITH_MGPU
+	#if WITH_MGPU
+		ComputeGPUMasks(&GraphBuilder.RHICmdList);
+	#endif // WITH_MGPU
 
 	// By default, limit our GPU usage to only GPUs specified in the view masks.
 	// GPU Mask作用域 — 路径追踪使用所有GPU，否则仅使用视图指定的GPU
@@ -2177,13 +2169,13 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		BeginInitViews(GraphBuilder, SceneTexturesConfig, InstanceCullingManager, ExternalAccessQueue, InitViewTaskDatas);
 	}
 
-#if !UE_BUILD_SHIPPING
-	if (CVarStallInitViews.GetValueOnRenderThread() > 0.0f)
-	{
-		SCOPE_CYCLE_COUNTER(STAT_InitViews_Intentional_Stall);
-		FPlatformProcess::Sleep(CVarStallInitViews.GetValueOnRenderThread() / 1000.0f);
-	}
-#endif
+	#if !UE_BUILD_SHIPPING
+		if (CVarStallInitViews.GetValueOnRenderThread() > 0.0f)
+		{
+			SCOPE_CYCLE_COUNTER(STAT_InitViews_Intentional_Stall);
+			FPlatformProcess::Sleep(CVarStallInitViews.GetValueOnRenderThread() / 1000.0f);
+		}
+	#endif
 
 	// 持久化视图UniformBuffer扩展 — BeginFrame和PrepareView在RHI线程刷新前执行
 	extern TSet<IPersistentViewUniformBufferExtension*> PersistentViewUniformBufferExtensions;
@@ -2203,71 +2195,71 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	{
 		// Prepare the scene for rendering this frame.
 
-#if RHI_RAYTRACING
-		if (ViewFamily.EngineShowFlags.PathTracing)
-		{
-			if (ShouldPrepareRayTracingDecals(*Scene, ViewFamily))
+		#if RHI_RAYTRACING
+			if (ViewFamily.EngineShowFlags.PathTracing)
 			{
-				// Calculate decal grid for ray tracing per view since decal fade is view dependent
-				// TODO: investigate reusing the same grid for all views (ie: different callable shader SBT entries for each view so fade alpha is still correct for each view)
-
-				for (FViewInfo& View : Views)
+				if (ShouldPrepareRayTracingDecals(*Scene, ViewFamily))
 				{
-					View.RayTracingDecalUniformBuffer = CreateRayTracingDecalData(GraphBuilder, *Scene, View, RayTracingSBT.NumCallableShaderSlots);
-					View.bHasRayTracingDecals = true;
-					RayTracingSBT.NumCallableShaderSlots += Scene->Decals.Num();
-				}
-			}
-			else
-			{
-				TRDGUniformBufferRef<FRayTracingDecals> NullRayTracingDecalUniformBuffer = CreateNullRayTracingDecalsUniformBuffer(GraphBuilder);
+					// Calculate decal grid for ray tracing per view since decal fade is view dependent
+					// TODO: investigate reusing the same grid for all views (ie: different callable shader SBT entries for each view so fade alpha is still correct for each view)
 
-				for (FViewInfo& View : Views)
-				{
-					View.RayTracingDecalUniformBuffer = NullRayTracingDecalUniformBuffer;
-					View.bHasRayTracingDecals = false;
-				}
-			}
-
-			// If we might be path tracing the clouds -- call the path tracer's method for cloud callable shader setup
-			// this will skip work if cloud rendering is not being used
-			PreparePathTracingCloudMaterial(GraphBuilder, Scene, Views);
-		}
-
-		if (IsRayTracingEnabled(ViewFamily.GetShaderPlatform()) && ShouldCompileRayTracingShadersForProject(ViewFamily.GetShaderPlatform()))
-		{
-			if (!ViewFamily.EngineShowFlags.PathTracing)
-			{
-				// get the default lighting miss shader (to implicitly fill in the MissShader library before the RT pipeline is created)
-				GetRayTracingLightingMissShader(GetGlobalShaderMap(FeatureLevel));
-				RayTracingSBT.NumMissShaderSlots++;
-			}
-
-			if (ViewFamily.EngineShowFlags.LightFunctions)
-			{
-				// gather all the light functions that may be used (and also count how many miss shaders we will need)
-				FRayTracingLightFunctionMap RayTracingLightFunctionMap;
-				if (ViewFamily.EngineShowFlags.PathTracing)
-				{
-					RayTracingLightFunctionMap = GatherLightFunctionLightsPathTracing(Scene, ViewFamily.EngineShowFlags, FeatureLevel);
+					for (FViewInfo& View : Views)
+					{
+						View.RayTracingDecalUniformBuffer = CreateRayTracingDecalData(GraphBuilder, *Scene, View, RayTracingSBT.NumCallableShaderSlots);
+						View.bHasRayTracingDecals = true;
+						RayTracingSBT.NumCallableShaderSlots += Scene->Decals.Num();
+					}
 				}
 				else
 				{
-					RayTracingLightFunctionMap = GatherLightFunctionLights(Scene, ViewFamily.EngineShowFlags, FeatureLevel);
+					TRDGUniformBufferRef<FRayTracingDecals> NullRayTracingDecalUniformBuffer = CreateNullRayTracingDecalsUniformBuffer(GraphBuilder);
+
+					for (FViewInfo& View : Views)
+					{
+						View.RayTracingDecalUniformBuffer = NullRayTracingDecalUniformBuffer;
+						View.bHasRayTracingDecals = false;
+					}
 				}
-				if (!RayTracingLightFunctionMap.IsEmpty())
+
+				// If we might be path tracing the clouds -- call the path tracer's method for cloud callable shader setup
+				// this will skip work if cloud rendering is not being used
+				PreparePathTracingCloudMaterial(GraphBuilder, Scene, Views);
+			}
+
+			if (IsRayTracingEnabled(ViewFamily.GetShaderPlatform()) && ShouldCompileRayTracingShadersForProject(ViewFamily.GetShaderPlatform()))
+			{
+				if (!ViewFamily.EngineShowFlags.PathTracing)
 				{
-					// If we got some light functions in our map, store them in the RDG blackboard so downstream functions can use them.
-					// The map itself will be strictly read-only from this point on.
-					GraphBuilder.Blackboard.Create<FRayTracingLightFunctionMap>(MoveTemp(RayTracingLightFunctionMap));
+					// get the default lighting miss shader (to implicitly fill in the MissShader library before the RT pipeline is created)
+					GetRayTracingLightingMissShader(GetGlobalShaderMap(FeatureLevel));
+					RayTracingSBT.NumMissShaderSlots++;
+				}
+
+				if (ViewFamily.EngineShowFlags.LightFunctions)
+				{
+					// gather all the light functions that may be used (and also count how many miss shaders we will need)
+					FRayTracingLightFunctionMap RayTracingLightFunctionMap;
+					if (ViewFamily.EngineShowFlags.PathTracing)
+					{
+						RayTracingLightFunctionMap = GatherLightFunctionLightsPathTracing(Scene, ViewFamily.EngineShowFlags, FeatureLevel);
+					}
+					else
+					{
+						RayTracingLightFunctionMap = GatherLightFunctionLights(Scene, ViewFamily.EngineShowFlags, FeatureLevel);
+					}
+					if (!RayTracingLightFunctionMap.IsEmpty())
+					{
+						// If we got some light functions in our map, store them in the RDG blackboard so downstream functions can use them.
+						// The map itself will be strictly read-only from this point on.
+						GraphBuilder.Blackboard.Create<FRayTracingLightFunctionMap>(MoveTemp(RayTracingLightFunctionMap));
+					}
 				}
 			}
-		}
-#endif // RHI_RAYTRACING
+		#endif // RHI_RAYTRACING
 
-#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
-		Scene->DebugRender(Views);
-#endif
+		#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+			Scene->DebugRender(Views);
+		#endif
 	}
 
 	// 完成动态网格元素收集 — 所有Mesh Draw Command在此就绪
@@ -2375,16 +2367,16 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 
 	if (RendererOutput == ERendererOutput::FinalSceneColor)
 	{
-#if RHI_RAYTRACING
-		if (FamilyPipelineState[&FFamilyPipelineState::bRayTracing])
-		{
-			RayTracing::FinishGatherInstances(
-				GraphBuilder,
-				*InitViewTaskDatas.RayTracingGatherInstances,
-				RayTracingScene,
-				RayTracingSBT);
-		}
-#endif // RHI_RAYTRACING
+		#if RHI_RAYTRACING
+			if (FamilyPipelineState[&FFamilyPipelineState::bRayTracing])
+			{
+				RayTracing::FinishGatherInstances(
+					GraphBuilder,
+					*InitViewTaskDatas.RayTracingGatherInstances,
+					RayTracingScene,
+					RayTracingSBT);
+			}
+		#endif // RHI_RAYTRACING
 
 		if (!bHasRayTracedOverlay)
 		{
@@ -2458,9 +2450,9 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		TSet<Nanite::FPageInfo> UninstalledPages;
 		Nanite::GStreamingManager.GetAndClearModifiedPages(InstalledPages, UninstalledPages);
 
-#if RHI_RAYTRACING
-		Nanite::GRayTracingManager.RequestUpdates(ModifiedResources, InstalledPages, UninstalledPages);
-#endif
+		#if RHI_RAYTRACING
+			Nanite::GRayTracingManager.RequestUpdates(ModifiedResources, InstalledPages, UninstalledPages);
+		#endif
 	}
 
 	// Virtual texturing isn't needed for depth prepass
@@ -2692,7 +2684,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 						// GBuffer code paths in RenderSingleLayerWater don't use the bIsCameraUnderWater flag, so just pass in false.  Normally this is
 						// computed by a render extension, but those aren't run for custom render passes.
 						FSceneWithoutWaterTextures SceneWithoutWaterTextures;
-// 体积云渲染判断 — 检查是否需要渲染体积云
+						// 体积云渲染判断 — 检查是否需要渲染体积云
 						// 体积云渲染 — 光线步进追踪体积云密度
 						RenderSingleLayerWater(GraphBuilder, CustomRenderPassViews, *CustomRenderPassSceneTextures, SingleLayerWaterPrePassResult, /*bShouldRenderVolumetricCloud=*/false, SceneWithoutWaterTextures, LumenFrameTemporaries, /*bIsCameraUnderWater=*/false);
 					}
@@ -2741,9 +2733,9 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 					// User Scene Textures are stored to "SceneTextures" for downstream use, not in "CustomRenderPassSceneTextures", only used during Custom Render Pass rendering
 					bool bFirstRender;
 					FRDGTextureRef BaseColorSceneTexture = SceneTextures.FindOrAddUserSceneTexture(GraphBuilder, 0, SceneCaptureUserData.UserSceneTextureBaseColor, SceneCaptureUserData.SceneTextureDivisor, bFirstRender, nullptr, CustomRenderPassViews[0].ViewRect);
-#if !(UE_BUILD_SHIPPING)
-					SceneTextures.UserSceneTextureEvents.Add({ EUserSceneTextureEvent::CustomRenderPass, NAME_None, (uint16)FCustomRenderPassBase::ERenderOutput::BaseColor, 0, (const UMaterialInterface*)CustomRenderPass });
-#endif
+					#if !(UE_BUILD_SHIPPING)
+						SceneTextures.UserSceneTextureEvents.Add({ EUserSceneTextureEvent::CustomRenderPass, NAME_None, (uint16)FCustomRenderPassBase::ERenderOutput::BaseColor, 0, (const UMaterialInterface*)CustomRenderPass });
+					#endif
 
 					CustomRenderPass->OverrideRenderOutput(FCustomRenderPassBase::ERenderOutput::BaseColor);
 					CopySceneCaptureComponentToTarget(GraphBuilder, *CustomRenderPassSceneTextures, BaseColorSceneTexture, ViewFamily, CustomRenderPassViews);
@@ -2753,9 +2745,9 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 				{
 					bool bFirstRender;
 					FRDGTextureRef NormalSceneTexture = SceneTextures.FindOrAddUserSceneTexture(GraphBuilder, 0, SceneCaptureUserData.UserSceneTextureNormal, SceneCaptureUserData.SceneTextureDivisor, bFirstRender, nullptr, CustomRenderPassViews[0].ViewRect);
-#if !(UE_BUILD_SHIPPING)
-					SceneTextures.UserSceneTextureEvents.Add({ EUserSceneTextureEvent::CustomRenderPass, NAME_None, (uint16)FCustomRenderPassBase::ERenderOutput::Normal, 0, (const UMaterialInterface*)CustomRenderPass });
-#endif
+					#if !(UE_BUILD_SHIPPING)
+						SceneTextures.UserSceneTextureEvents.Add({ EUserSceneTextureEvent::CustomRenderPass, NAME_None, (uint16)FCustomRenderPassBase::ERenderOutput::Normal, 0, (const UMaterialInterface*)CustomRenderPass });
+					#endif
 
 					CustomRenderPass->OverrideRenderOutput(FCustomRenderPassBase::ERenderOutput::Normal);
 					CopySceneCaptureComponentToTarget(GraphBuilder, *CustomRenderPassSceneTextures, NormalSceneTexture, ViewFamily, CustomRenderPassViews);
@@ -2765,9 +2757,9 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 				{
 					bool bFirstRender;
 					FRDGTextureRef SceneColorSceneTexture = SceneTextures.FindOrAddUserSceneTexture(GraphBuilder, 0, SceneCaptureUserData.UserSceneTextureSceneColor, SceneCaptureUserData.SceneTextureDivisor, bFirstRender, nullptr, CustomRenderPassViews[0].ViewRect);
-#if !(UE_BUILD_SHIPPING)
-					SceneTextures.UserSceneTextureEvents.Add({ EUserSceneTextureEvent::CustomRenderPass, NAME_None, (uint16)FCustomRenderPassBase::ERenderOutput::SceneColorAndAlpha, 0, (const UMaterialInterface*)CustomRenderPass });
-#endif
+					#if !(UE_BUILD_SHIPPING)
+						SceneTextures.UserSceneTextureEvents.Add({ EUserSceneTextureEvent::CustomRenderPass, NAME_None, (uint16)FCustomRenderPassBase::ERenderOutput::SceneColorAndAlpha, 0, (const UMaterialInterface*)CustomRenderPass });
+					#endif
 
 					CustomRenderPass->OverrideRenderOutput(FCustomRenderPassBase::ERenderOutput::SceneColorAndAlpha);
 					CopySceneCaptureComponentToTarget(GraphBuilder, *CustomRenderPassSceneTextures, SceneColorSceneTexture, ViewFamily, CustomRenderPassViews);
@@ -2782,10 +2774,10 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 					FGenerateMips::Execute(GraphBuilder, FeatureLevel, CustomRenderPass->GetRenderTargetTexture(), FGenerateMipsParams());
 				}
 
-			#if WITH_MGPU
-				// 多GPU交叉传输 — 在多GPU配置间同步纹理数据
-				DoCrossGPUTransfers(GraphBuilder, CustomRenderPass->GetRenderTargetTexture(), CustomRenderPassViews, false, FRHIGPUMask::All(), nullptr);
-			#endif
+				#if WITH_MGPU
+					// 多GPU交叉传输 — 在多GPU配置间同步纹理数据
+					DoCrossGPUTransfers(GraphBuilder, CustomRenderPass->GetRenderTargetTexture(), CustomRenderPassViews, false, FRHIGPUMask::All(), nullptr);
+				#endif
 			}
 
 			CustomRenderPass->EndPass(GraphBuilder);
@@ -2808,7 +2800,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	if (bNaniteEnabled && RendererOutput != ERendererOutput::DepthPrepassOnly && !bHasRayTracedOverlay)
 	{
 		// 构建Nanite BasePass着色命令（提前执行以允许CPU端任务重叠）
-	Nanite::BuildShadingCommands(GraphBuilder, *Scene, ENaniteMeshPass::BasePass, Scene->NaniteShadingCommands[ENaniteMeshPass::BasePass]);
+		Nanite::BuildShadingCommands(GraphBuilder, *Scene, ENaniteMeshPass::BasePass, Scene->NaniteShadingCommands[ENaniteMeshPass::BasePass]);
 		if (bAnyLumenEnabled && RendererOutput == ERendererOutput::FinalSceneColor)
 		{
 			Nanite::BuildShadingCommands(GraphBuilder, *Scene, ENaniteMeshPass::LumenCardCapture, Scene->NaniteShadingCommands[ENaniteMeshPass::LumenCardCapture]);
@@ -3117,22 +3109,21 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		}
 
 		FRDGBufferRef DynamicGeometryScratchBuffer = nullptr;
-#if RHI_RAYTRACING
-		
-		ERHIPipeline DynamicRTResourceAccessPipelines = Lumen::UseAsyncCompute(ViewFamily) ? ERHIPipeline::All : ERHIPipeline::Graphics;
+		#if RHI_RAYTRACING
+			ERHIPipeline DynamicRTResourceAccessPipelines = Lumen::UseAsyncCompute(ViewFamily) ? ERHIPipeline::All : ERHIPipeline::Graphics;
 
-		// Async AS builds can potentially overlap with BasePass.
-		bool bNeedToSetupRayTracingRenderingData = DispatchRayTracingWorldUpdates(GraphBuilder, DynamicGeometryScratchBuffer, DynamicRTResourceAccessPipelines);
+			// Async AS builds can potentially overlap with BasePass.
+			bool bNeedToSetupRayTracingRenderingData = DispatchRayTracingWorldUpdates(GraphBuilder, DynamicGeometryScratchBuffer, DynamicRTResourceAccessPipelines);
 
-		// Must be prepared before the SBT is built
-		if (ViewFamily.EngineShowFlags.PathTracing)
-		{
-			PreparePathTracingHeterogeneousVolumes(GraphBuilder, Scene, Views);
-		}
+			// Must be prepared before the SBT is built
+			if (ViewFamily.EngineShowFlags.PathTracing)
+			{
+				PreparePathTracingHeterogeneousVolumes(GraphBuilder, Scene, Views);
+			}
 
-		/** Should be called somewhere before "SetupRayTracingRenderingData" */
-		SetupRayTracingLightDataForViews(GraphBuilder);
-#endif
+			/** Should be called somewhere before "SetupRayTracingRenderingData" */
+			SetupRayTracingLightDataForViews(GraphBuilder);
+		#endif
 
 		bool bHasMarkedTranslucencyVolume = false;
 		bool bGatheredTranslucencyVolumeMarkedVoxels = false;
@@ -3170,16 +3161,16 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 				MegaLightsContext = CreateMegaLightsFrameTemporaries(GraphBuilder, SceneTextures);
 			}
 
-#if RHI_RAYTRACING
-			const bool bMegaLightsNeedsRTData = MegaLights::UseHardwareRayTracing(ViewFamily) && MegaLights::VolumeUseAsyncCompute(MegaLightsContext);
+			#if RHI_RAYTRACING
+				const bool bMegaLightsNeedsRTData = MegaLights::UseHardwareRayTracing(ViewFamily) && MegaLights::VolumeUseAsyncCompute(MegaLightsContext);
 
-			// Lumen scene lighting requires ray tracing scene to be ready if HWRT shadows are desired
-			if (bNeedToSetupRayTracingRenderingData && (Lumen::UseHardwareRayTracedSceneLighting(ViewFamily) || bMegaLightsNeedsRTData))
-			{
-				SetupRayTracingRenderingData(GraphBuilder, *InitViewTaskDatas.RayTracingGatherInstances);
-				bNeedToSetupRayTracingRenderingData = false;
-			}
-#endif
+				// Lumen scene lighting requires ray tracing scene to be ready if HWRT shadows are desired
+				if (bNeedToSetupRayTracingRenderingData && (Lumen::UseHardwareRayTracedSceneLighting(ViewFamily) || bMegaLightsNeedsRTData))
+				{
+					SetupRayTracingRenderingData(GraphBuilder, *InitViewTaskDatas.RayTracingGatherInstances);
+					bNeedToSetupRayTracingRenderingData = false;
+				}
+			#endif
 			{
 				LLM_SCOPE_BYTAG(Lumen);
 				BeginGatheringLumenSurfaceCacheFeedback(GraphBuilder, Views[0], LumenFrameTemporaries);
@@ -3203,14 +3194,14 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		}
 
 		{
+			// ------------------------------------------------------------
+			// 第五阶段：BasePass — G-Buffer写入（传统几何硬件光栅化 + Nanite Compute Shader着色）
+			// ------------------------------------------------------------
 			if (!bHasRayTracedOverlay)
 			{
-				// ------------------------------------------------------------
-				// 第五阶段：BasePass — G-Buffer写入（传统几何硬件光栅化 + Nanite Compute Shader着色）
-				// ------------------------------------------------------------
-			// 传统几何通过FMeshDrawCommand硬件光栅化，Nanite几何通过Compute Shader着色
-			// BasePass渲染 — 写入G-Buffer(A:法线,B:材质,C:自定义数据等)
-			RenderBasePass(*this, GraphBuilder, Views, SceneTextures, BasePassDepthStencilAccess, ForwardScreenSpaceShadowMaskTexture, InstanceCullingManager, bNaniteEnabled, Scene->NaniteShadingCommands[ENaniteMeshPass::BasePass], NaniteRasterResults);
+				// 传统几何通过FMeshDrawCommand硬件光栅化，Nanite几何通过Compute Shader着色
+				// BasePass渲染 — 写入G-Buffer(A:法线,B:材质,C:自定义数据等)
+				RenderBasePass(*this, GraphBuilder, Views, SceneTextures, BasePassDepthStencilAccess, ForwardScreenSpaceShadowMaskTexture, InstanceCullingManager, bNaniteEnabled, Scene->NaniteShadingCommands[ENaniteMeshPass::BasePass], NaniteRasterResults);
 			}
 
 			if (!bAllowReadOnlyDepthBasePass)

@@ -373,7 +373,11 @@ public:
 
 	bool RenderHzb(FRDGBuilder& GraphBuilder, FRDGTextureRef SceneDepthTexture, const FBuildHZBAsyncComputeParams* AsyncComputeParams, Froxel::FRenderer& FroxelRenderer);
 
-	/** Renders the view family. */
+	/** 延迟渲染管线总入口函数
+	* @brief 完整渲染流程：可见性 → 预通道(Nanite) → 阴影(VSM) → BasePass(GBuffer) → 光照(Lumen/MegaLights) → 半透明 → 后处理
+	* @param GraphBuilder 引擎 RDG 构建器, 用于声明 Pass 及资源, 自动管理资源的生命周期, 每帧创建
+	* @param SceneUpdateInputs 渲染的上下文, 包含场景数据+着色器+渲染器+视图等数据
+	*/
 	virtual void Render(FRDGBuilder& GraphBuilder, const FSceneRenderUpdateInputs* SceneUpdateInputs) override;
 
 	/** Render the view family's hit proxies. */
