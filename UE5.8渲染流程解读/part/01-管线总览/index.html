@@ -172,6 +172,167 @@ a:hover{text-decoration:underline}
   </div>
 </section>
 
+<!-- ===== 核心参数与概念 ===== -->
+<section class="overview-section">
+  <h2>Render 函数核心参数与概念</h2>
+
+  <h3 style="font-size:1.1rem;color:#fff;margin:24px 0 10px">1. FRDGBuilder — RDG 渲染图构建器</h3>
+  <p><code style="font-family:var(--font-mono);font-size:0.9rem;background:var(--code);padding:2px 6px;border-radius:3px">FRDGBuilder</code> 是 UE5 Render Dependency Graph（渲染依赖图）的核心调度器，定义在 <strong>RenderGraphBuilder.h:50</strong>。它负责管理所有渲染 Pass 的注册、临时资源的生命周期、Pass 间依赖关系和屏障转换。</p>
+  <p><strong>生命周期：</strong>每次调用 <code style="font-family:var(--font-mono);font-size:0.9rem;background:var(--code);padding:2px 6px;border-radius:3px">Render()</code> 时在栈上临时创建（SceneRenderBuilder.cpp:873），离开作用域时析构函数自动调用 <code style="font-family:var(--font-mono);font-size:0.9rem;background:var(--code);padding:2px 6px;border-radius:3px">Execute()</code> 提交所有已注册的 Pass。创建时接收 <code style="font-family:var(--font-mono);font-size:0.9rem;background:var(--code);padding:2px 6px;border-radius:3px">FRHICommandListImmediate&amp;</code> 引用，多个 GraphBuilder 串行实例共享同一个命令列表。</p>
+
+  <div class="callout">
+    <strong>FRDGBuilder 核心能力一览：</strong>
+    <ul style="margin:8px 0 0 1.2em;font-size:0.88rem;color:var(--text-dim)">
+      <li><strong>资源注册与创建：</strong><code>RegisterExternalTexture/Buffer()</code> 将外部 RHI 资源注册到图；<code>CreateTexture/Buffer()</code> 创建图内临时资源并自动管理生命周期</li>
+      <li><strong>Pass 管理：</strong><code>AddPass()</code> 向图中添加渲染 Pass（lambda + SHADER_PARAMETER_STRUCT），RDG 自动推导资源依赖、插入屏障、剔除无用 Pass</li>
+      <li><strong>Blackboard 黑板：</strong><code>FRDGBlackboard</code>（第 433 行）提供类型安全的键值存储，在 Pass 间共享临时数据（如光追的 LightFunctionMap）</li>
+      <li><strong>异步任务：</strong><code>AddSetupTask()</code> / <code>AddCommandListSetupTask()</code> 在 RDG 编译前并行执行 CPU 准备任务</li>
+      <li><strong>资源提取：</strong><code>QueueTextureExtraction()</code> / <code>QueueBufferExtraction()</code> 将 GPU 资源提取为池化指针，使其在图执行后仍存活</li>
+    </ul>
+  </div>
+
+  <p style="margin-top:16px">OpenGL 开发者可类比：FRDGBuilder 相当于一个"自动管理所有 <code style="font-family:var(--font-mono);font-size:0.88rem;background:var(--code);padding:1px 5px;border-radius:3px">glBindTexture</code> + <code style="font-family:var(--font-mono);font-size:0.88rem;background:var(--code);padding:1px 5px;border-radius:3px">glUseProgram</code> + <code style="font-family:var(--font-mono);font-size:0.88rem;background:var(--code);padding:1px 5px;border-radius:3px">glFramebufferTexture2D</code> 状态切换和依赖排序的声明式系统"。你声明"这个 Pass 读写这些资源"，RDG 自动处理余下的一切。</p>
+
+  <h3 style="font-size:1.1rem;color:#fff;margin:24px 0 10px">2. FSceneRenderUpdateInputs — 帧渲染输入数据包</h3>
+  <p>定义在 <strong>SceneRendering.h:2841</strong>，是一个轻量级的输入上下文结构体，描述"这一帧渲染什么场景、用哪个平台、渲染哪些视图"：</p>
+
+  <table style="width:100%;border-collapse:collapse;font-size:0.88rem;margin:12px 0">
+    <tr style="border-bottom:1px solid var(--border)">
+      <th style="text-align:left;padding:8px 12px;color:var(--accent);font-size:0.78rem">字段</th>
+      <th style="text-align:left;padding:8px 12px;color:var(--accent);font-size:0.78rem">类型</th>
+      <th style="text-align:left;padding:8px 12px;color:var(--accent);font-size:0.78rem">说明</th>
+      <th style="text-align:left;padding:8px 12px;color:var(--accent);font-size:0.78rem">OpenGL 近似类比</th>
+    </tr>
+    <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 12px">ShaderPlatform</td><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.8rem">EShaderPlatform</td><td style="padding:6px 12px;color:var(--text-dim)">着色器平台（如 SM6/D3D12）</td><td style="padding:6px 12px;color:var(--text-dim)">GL Context 版本（GL 4.6 Core Profile）</td></tr>
+    <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 12px">FeatureLevel</td><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.8rem">ERHIFeatureLevel::Type</td><td style="padding:6px 12px;color:var(--text-dim)">特性级别（SM5/SM6/ES3_1）</td><td style="padding:6px 12px;color:var(--text-dim)">检查扩展可用（GL_ARB_compute_shader）</td></tr>
+    <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 12px">Scene</td><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.8rem">FScene*</td><td style="padding:6px 12px;color:var(--text-dim)">场景对象（所有模型/光源/材质）</td><td style="padding:6px 12px;font-size:0.82rem;color:var(--warn)">无对等物（GL 不管场景管理）</td></tr>
+    <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 12px">FXSystem</td><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.8rem">FFXSystemInterface*</td><td style="padding:6px 12px;color:var(--text-dim)">粒子/VFX 系统接口</td><td style="padding:6px 12px;font-size:0.82rem;color:var(--warn)">无对等物</td></tr>
+    <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 12px">GlobalShaderMap</td><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.8rem">FGlobalShaderMap*</td><td style="padding:6px 12px;color:var(--text-dim)">全局着色器缓存（见下文）</td><td style="padding:6px 12px;color:var(--text-dim)">所有 <code style="font-size:0.8rem">glCreateProgram()</code> 编译好的程序集合</td></tr>
+    <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 12px">Renderers</td><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.8rem">TConstArrayView&lt;FSceneRenderer*&gt;</td><td style="padding:6px 12px;color:var(--text-dim)">本帧要执行的渲染器数组</td><td style="padding:6px 12px;font-size:0.82rem;color:var(--warn)">无对等物（多个渲染循环的调度器）</td></tr>
+    <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 12px">ViewFamilies</td><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.8rem">TConstArrayView&lt;FViewFamilyInfo*&gt;</td><td style="padding:6px 12px;color:var(--text-dim)">所有视图族</td><td style="padding:6px 12px;color:var(--text-dim)">VR 左右眼视图族（GL 需手动管理）</td></tr>
+    <tr><td style="padding:6px 12px">CommonShowFlags</td><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.8rem">ESceneRenderCommonShowFlags</td><td style="padding:6px 12px;color:var(--text-dim)">跨视图族公共 ShowFlags</td><td style="padding:6px 12px;color:var(--text-dim)">一堆 <code style="font-size:0.8rem">bool bDrawShadows; bUseAO;</code> 标志</td></tr>
+  </table>
+
+  <p>核心区别：OpenGL 是<strong>命令式</strong> API——手动 <code style="font-family:var(--font-mono);font-size:0.88rem;background:var(--code);padding:1px 5px;border-radius:3px">glBindTexture</code>、<code style="font-family:var(--font-mono);font-size:0.88rem;background:var(--code);padding:1px 5px;border-radius:3px">glUseProgram</code>、<code style="font-family:var(--font-mono);font-size:0.88rem;background:var(--code);padding:1px 5px;border-radius:3px">glDrawElements</code>。而 UE 是<strong>数据驱动</strong>的——打包好"渲染什么"的输入数据，由 FRDGBuilder + DeferredShadingRenderer 自动调度数百个 Pass。</p>
+
+  <h3 style="font-size:1.1rem;color:#fff;margin:24px 0 10px">3. FSceneRenderer 层级 — "一整帧"不是"一次 Draw"</h3>
+  <p><code style="font-family:var(--font-mono);font-size:0.9rem;background:var(--code);padding:2px 6px;border-radius:3px">FSceneRenderUpdateInputs::Renderers</code> 数组中每个元素是 <code style="font-family:var(--font-mono);font-size:0.9rem;background:var(--code);padding:2px 6px;border-radius:3px">FSceneRenderer*</code>，这是一个<strong>完整帧渲染器</strong>，粒度为"一整帧"，而非单次 Draw。类层级：</p>
+
+  <table style="width:100%;border-collapse:collapse;font-size:0.88rem;margin:12px 0">
+    <tr style="border-bottom:1px solid var(--border)">
+      <th style="text-align:left;padding:8px 12px;color:var(--accent);font-size:0.78rem">类</th>
+      <th style="text-align:left;padding:8px 12px;color:var(--accent);font-size:0.78rem">定位</th>
+      <th style="text-align:left;padding:8px 12px;color:var(--accent);font-size:0.78rem">每次 Render() 产生的 Pass 数</th>
+    </tr>
+    <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.82rem">FSceneRenderer</td><td style="padding:6px 12px;color:var(--text-dim)">虚基类</td><td style="padding:6px 12px;color:var(--text-dim)">—</td></tr>
+    <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.82rem">FDeferredShadingSceneRenderer</td><td style="padding:6px 12px;color:var(--text-dim)">高端桌面/主机延迟渲染器</td><td style="padding:6px 12px;color:var(--text-dim)">数百个 RDG Pass</td></tr>
+    <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.82rem">FMobileSceneRenderer</td><td style="padding:6px 12px;color:var(--text-dim)">移动端前向/延迟渲染器</td><td style="padding:6px 12px;color:var(--text-dim)">数十到上百个 RDG Pass</td></tr>
+    <tr><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.82rem">FCustomRenderPassBase</td><td style="padding:6px 12px;color:var(--text-dim)">自定义渲染通道（场景捕获等）</td><td style="padding:6px 12px;color:var(--text-dim)">可变</td></tr>
+  </table>
+
+  <p style="margin-top:16px">层级关系：<strong>1 个 FSceneRenderer → 数百个 RDG Pass（通过 GraphBuilder.AddPass 添加）→ 数千个 FMeshDrawCommand（每次对应一次 RHI Draw）→ 最终映射到 D3D12/Vulkan/OpenGL 的 draw 命令。</strong>通常 Renderers 数组中只有 1 个元素（即 FDeferredShadingSceneRenderer），多个 Renderer 仅出现在启用 Custom Render Pass 时。</p>
+
+  <div class="callout">
+    <strong>如何在不修改 Render() 的情况下添加自定义 Pass？</strong>UE 提供了<strong>场景扩展（Scene Extensions）机制</strong>：
+    <ul style="margin:8px 0 0 1.2em;font-size:0.88rem;color:var(--text-dim)">
+      <li><strong>Scene Extensions Renderer</strong>（ISceneExtensionRenderer）— 在 PreInitViews/UpdateViewData/PreRender/PostRender 等回调注入 Pass，Render() 中第 2039/2326/2330/2439 行已有调用点</li>
+      <li><strong>Scene View Extension</strong>（FSceneViewExtensionBase）— 挂钩 PreRenderViewFamily/PostRenderViewFamily 等</li>
+      <li><strong>Post Process Material</strong> — 蓝图/材质方式在后处理链中插入效果，完全无需 C++</li>
+      <li><strong>Custom Render Pass</strong>（FCustomRenderPassBase）— Render() 第 2615 行已有完整分发循环</li>
+      <li><strong>直接修改 Render()</strong> — 侵入式，仅引擎核心功能（Nanite/Lumen/MegaLights）使用</li>
+    </ul>
+    <p style="margin-top:8px;font-size:0.85rem">Epic 的插件（nDisplay/HairStrands/Water 等）几乎全部使用前四种非侵入方式。</p>
+  </div>
+
+  <h3 style="font-size:1.1rem;color:#fff;margin:24px 0 10px">4. FGlobalShaderMap — 全局着色器缓存</h3>
+  <p>定义在 <strong>GlobalShader.h:181</strong>，是一个<strong>平台级预编译着色器缓存</strong>，存储引擎内置的"全局着色器"——不依赖任何材质或网格的基础 Shader。引擎启动时已编译完毕，不可运行时动态添加。</p>
+
+  <table style="width:100%;border-collapse:collapse;font-size:0.88rem;margin:12px 0">
+    <tr style="border-bottom:1px solid var(--border)">
+      <th style="text-align:left;padding:8px 12px;color:var(--accent);font-size:0.78rem">对比维度</th>
+      <th style="text-align:left;padding:8px 12px;color:var(--accent);font-size:0.78rem">FGlobalShaderMap</th>
+      <th style="text-align:left;padding:8px 12px;color:var(--accent);font-size:0.78rem">其他 Shader 体系</th>
+    </tr>
+    <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 12px">管理内容</td><td style="padding:6px 12px;color:var(--text-dim)">引擎内置工具 Shader（全屏三角形 VS、纹理拷贝 CS、清屏、降采样、Mip 生成等）</td><td style="padding:6px 12px;color:var(--text-dim)">—</td></tr>
+    <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 12px">材质 Shader</td><td style="padding:6px 12px;color:var(--warn)">不存</td><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.8rem;color:var(--text-dim)">FMaterialShaderMap 按材质按需编译</td></tr>
+    <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 12px">网格相关 Shader</td><td style="padding:6px 12px;color:var(--warn)">不存</td><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.8rem;color:var(--text-dim)">FMeshMaterialShaderMap</td></tr>
+    <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 12px">光追 Shader</td><td style="padding:6px 12px;color:var(--warn)">不存</td><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.8rem;color:var(--text-dim)">FRayTracingShaderMap</td></tr>
+    <tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 12px">实例数</td><td style="padding:6px 12px;color:var(--text-dim)">每个 ShaderPlatform 一个</td><td style="padding:6px 12px;color:var(--text-dim)">—</td></tr>
+    <tr><td style="padding:6px 12px">注册机制</td><td style="padding:6px 12px;font-family:var(--font-mono);font-size:0.8rem;color:var(--text-dim)">IMPLEMENT_GLOBAL_SHADER 宏（编译期注册）</td><td style="padding:6px 12px;color:var(--text-dim)">—</td></tr>
+  </table>
+
+  <p style="margin-top:16px">存储结构：<code style="font-family:var(--font-mono);font-size:0.88rem;background:var(--code);padding:1px 5px;border-radius:3px">FGlobalShaderMap</code> → 每个 Section 对应一个 <code style="font-family:var(--font-mono);font-size:0.88rem;background:var(--code);padding:1px 5px;border-radius:3px">.usf</code> 文件 → FShaderType → 编译好的 Shader 字节码 + 多 Permutation 索引。</p>
+
+  <h3 style="font-size:1.1rem;color:#fff;margin:24px 0 10px">5. 带材质物体的着色器代码 — 从节点图到 GPU 执行</h3>
+  <p>当渲染一个带材质的不透明物体时，着色器代码经历了<strong>四个阶段</strong>的生成与绑定：</p>
+
+  <table style="width:100%;border-collapse:collapse;font-size:0.88rem;margin:12px 0">
+    <tr style="border-bottom:1px solid var(--border)">
+      <th style="text-align:left;padding:8px 12px;color:var(--accent);font-size:0.78rem">阶段</th>
+      <th style="text-align:left;padding:8px 12px;color:var(--accent);font-size:0.78rem">输入</th>
+      <th style="text-align:left;padding:8px 12px;color:var(--accent);font-size:0.78rem">核心组件</th>
+      <th style="text-align:left;padding:8px 12px;color:var(--accent);font-size:0.78rem">产出</th>
+    </tr>
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:8px 12px;font-weight:bold;color:#fff">1. HLSL 生成</td>
+      <td style="padding:8px 12px;color:var(--text-dim)">材质编辑器节点图</td>
+      <td style="padding:8px 12px"><code style="font-family:var(--font-mono);font-size:0.8rem;color:var(--accent)">FHLSLMaterialTranslator::GetMaterialShaderCode()</code><br/><span style="color:var(--text-dim);font-size:0.82rem">遍历每个 UMaterialExpression 节点生成对应 HLSL 代码片段</span></td>
+      <td style="padding:8px 12px;font-family:var(--font-mono);font-size:0.8rem;color:var(--text-dim)">CalcPixelMaterialInputs() 函数体</td>
+    </tr>
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:8px 12px;font-weight:bold;color:#fff">2. 模板合并</td>
+      <td style="padding:8px 12px;color:var(--text-dim)">MaterialTemplate.ush<br/>+ BasePassPixelShader.usf</td>
+      <td style="padding:8px 12px"><span style="color:var(--text-dim)">材质生成的 HLSL 注入 MaterialTemplate.ush，再被 #include 到 BasePassPixelShader.usf</span></td>
+      <td style="padding:8px 12px;font-family:var(--font-mono);font-size:0.8rem;color:var(--text-dim)">完整的 PS 入口代码（MainPS）</td>
+    </tr>
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:8px 12px;font-weight:bold;color:#fff">3. 编译缓存</td>
+      <td style="padding:8px 12px;color:var(--text-dim)">合并后 HLSL</td>
+      <td style="padding:8px 12px"><span style="color:var(--text-dim)">平台 Shader 编译器（dxc/glslangValidator/Metal）</span></td>
+      <td style="padding:8px 12px;font-family:var(--font-mono);font-size:0.8rem;color:var(--warn)">FMaterialShaderMap</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px;font-weight:bold;color:#fff">4. 运行时绑定</td>
+      <td style="padding:8px 12px;color:var(--text-dim)">FMaterialShaderMap 缓存</td>
+      <td style="padding:8px 12px"><code style="font-family:var(--font-mono);font-size:0.8rem;color:var(--accent)">FMeshDrawCommand</code></td>
+      <td style="padding:8px 12px;color:var(--text-dim);font-size:0.82rem">最终的 RHI Draw → GPU 执行</td>
+    </tr>
+  </table>
+
+  <p style="margin-top:16px"><strong>合并后的最终 PS 代码结构：</strong></p>
+  <pre style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:14px 18px;overflow-x:auto;font-size:0.78rem;line-height:1.6;color:#c8ccd4;margin:8px 0"><code><span class="cmt">// === 引擎框架部分 (BasePassPixelShader.usf) ===</span>
+<span class="fn">#include</span> "Common.ush"
+<span class="fn">#include</span> "DeferredShadingCommon.ush"
+<span class="cmt">// ...各种引擎头文件和UB定义...</span>
+
+<span class="cmt">// === 材质生成的代码 (MaterialTemplate.ush) ===</span>
+<span class="fn">void</span> CalcPixelMaterialInputs(...)
+{
+    <span class="cmt">// ← FHLSLMaterialTranslator 从材质图自动生成的 HLSL</span>
+    float2 UV = Parameters.TexCoords[0].xy;
+    float4 TexColor = Texture2DSample(Material_Texture2D_0, ...);
+    PixelMaterialInputs.BaseColor = TexColor.rgb * Material_VectorExpressions[0].rgb;
+    PixelMaterialInputs.Roughness = 0.5;
+}
+
+<span class="cmt">// === 引擎框架部分 (BasePassPixelShader.usf) ===</span>
+<span class="fn">void</span> FPixelShaderInOut_MainPS(...)
+{
+    FMaterialPixelParameters MaterialParameters = GetMaterialPixelParameters(...);
+    FPixelMaterialInputs PixelMaterialInputs;
+    CalcPixelMaterialInputs(MaterialParameters, PixelMaterialInputs); <span class="cmt">// ★ 调用材质代码</span>
+    <span class="cmt">// 写入 GBuffer...</span>
+}
+
+<span class="cmt">// === 引擎包装 (PixelShaderOutputCommon.ush) ===</span>
+<span class="fn">void</span> MainPS(...) <span class="cmt">// ← D3D/Vulkan 的实际入口点</span>
+{
+    FPixelShaderInOut_MainPS(...);
+}</code></pre>
+
+  <p style="margin-top:12px"><strong>FMeshDrawCommand 运行时绑定：</strong>渲染时 CPU 不关心 HLSL 源码。每个 FMeshDrawCommand 持有<strong>编译好的字节码指针</strong>（VS + PS）和<strong>预编译的 PSO（Pipeline State Object）</strong>，执行时直接提交 <code style="font-family:var(--font-mono);font-size:0.88rem;background:var(--code);padding:1px 5px;border-radius:3px">SubmitDrawCall(MeshDrawCommand)</code>。RHI 层转换此调用为 D3D12 <code style="font-family:var(--font-mono);font-size:0.88rem;background:var(--code);padding:1px 5px;border-radius:3px">DrawIndexedInstanced</code> / Vulkan <code style="font-family:var(--font-mono);font-size:0.88rem;background:var(--code);padding:1px 5px;border-radius:3px">vkCmdDrawIndexed</code> / OpenGL <code style="font-family:var(--font-mono);font-size:0.88rem;background:var(--code);padding:1px 5px;border-radius:3px">glDrawElements</code>。</p>
+</section>
+
 <!-- ===== SVG 横向流程图 ===== -->
 <section class="svg-section">
   <h2>九阶段总览流程图</h2>
@@ -473,6 +634,54 @@ a:hover{text-decoration:underline}
     NaniteRasterResults)
   <span class="arrow">&#x2192;</span> <span class="fn">AddResolveSceneDepthPass</span>(GraphBuilder, Views, SceneTextures.Depth)</code></pre>
       </div>
+
+      <div class="call-chain" style="margin-top:18px">
+        <h4>BasePassPixelShader.usf（2790 行）— 逐像素执行的七阶段流程</h4>
+        <p style="font-size:0.84rem;color:var(--text-dim);margin:4px 0 8px">对应 Shader 文件 <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px">Engine/Shaders/Private/BasePassPixelShader.usf</code>，入口函数为 <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px">FPixelShaderInOut_MainPS()</code>（第 910 行）。</p>
+        <pre style="font-size:0.78rem;line-height:1.55"><code><span class="cmt">// 阶段 1：材质求值（行 929~1000）</span>
+<span class="fn">GetMaterialPixelParameters</span>(Interpolants, SvPosition)   <span class="cmt">// 从顶点插值器构建材质参数（UV/法线/世界坐标）</span>
+<span class="fn">CalcMaterialParameters</span>(...)                           <span class="cmt">// ★ 调用材质图生成的 CalcPixelMaterialInputs()</span>
+<span class="fn">GetMaterialCoverageAndClipping</span>(...)                    <span class="cmt">// 根据 BlendMode 剔除像素（Masked/Opacity）</span>
+
+<span class="cmt">// 阶段 2：材质属性提取（行 1012~1172）</span>
+<span class="fn">GetMaterialBaseColor</span>()    → BaseColor
+<span class="fn">GetMaterialMetallic</span>()     → Metallic
+<span class="fn">GetMaterialSpecular</span>()     → Specular
+<span class="fn">GetMaterialRoughness</span>()    → Roughness
+<span class="fn">GetMaterialShadingModel</span>() → ShadingModelID
+<span class="fn">ApplyDBufferData</span>()        → 如果像素接收贴花，从 DBuffer 纹理采样并叠加修改
+
+<span class="cmt">// 阶段 3：GBuffer 填充（行 1149~1308）</span>
+<span class="fn">SetGBufferForShadingModel</span>()                           <span class="cmt">// 按着色模型编码标准 FGBufferData</span>
+FGBufferData {
+    WorldNormal, DiffuseColor, SpecularColor, Roughness,
+    GBufferAO, ShadingModelID, SelectiveOutputMask,
+    Velocity, PrecomputedShadowFactors, DiffuseIndirectSampleOcclusion
+}
+
+<span class="cmt">// 阶段 4：间接光照（行 1310~1377）</span>
+<span class="fn">GetPrecomputedIndirectLightingAndSkyLight</span>()            <span class="cmt">// 体积光照贴图 / 间接光照缓存 / HQ/LQ 光照贴图 / 天空光照</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">GetSkyLighting</span>()                                   <span class="cmt">// Lumen 半透明 GI 或反射捕获天空（SkyLight SH + BentNormal AO）</span>
+
+<span class="cmt">// 阶段 5：直接光照 / 前向着色（行 1387~1521）— 仅前向/半透明激活</span>
+<span class="fn">GetForwardDirectLightingSplit</span>()                       <span class="cmt">// 聚簇前向直接光照（含方向光阴影 + 大气透射率）</span>
+<span class="fn">GetImageBasedReflectionLighting</span>()                     <span class="cmt">// IBL 反射（反射捕获球）</span>
+<span class="cmt">// 延迟不透明物体此阶段代码全被编译掉，直接光照在后续 RenderLights() 中计算</span>
+
+<span class="cmt">// 阶段 6：雾效（行 1525~1606）</span>
+<span class="fn">CalculateHeightFog</span>()      <span class="cmt">// 高度雾</span>
+<span class="arrow">&#x2192;</span> <span class="fn">GetLFVContribution</span>()   <span class="cmt">// 局部雾体积</span>
+<span class="arrow">&#x2192;</span> <span class="fn">CombineVolumetricFog</span>()  <span class="cmt">// 体积雾</span>
+<span class="arrow">&#x2192;</span> <span class="fn">GetAerialPerspective...</span>() <span class="cmt">// 大气透视</span>
+<span class="arrow">&#x2192;</span> <span class="fn">GetCloudLuminance...</span>()   <span class="cmt">// 体积云透射率</span>
+
+<span class="cmt">// 阶段 7：输出（行 1608~2430+）</span>
+<span class="fn">GetMaterialEmissive</span>()                                 <span class="cmt">// 自发光</span>
+Color = Color * Fogging.a + Fogging.rgb + Emissive
+<span class="fn">EncodeGBufferToMRT</span>() / <span class="fn">EncodeGBuffer</span>()                <span class="cmt">// ★ 写入 GBufferA/B/C/D/E/Velocity 共 6 个 MRT</span>
+<span class="cmt">// 前向/半透明材质直接输出 Out.Color[n]，而非写入 GBuffer</span></code></pre>
+      </div>
+
       <div class="stage-output">
         <h4>产出资源 / 状态</h4>
         <ul>
@@ -626,6 +835,13 @@ a:hover{text-decoration:underline}
 <section class="flow-section">
   <h2>阶段间数据流</h2>
   <p style="text-align:center;color:var(--text-dim);margin-bottom:24px;font-size:0.92rem">以下列出相邻阶段之间的关键数据传递。每个产出均为后续阶段的计算前提。</p>
+
+  <div class="flow-item">
+    <span class="flow-from">备注</span>
+    <span class="flow-arrow-sym">&harr;</span>
+    <span class="flow-to">备注</span>
+    <span class="flow-desc"><code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(255,183,77,0.08);padding:1px 5px;border-radius:3px;color:var(--warn)">FSceneRenderer::Render()</code> 的调用者 <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(255,183,77,0.08);padding:1px 5px;border-radius:3px;color:var(--warn)">FRDGBuilder</code> 是栈上局部变量, 每次Render调用时在 SceneRenderBuilder.cpp:873 创建, 传入 <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(255,183,77,0.08);padding:1px 5px;border-radius:3px;color:var(--warn)">RHICmdList</code> 引用。离开作用域时析构函数自动执行 <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(255,183,77,0.08);padding:1px 5px;border-radius:3px;color:var(--warn)">Execute()</code> 提交全部Pass。</span>
+  </div>
 
   <div class="flow-list">
     <div class="flow-item">
