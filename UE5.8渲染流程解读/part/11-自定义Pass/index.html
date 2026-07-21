@@ -111,9 +111,79 @@ tr:hover td{background:var(--accent-dim)}
 .toc-list a:hover{color:var(--accent);text-decoration:none}
 @media(max-width:768px){.toc-list{columns:1}}
 
+
+/* ===== 侧边栏变量 ===== */
+:root{--sidebar-w:260px}
+
+/* ===== 布局调整 ===== */
+body{display:flex}
+
+/* ===== 侧边栏 ===== */
+#sidebar{position:fixed;top:0;left:0;bottom:0;width:var(--sidebar-w);background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;transition:transform 0.2s ease;overflow:hidden}
+.sidebar-header{height:56px;display:flex;align-items:center;padding:0 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:1rem;color:var(--accent);letter-spacing:0.5px;flex-shrink:0}
+.sidebar-search{padding:12px 16px;flex-shrink:0}
+.sidebar-search input{width:100%;padding:7px 12px;border:1px solid rgba(255,255,255,0.1);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.85rem;outline:none;transition:border 0.2s}
+.sidebar-search input:focus{border-color:var(--accent)}
+.sidebar-search input::placeholder{color:var(--text-dim)}
+#sidebar nav{flex:1;overflow-y:auto;padding:8px 0}
+#sidebar nav a{display:block;padding:6px 18px;font-size:0.84rem;color:var(--text-dim);border-left:3px solid transparent;transition:all 0.15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sidebar nav a:hover,#sidebar nav a.active{color:var(--text);background:var(--accent-dim);border-left-color:var(--accent);text-decoration:none}
+#sidebar nav a.sub{padding-left:36px;font-size:0.8rem}
+#sidebar nav a.hidden-by-search{display:none}
+
+/* ===== 返回首页链接 ===== */
+#sidebar nav a.home-link{color:var(--accent);font-weight:600;border-left:3px solid var(--accent);background:var(--accent-dim)}
+
+/* ===== 主内容区 ===== */
+#content{margin-left:var(--sidebar-w);flex:1;min-width:0;padding:24px 32px 0}
+
+/* ===== 汉堡按钮 (移动端) ===== */
+.burger-btn{display:none}
+@media(max-width:860px){
+  #sidebar{transform:translateX(-100%)}
+  #sidebar.open{transform:translateX(0)}
+  #content{margin-left:0;padding:20px 16px 0}
+  .burger-btn{display:block;position:fixed;top:12px;left:12px;z-index:200;background:var(--card);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:var(--text);font-size:1.3rem;padding:4px 10px;cursor:pointer}
+}
+
+/* ===== 面包屑适配 ===== */
+.breadcrumb{max-width:none;margin:0;padding:0 0 12px}
+
 </style>
 </head>
 <body>
+<button class="burger-btn" onclick="document.getElementById('sidebar').classList.toggle('open')">&#9776;</button>
+<aside id="sidebar">
+<div class="sidebar-header">自定义 Pass 教程</div>
+<div class="sidebar-search"><input id="navSearch" type="text" placeholder="搜索章节..." oninput="filterNav()"></div>
+<nav id="sideNav">
+<a href="../../index.html" class="home-link">← 返回首页</a>
+<a href="#1在Render函数中嵌入自定义Pass">1. 在 Render 函数中嵌入自定义 Pass</a>
+<a href="#2Pass的本质Shader参数调度">2. Pass 的本质：Shader + 参数 + 调度</a>
+<a href="#3光栅化Pass完整模板">3. 光栅化 Pass — 完整模板</a>
+<a href="#4计算Pass完整模板">4. 计算 Pass — 完整模板</a>
+<a href="#5资源绑定详解">5. 资源绑定详解</a>
+<a href="#6Pass间数据传递">6. Pass 间数据传递</a>
+<a href="#7端到端从零添加一个自定义Pass">7. 端到端：从零添加一个自定义 Pass</a>
+<a href="#8CVar控制Pass开关和参数">8. CVar 控制 Pass 开关和参数</a>
+<a href="#9常见问题与排错">9. 常见问题与排错</a>
+<a href="#10相关源码索引">10. 相关源码索引</a>
+<a href="#31Shader定义usf" class="sub">3.1 Shader 定义（.usf）</a>
+<a href="#32Shader类定义C头文件" class="sub">3.2 Shader 类定义（C++ 头文件）</a>
+<a href="#33Shader注册Ccpp" class="sub">3.3 Shader 注册（C++ .cpp）</a>
+<a href="#34Pass注册与调度" class="sub">3.4 Pass 注册与调度</a>
+<a href="#41ComputeShaderusf" class="sub">4.1 Compute Shader（.usf）</a>
+<a href="#42Shader类定义与注册" class="sub">4.2 Shader 类定义与注册</a>
+<a href="#43Pass调度FComputeShaderUtilsAddPass" class="sub">4.3 Pass 调度 — FComputeShaderUtils::AddPass</a>
+<a href="#51RDG资源创建" class="sub">5.1 RDG 资源创建</a>
+<a href="#52资源状态自动转换" class="sub">5.2 资源状态自动转换</a>
+<a href="#61RDG纹理传递最常见" class="sub">6.1 RDG 纹理传递（最常见）</a>
+<a href="#62Buffer数据回读" class="sub">6.2 Buffer 数据回读</a>
+<a href="#63RDG黑板跨Pass共享数据" class="sub">6.3 RDG 黑板 — 跨 Pass 共享数据</a>
+<a href="#CVar速查表" class="sub">CVar 速查表</a>
+</nav>
+</aside>
+
 
 <nav class="breadcrumb">
   <a href="../../index.html">首页</a> &rsaquo; <a href="../01-管线总览/index.html">渲染管线总览</a> &rsaquo; 自定义 Pass 教程
@@ -146,7 +216,7 @@ tr:hover td{background:var(--accent-dim)}
 </nav>
 
 
-<main class="content">
+<main id="content" class="content">
 
 <!-- ===== 1. 管线中的位置 ===== -->
 <h2 id="1在Render函数中嵌入自定义Pass">1. 在 Render 函数中嵌入自定义 Pass</h2>
@@ -228,7 +298,7 @@ tr:hover td{background:var(--accent-dim)}
 
 <p>光栅化 Pass 需要定义 Vertex Shader + Pixel Shader、绑定 RenderTarget、设置 PSO 状态。</p>
 
-<h3>3.1 Shader 定义（.usf）</h3>
+<h3 id="31Shader定义usf">3.1 Shader 定义（.usf）</h3>
 
 <pre><span class="cmt">// MyCustomPass.usf</span>
 <span class="kw">#include</span> <span class="str">"/Engine/Private/Common.ush"</span>
@@ -256,7 +326,7 @@ tr:hover td{background:var(--accent-dim)}
     OutColor = <span class="ty">float4</span>(SceneColor * Intensity, <span class="num">1.0</span>);
 }</pre>
 
-<h3>3.2 Shader 类定义（C++ 头文件）</h3>
+<h3 id="32Shader类定义C头文件">3.2 Shader 类定义（C++ 头文件）</h3>
 
 <pre><span class="kw">#pragma once</span>
 <span class="kw">#include</span> <span class="str">"GlobalShader.h"</span>
@@ -289,7 +359,7 @@ tr:hover td{background:var(--accent-dim)}
     <span class="kw">END_SHADER_PARAMETER_STRUCT</span>()
 };</pre>
 
-<h3>3.3 Shader 注册（C++ .cpp）</h3>
+<h3 id="33Shader注册Ccpp">3.3 Shader 注册（C++ .cpp）</h3>
 
 <pre><span class="cmt">// MyCustomPassRendering.cpp</span>
 <span class="kw">IMPLEMENT_GLOBAL_SHADER</span>(FMyCustomPassPS, <span class="str">"/Engine/Private/MyCustomPass.usf"</span>, <span class="str">"MainPS"</span>, SF_Pixel);
@@ -299,7 +369,7 @@ tr:hover td{background:var(--accent-dim)}
   <strong>顶点着色器简化：</strong>大多数全屏 Pass 不需要自定义 VS——引擎提供了 <code>FPostProcessVS</code>（在 PostProcessShaders.usf 中定义）和 <code>FScreenPassVS</code>。在 AddPass 时直接 <code>TShaderMapRef&lt;FPostProcessVS&gt;(View.ShaderMap)</code> 即可。
 </div>
 
-<h3>3.4 Pass 注册与调度</h3>
+<h3 id="34Pass注册与调度">3.4 Pass 注册与调度</h3>
 
 <pre><span class="kw">void</span> AddMyCustomPass(FRDGBuilder& GraphBuilder, <span class="kw">const</span> FViewInfo& View, FRDGTextureRef SceneColor)
 {
@@ -359,7 +429,7 @@ tr:hover td{background:var(--accent-dim)}
 <!-- ===== 4. 计算 Pass ===== -->
 <h2 id="4计算Pass完整模板">4. 计算 Pass — 完整模板</h2>
 
-<h3>4.1 Compute Shader（.usf）</h3>
+<h3 id="41ComputeShaderusf">4.1 Compute Shader（.usf）</h3>
 
 <pre><span class="cmt">// MyCustomCompute.usf</span>
 <span class="kw">#include</span> <span class="str">"/Engine/Private/Common.ush"</span>
@@ -379,7 +449,7 @@ tr:hover td{background:var(--accent-dim)}
     OutputUAV[DispatchThreadId.xy] = <span class="ty">float4</span>(Color * Intensity, <span class="num">1.0</span>);
 }</pre>
 
-<h3>4.2 Shader 类定义与注册</h3>
+<h3 id="42Shader类定义与注册">4.2 Shader 类定义与注册</h3>
 
 <pre><span class="cmt">// C++ 头文件</span>
 <span class="kw">class</span> <span class="ty">FMyCustomPassCS</span> : <span class="kw">public</span> <span class="ty">FGlobalShader</span>
@@ -399,7 +469,7 @@ tr:hover td{background:var(--accent-dim)}
 <span class="cmt">// .cpp 注册</span>
 <span class="kw">IMPLEMENT_GLOBAL_SHADER</span>(FMyCustomPassCS, <span class="str">"/Engine/Private/MyCustomCompute.usf"</span>, <span class="str">"MainCS"</span>, SF_Compute);</pre>
 
-<h3>4.3 Pass 调度 — FComputeShaderUtils::AddPass</h3>
+<h3 id="43Pass调度FComputeShaderUtilsAddPass">4.3 Pass 调度 — FComputeShaderUtils::AddPass</h3>
 
 <pre><span class="kw">void</span> AddMyCustomComputePass(FRDGBuilder& GraphBuilder, <span class="kw">const</span> FViewInfo& View, FRDGTextureRef SceneColor)
 {
@@ -461,7 +531,7 @@ tr:hover td{background:var(--accent-dim)}
 <!-- ===== 5. 资源绑定 ===== -->
 <h2 id="5资源绑定详解">5. 资源绑定详解</h2>
 
-<h3>5.1 RDG 资源创建</h3>
+<h3 id="51RDG资源创建">5.1 RDG 资源创建</h3>
 
 <table>
   <thead><tr><th>API</th><th>用途</th><th>示例</th></tr></thead>
@@ -497,7 +567,7 @@ tr:hover td{background:var(--accent-dim)}
   </tr>
 </table>
 
-<h3>5.2 资源状态自动转换</h3>
+<h3 id="52资源状态自动转换">5.2 资源状态自动转换</h3>
 
 <p>RDG 的最大优势是 <strong>自动资源屏障</strong>。当你在不同 Pass 中使用同一个 RDG 纹理时：</p>
 
@@ -526,7 +596,7 @@ tr:hover td{background:var(--accent-dim)}
 <!-- ===== 6. Pass 间数据传递 ===== -->
 <h2 id="6Pass间数据传递">6. Pass 间数据传递</h2>
 
-<h3>6.1 RDG 纹理传递（最常见）</h3>
+<h3 id="61RDG纹理传递最常见">6.1 RDG 纹理传递（最常见）</h3>
 
 <pre><span class="cmt">// ---- 上游 Pass：产生纹理 ----</span>
 FRDGTextureRef IntermediateTexture = GraphBuilder.<span class="fn">CreateTexture</span>(...);
@@ -539,7 +609,7 @@ AddMyDownstreamPass(GraphBuilder, View, IntermediateTexture);
 <span class="cmt">// Texture_W (来自 PassParameters 绑定信息), 在 MyDownstreamPass 中是 Texture_R，</span>
 <span class="cmt">// 自动插入 Resource_Write → Resource_Read 屏障</span></pre>
 
-<h3>6.2 Buffer 数据回读</h3>
+<h3 id="62Buffer数据回读">6.2 Buffer 数据回读</h3>
 
 <pre><span class="cmt">// 创建可回读 Buffer</span>
 FRDGBufferDesc BufferDesc = FRDGBufferDesc::<span class="fn">CreateBufferDesc</span>(<span class="kw">sizeof</span>(FVector4f), NumElements);
@@ -553,7 +623,7 @@ FRDGBufferRef GPUBuffer = GraphBuilder.<span class="fn">CreateBuffer</span>(Buff
         <span class="cmt">// 此回调在 GPU 完成后触发，此时可以安全读取 Host 端内存</span>
     });</pre>
 
-<h3>6.3 RDG 黑板 — 跨 Pass 共享数据</h3>
+<h3 id="63RDG黑板跨Pass共享数据">6.3 RDG 黑板 — 跨 Pass 共享数据</h3>
 
 <pre><span class="cmt">// 使用 GraphBuilder.Blackboard 在互不相识的 Pass 间传递数据</span>
 <span class="kw">struct</span> FMyPassData
@@ -664,7 +734,7 @@ FRDGTextureRef InputFromOtherPass = BlackboardData.ResultTexture;</pre>
     <span class="cmt">// ... 创建 Pass，使用 Intensity ...</span>
 }</pre>
 
-<h3>CVar 速查表</h3>
+<h3 id="CVar速查表">CVar 速查表</h3>
 
 <table class="cvar-table">
   <thead><tr><th>CVar</th><th>类型</th><th>说明</th></tr></thead>
@@ -774,6 +844,12 @@ FRDGTextureRef InputFromOtherPass = BlackboardData.ResultTexture;</pre>
     <a href="../04-材质/index.html">材质</a>
   </p>
 </footer>
+
+
+<script>
+(function(){var nav=document.getElementById('sideNav');var links=nav.querySelectorAll('a');var sections=[];links.forEach(function(a){var id=a.getAttribute('href');if(id&&id.startsWith('#')&&id.length>1){var el=document.getElementById(id.substring(1));if(el)sections.push({el:el,a:a});}});function onScroll(){var current=sections[0];for(var i=0;i<sections.length;i++){if(sections[i].el.getBoundingClientRect().top<=120)current=sections[i];}links.forEach(function(a){a.classList.remove('active');});if(current)current.a.classList.add('active');}window.addEventListener('scroll',onScroll,{passive:true});onScroll();})();
+function filterNav(){var q=document.getElementById('navSearch').value.trim().toLowerCase();var links=document.querySelectorAll('#sideNav a');links.forEach(function(a){var txt=a.textContent.toLowerCase();a.classList.toggle('hidden-by-search',q!==''&&!txt.includes(q));});}
+</script>
 
 </body>
 </html>

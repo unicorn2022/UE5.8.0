@@ -156,9 +156,97 @@ a:hover{text-decoration:underline}
 .toc-list a:hover{color:var(--accent);text-decoration:none}
 @media(max-width:768px){.toc-list{columns:1}}
 
+
+/* ===== 侧边栏变量 ===== */
+:root{--sidebar-w:260px}
+
+/* ===== 布局调整 ===== */
+body{display:flex}
+
+/* ===== 侧边栏 ===== */
+#sidebar{position:fixed;top:0;left:0;bottom:0;width:var(--sidebar-w);background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;transition:transform 0.2s ease;overflow:hidden}
+.sidebar-header{height:56px;display:flex;align-items:center;padding:0 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:1rem;color:var(--accent);letter-spacing:0.5px;flex-shrink:0}
+.sidebar-search{padding:12px 16px;flex-shrink:0}
+.sidebar-search input{width:100%;padding:7px 12px;border:1px solid rgba(255,255,255,0.1);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.85rem;outline:none;transition:border 0.2s}
+.sidebar-search input:focus{border-color:var(--accent)}
+.sidebar-search input::placeholder{color:var(--text-dim)}
+#sidebar nav{flex:1;overflow-y:auto;padding:8px 0}
+#sidebar nav a{display:block;padding:6px 18px;font-size:0.84rem;color:var(--text-dim);border-left:3px solid transparent;transition:all 0.15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sidebar nav a:hover,#sidebar nav a.active{color:var(--text);background:var(--accent-dim);border-left-color:var(--accent);text-decoration:none}
+#sidebar nav a.sub{padding-left:36px;font-size:0.8rem}
+#sidebar nav a.hidden-by-search{display:none}
+
+/* ===== 返回首页链接 ===== */
+#sidebar nav a.home-link{color:var(--accent);font-weight:600;border-left:3px solid var(--accent);background:var(--accent-dim)}
+
+/* ===== 主内容区 ===== */
+#content{margin-left:var(--sidebar-w);flex:1;min-width:0;padding:24px 32px 0}
+
+/* ===== 汉堡按钮 (移动端) ===== */
+.burger-btn{display:none}
+@media(max-width:860px){
+  #sidebar{transform:translateX(-100%)}
+  #sidebar.open{transform:translateX(0)}
+  #content{margin-left:0;padding:20px 16px 0}
+  .burger-btn{display:block;position:fixed;top:12px;left:12px;z-index:200;background:var(--card);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:var(--text);font-size:1.3rem;padding:4px 10px;cursor:pointer}
+}
+
+/* ===== 面包屑适配 ===== */
+.breadcrumb{max-width:none;margin:0;padding:0 0 12px}
+
 </style>
 </head>
 <body>
+<button class="burger-btn" onclick="document.getElementById('sidebar').classList.toggle('open')">&#9776;</button>
+<aside id="sidebar">
+<div class="sidebar-header">RDG 渲染依赖图</div>
+<div class="sidebar-search"><input id="navSearch" type="text" placeholder="搜索章节..." oninput="filterNav()"></div>
+<nav id="sideNav">
+<a href="../../index.html" class="home-link">← 返回首页</a>
+<a href="#1管线中的位置">1. 管线中的位置</a>
+<a href="#2核心概念">2. 核心概念</a>
+<a href="#3Pass注册与执行">3. Pass 注册与执行</a>
+<a href="#4资源生命周期">4. 资源生命周期</a>
+<a href="#5Transient资源分配">5. Transient 资源分配</a>
+<a href="#6依赖分析与自动屏障">6. 依赖分析与自动屏障</a>
+<a href="#7自定义RDGPass完整模板">7. 自定义 RDG Pass 完整模板</a>
+<a href="#8RDG验证层">8. RDG 验证层</a>
+<a href="#9RDGDump与调试">9. RDG Dump 与调试</a>
+<a href="#10性能与陷阱">10. 性能与陷阱</a>
+<a href="#11CVar速查">11. CVar 速查</a>
+<a href="#12核心源码索引">12. 核心源码索引</a>
+<a href="#21三大原语" class="sub">2.1 三大原语</a>
+<a href="#22访问声明与依赖推导" class="sub">2.2 访问声明与依赖推导</a>
+<a href="#31AddPass内部流程" class="sub">3.1 AddPass 内部流程</a>
+<a href="#32拓扑排序与无用Pass裁剪" class="sub">3.2 拓扑排序与无用 Pass 裁剪</a>
+<a href="#33注册示例" class="sub">3.3 注册示例</a>
+<a href="#41资源状态机" class="sub">4.1 资源状态机</a>
+<a href="#42External资源注册" class="sub">4.2 External 资源注册</a>
+<a href="#43Upload与Readback" class="sub">4.3 Upload 与 Readback</a>
+<a href="#51声明与分配分离" class="sub">5.1 声明与分配分离</a>
+<a href="#52别名分析Aliasing" class="sub">5.2 别名分析（Aliasing）</a>
+<a href="#53堆分配策略" class="sub">5.3 堆分配策略</a>
+<a href="#61依赖图构建流" class="sub">6.1 依赖图构建流</a>
+<a href="#62自动屏障插入" class="sub">6.2 自动屏障插入</a>
+<a href="#63底层D3D12ResourceBarrier生成" class="sub">6.3 底层 D3D12 ResourceBarrier 生成</a>
+<a href="#71光栅化Pass模板PixelShader" class="sub">7.1 光栅化 Pass 模板（Pixel Shader）</a>
+<a href="#72ComputePass模板ComputeShader" class="sub">7.2 Compute Pass 模板（Compute Shader）</a>
+<a href="#73RDG黑板Blackboard跨Pass通信" class="sub">7.3 RDG 黑板（Blackboard）跨 Pass 通信</a>
+<a href="#74CVar控制开关" class="sub">7.4 CVar 控制开关</a>
+<a href="#81启用方式" class="sub">8.1 启用方式</a>
+<a href="#82验证级别" class="sub">8.2 验证级别</a>
+<a href="#83常见检测到的错误" class="sub">8.3 常见检测到的错误</a>
+<a href="#91GraphViz可视化导出" class="sub">9.1 GraphViz 可视化导出</a>
+<a href="#92RDG依赖图Dump输出解读" class="sub">9.2 RDG 依赖图 Dump 输出解读</a>
+<a href="#93UnrealInsights集成" class="sub">9.3 Unreal Insights 集成</a>
+<a href="#101RDG开销分析" class="sub">10.1 RDG 开销分析</a>
+<a href="#102Lambda捕获注意事项" class="sub">10.2 Lambda 捕获注意事项</a>
+<a href="#103常见性能反模式" class="sub">10.3 常见性能反模式</a>
+<a href="#104最佳实践摘要" class="sub">10.4 最佳实践摘要</a>
+</nav>
+</aside>
+<main id="content">
+
 
 <!-- ===== 面包屑导航 ===== -->
 <nav class="breadcrumb">
@@ -278,7 +366,7 @@ a:hover{text-decoration:underline}
   <h2 id="2核心概念">2. 核心概念</h2>
   <p class="section-desc">RDG 的核心概念包括 Pass、资源（Texture/Buffer）、依赖边、Transient 资源分配和自动屏障系统，这些共同构成了 GPU 管线的高效调度模型。</p>
 
-  <h3>2.1 三大原语</h3>
+  <h3 id="21三大原语">2.1 三大原语</h3>
 
   <div class="card-grid">
     <div class="info-card">
@@ -304,7 +392,7 @@ a:hover{text-decoration:underline}
     </div>
   </div>
 
-  <h3>2.2 访问声明与依赖推导</h3>
+  <h3 id="22访问声明与依赖推导">2.2 访问声明与依赖推导</h3>
 
   <p>每个 Pass 声明对资源的访问方式（Read/Write），RDG 据此自动判定 Pass 间依赖、插入资源屏障、分析内存别名机会。访问模式由参数结构体中的宏自动推导：<code>SHADER_PARAMETER_RDG_TEXTURE</code> 声明读访问，<code>SHADER_PARAMETER_RDG_TEXTURE_UAV</code> 声明写访问，<code>SHADER_PARAMETER_RDG_BUFFER_SRV</code> / <code>SHADER_PARAMETER_RDG_BUFFER_UAV</code> 同理。</p>
 
@@ -320,7 +408,7 @@ a:hover{text-decoration:underline}
 
   <p>每个 RDG Pass 通过 <code>AddPass</code> 注册。RDG 在编译时通过 C++ 模板元编程反射参数结构体，提取所有资源引用和访问模式。这是 RDG 区别于传统手动渲染框架的核心机制——<strong>编译期类型推导</strong>使得资源依赖关系在 Pass 注册时自动建立，无需手动维护 Barrier 顺序。</p>
 
-  <h3>3.1 AddPass 内部流程</h3>
+  <h3 id="31AddPass内部流程">3.1 AddPass 内部流程</h3>
 
   <div class="call-chain">
     <div class="chain-main">FRDGBuilder::AddPass(PassName, ParameterStruct, PassFlags, Lambda)</div>
@@ -331,7 +419,7 @@ a:hover{text-decoration:underline}
     <div class="chain-step">5. 按排序结果依次 Dispatch Pass Lambda 到 RHI 命令列表</div>
   </div>
 
-  <h3>3.2 拓扑排序与无用 Pass 裁剪</h3>
+  <h3 id="32拓扑排序与无用Pass裁剪">3.2 拓扑排序与无用 Pass 裁剪</h3>
 
   <p>RDG 在 <code>Execute()</code> 阶段对已注册的所有 Pass 执行编译分析，核心包含三个优化步骤：</p>
 
@@ -356,7 +444,7 @@ a:hover{text-decoration:underline}
     </div>
   </div>
 
-  <h3>3.3 注册示例</h3>
+  <h3 id="33注册示例">3.3 注册示例</h3>
 
   <h4>Raster Pass 注册</h4>
 
@@ -428,7 +516,7 @@ PassParameters-&gt;TextureSize = FVector2f(Width, Height);
   <h2 id="4资源生命周期">4. 资源生命周期</h2>
   <p class="section-desc">RDG 资源由 FRDGBuilder 统一管理生命周期，从创建到最后一次被引用结束后自动释放，避免手动资源管理的内存泄漏和使用后释放（UAF）问题。</p>
 
-  <h3>4.1 资源状态机</h3>
+  <h3 id="41资源状态机">4.1 资源状态机</h3>
   <p>每个 RDG 资源（<code>FRDGTextureRef</code> / <code>FRDGBufferRef</code>）在图中经历五个生命周期阶段。下图展示了从声明到释放的完整状态流转：</p>
 
   <div class="svg-container" style="text-align:center">
@@ -522,7 +610,7 @@ PassParameters-&gt;TextureSize = FVector2f(Width, Height);
     </svg>
   </div>
 
-  <h3>4.2 External 资源注册</h3>
+  <h3 id="42External资源注册">4.2 External 资源注册</h3>
 
   <p>RDG 并不是孤立的资源管理系统——引擎中已存在大量"外部"纹理和缓冲区（如 <code>SceneTextures.Color.Target</code>、<code>SceneDepthZ</code> 等池化渲染目标）。<code>RegisterExternalTexture()</code> 和 <code>RegisterExternalBuffer()</code> 将已有 RHI 资源"借入"RDG 图，使得 RDG Pass 可以像使用内部资源一样引用它们，但<strong>不负责其生命周期管理</strong>。</p>
 
@@ -553,7 +641,7 @@ GraphBuilder.<span class="fn">Execute</span>(RHICmdList);
 <span class="cmt">// Execute 后 ExtractedColor 指向更新后的纹理，可继续使用</span>
 RHICmdList.<span class="fn">CopyTexture</span>(..., ExtractedColor-&gt;GetRHI(), ...);</code></div>
 
-  <h3>4.3 Upload 与 Readback</h3>
+  <h3 id="43Upload与Readback">4.3 Upload 与 Readback</h3>
 
   <p>RDG 提供两个专用辅助 Pass 用于 GPU 数据传输，分别处理 CPU→GPU 和 GPU→CPU 方向：</p>
 
@@ -585,7 +673,7 @@ GraphBuilder.AddUploadPass(UploadedBuf, &amp;CpuData, SizeInBytes);</code>
   <h2 id="5Transient资源分配">5. Transient 资源分配</h2>
   <p class="section-desc">TransientResourceAllocator 负责临时资源的池化分配与别名复用，通过分析资源活跃区间（Live Range）将不重叠的资源分配到同一物理显存块，显著降低显存占用。</p>
 
-  <h3>5.1 声明与分配分离</h3>
+  <h3 id="51声明与分配分离">5.1 声明与分配分离</h3>
 
   <p><code>CreateTexture()</code> 和 <code>CreateBuffer()</code> 调用只是<strong>声明意图</strong>——告诉 RDG "我需要一个具有这些描述信息的资源"。此时并没有任何 GPU 内存被分配，返回值 <code>FRDGTextureRef</code> / <code>FRDGBufferRef</code> 仅是一个轻量级的引用计数句柄（约 32 字节），用于后续 Pass 的参数绑定。</p>
 
@@ -599,7 +687,7 @@ GraphBuilder.AddUploadPass(UploadedBuf, &amp;CpuData, SizeInBytes);</code>
 
   <p>分配策略上，RDG 根据资源尺寸和使用模式选择两类路径：<strong>堆分配</strong>（适合 GBuffer/SceneColor 等大纹理，环形缓冲区式复用）和<strong>独立分配</strong>（适合小纹理/中间结果，独立创建与销毁）。</p>
 
-  <h3>5.2 别名分析（Aliasing）</h3>
+  <h3 id="52别名分析Aliasing">5.2 别名分析（Aliasing）</h3>
 
   <div class="svg-container" style="text-align:center">
     <svg viewBox="0 0 920 520" width="100%" height="auto" style="max-width:920px;font-family:var(--font-sans),sans-serif">
@@ -719,7 +807,7 @@ GraphBuilder.AddUploadPass(UploadedBuf, &amp;CpuData, SizeInBytes);</code>
 
   <p>别名复用的实际收益取决于 Pass 依赖链的深度和中间资源的体积。一个典型的 UE5 延迟渲染帧中，Transient 别名优化可以节省 <strong>25%~40%</strong> 的中间纹理显存峰值占用。</p>
 
-  <h3>5.3 堆分配策略</h3>
+  <h3 id="53堆分配策略">5.3 堆分配策略</h3>
 
   <p>RDG 底层使用两类 RHI 分配器处理不同尺寸和用途的 Transient 资源：</p>
 
@@ -766,7 +854,7 @@ GraphBuilder.AddUploadPass(UploadedBuf, &amp;CpuData, SizeInBytes);</code>
   <h2 id="6依赖分析与自动屏障">6. 依赖分析与自动屏障</h2>
   <p class="section-desc">RDG 根据 Pass 间资源的读写关系自动插入 RHI 屏障（UAV Barrier、Render Target Transition 等），确保正确的 GPU 数据依赖和缓存一致性。</p>
 
-  <h3>6.1 依赖图构建流</h3>
+  <h3 id="61依赖图构建流">6.1 依赖图构建流</h3>
 
   <p>依赖图的构建完全自动化——Pass 只需声明"我需要读 Texture A、写 Texture B"，RDG 在注册阶段自动记录这些引用，并在 <code>Compile()</code> 阶段完成完整的依赖分析：</p>
 
@@ -815,7 +903,7 @@ GraphBuilder.AddUploadPass(UploadedBuf, &amp;CpuData, SizeInBytes);</code>
 
   <p>依赖分析的输入是每个 Pass 的资源访问声明（SRV = 读、UAV = 写、RTV = 写），RDG 内部建立三类标准依赖关系：<strong>RAW</strong>（Read After Write — Pass B 读的内容由 Pass A 写入）、<strong>WAR</strong>（Write After Read — Pass B 覆写前 Pass A 必须先读完）、<strong>WAW</strong>（Write After Write — 两次写入需严格排序）。这些依赖边共同构成一个有向无环图（DAG），拓扑排序后即可确定 Pass 的合法执行顺序。</p>
 
-  <h3>6.2 自动屏障插入</h3>
+  <h3 id="62自动屏障插入">6.2 自动屏障插入</h3>
 
   <p>在确定 Pass 执行顺序后，RDG 在每个需要资源转换的相邻 Pass 之间自动插入 RHI 转换屏障。以下是最常见的三种屏障场景：</p>
 
@@ -840,7 +928,7 @@ GraphBuilder.AddUploadPass(UploadedBuf, &amp;CpuData, SizeInBytes);</code>
     </div>
   </div>
 
-  <h3>6.3 底层 D3D12 ResourceBarrier 生成</h3>
+  <h3 id="63底层D3D12ResourceBarrier生成">6.3 底层 D3D12 ResourceBarrier 生成</h3>
 
   <p>RDG 的自动屏障最终翻译为平台 API 的原生资源屏障调用。这一翻译过程经历两层抽象：</p>
 
@@ -898,7 +986,7 @@ GraphBuilder.<span class="fn">AddPass</span>(
   <h2 id="7自定义RDGPass完整模板">7. 自定义 RDG Pass 完整模板</h2>
   <p class="section-desc">从 Shader 参数结构体定义到 AddPass 注册，展示一个完整的自定义 RDG Pass 编写模板，包含 Shader 实现和 C++ 调度代码。</p>
 
-  <h3>7.1 光栅化 Pass 模板（Pixel Shader）</h3>
+  <h3 id="71光栅化Pass模板PixelShader">7.1 光栅化 Pass 模板（Pixel Shader）</h3>
 
   <p>下面是编写一个完整的 Raster RDG Pass 的标准步骤——从 .usf Shader 代码到 C++ 调度：</p>
 
@@ -981,7 +1069,7 @@ GraphBuilder.<span class="fn">AddPass</span>(
         <span class="fn">FPixelShaderUtils::DrawFullscreenTriangle</span>(RHICmdList, <span class="num">1</span>);
     });</code></div>
 
-  <h3>7.2 Compute Pass 模板（Compute Shader）</h3>
+  <h3 id="72ComputePass模板ComputeShader">7.2 Compute Pass 模板（Compute Shader）</h3>
 
   <p>Compute Pass 比 Raster Pass 更简洁——不需要 PSO 设置和全屏三角形，只需声明线程组数量和 Dispatch：</p>
 
@@ -1044,7 +1132,7 @@ PassParameters-&gt;TextureSize  = FVector2f(Width, Height);
     PassParameters,
     FIntVector(GroupCountX, GroupCountY, <span class="num">1</span>));</code></div>
 
-  <h3>7.3 RDG 黑板（Blackboard）跨 Pass 通信</h3>
+  <h3 id="73RDG黑板Blackboard跨Pass通信">7.3 RDG 黑板（Blackboard）跨 Pass 通信</h3>
 
   <p><code>FRDGBlackboard</code> 是 RDG 提供的轻量级键值存储，用于在 Pass 间传递<strong>元数据</strong>——即非 GPU 资源的信息，如控制标志、统计计数、共享中间计算结果。与 <code>FRDGTextureRef</code> / <code>FRDGBufferRef</code> 等 GPU 资源不同，黑板数据仅存储在 CPU 端，不占用显存，不触发屏障。</p>
 
@@ -1062,7 +1150,7 @@ MyData.NumActiveLights  = VisibleLights.<span class="fn">Num</span>();
     <strong>适用场景：</strong>黑板最适合存放三类数据：<strong>(1) 控制标志</strong>——本帧是否需要 SSR、是否需要 VSM 页面标记等；<strong>(2) 统计数据</strong>——可见光源数量、Nanite Cluster 数量、裁剪后的 DrawCall 计数；<strong>(3) 共享计算中间结果</strong>——预计算的 Tile 分布、分类后的光源列表索引。注意：黑板数据在 <code>Execute()</code> 后失效，不可跨帧持有。
   </div>
 
-  <h3>7.4 CVar 控制开关</h3>
+  <h3 id="74CVar控制开关">7.4 CVar 控制开关</h3>
 
   <p>在生产环境中，自定义 Pass 应通过 CVar 提供运行时开关，方便调试和性能分析时快速禁用/启用特定 Pass 以隔离性能热点：</p>
 
@@ -1096,7 +1184,7 @@ PassParameters-&gt;bDebugMode = bDebugVisualize ? <span class="num">1</span> : <
   <h2 id="8RDG验证层">8. RDG 验证层</h2>
   <p class="section-desc">RDG 内置验证层可以检测未使用的资源声明、资源访问冲突、Pass 执行顺序错误等问题，是开发阶段定位渲染 bug 的重要工具。</p>
 
-  <h3>8.1 启用方式</h3>
+  <h3 id="81启用方式">8.1 启用方式</h3>
 
   <p>验证层通过在命令行或 CVar 中启用，在 <code>Execute()</code> 时对所有已注册 Pass 执行额外检查。两种等价启用方式：</p>
 
@@ -1108,7 +1196,7 @@ UnrealEditor.exe &lt;ProjectPath&gt; <span class="kw">-rdgdebug</span>
 
   <p>验证层在 <code>GraphBuilder.Execute()</code> 阶段运行——此时所有 Pass 已注册完毕，依赖图已构建完成。验证逻辑拦截在 Pass 调度执行之前（或与执行交叉进行，取决于验证级别），对所有已注册 Pass 执行完整性检查。验证失败时不会崩溃，而是通过 <code>UE_LOG</code> 输出详细错误信息，标明出错的 Pass 名称、资源名称和错误原因。</p>
 
-  <h3>8.2 验证级别</h3>
+  <h3 id="82验证级别">8.2 验证级别</h3>
 
   <p><code>r.RDG.Debug</code> 支持三个验证级别，开销逐级递增：</p>
 
@@ -1138,7 +1226,7 @@ UnrealEditor.exe &lt;ProjectPath&gt; <span class="kw">-rdgdebug</span>
     </tbody>
   </table>
 
-  <h3>8.3 常见检测到的错误</h3>
+  <h3 id="83常见检测到的错误">8.3 常见检测到的错误</h3>
 
   <p>验证层在开发过程中能捕获以下四类最常见的 RDG 使用错误：</p>
 
@@ -1201,7 +1289,7 @@ LogRDG: <span class="kw">Error</span>: Pass [<span class="str">SSR_IndirectCompo
   <h2 id="9RDGDump与调试">9. RDG Dump 与调试</h2>
   <p class="section-desc">通过 GraphViz 导出、调试标记和 RDG Insights 等工具，可视化分析实际的渲染图依赖结构，定位性能瓶颈和依赖错误。</p>
 
-  <h3>9.1 GraphViz 可视化导出</h3>
+  <h3 id="91GraphViz可视化导出">9.1 GraphViz 可视化导出</h3>
 
   <p>RDG 支持将当前帧的完整依赖图导出为 GraphViz DOT 格式文件，配合 <code>dot</code> 命令行工具可生成 PNG/SVG 可视化图，每个 Pass 和每条依赖边都清晰标注：</p>
 
@@ -1232,7 +1320,7 @@ LogRDG: <span class="kw">Error</span>: Pass [<span class="str">SSR_IndirectCompo
     <strong>实用建议：</strong>对于理解复杂帧的 Pass 依赖关系非常有用，建议在性能分析时定期导出 GraphViz 图。一张典型的 UE5 延迟渲染帧包含 200~400 个 Pass，手动跟踪依赖关系几乎不可能——GraphViz 可视化能直观展示 Pass 拓扑、识别不必要的串行化依赖、发现可并行化的 Pass 组。配合 <code>r.RDG.CullBadPasses</code> 裁剪无用 Pass 后再 Dump，可以得到更清晰的图。
   </div>
 
-  <h3>9.2 RDG 依赖图 Dump 输出解读</h3>
+  <h3 id="92RDG依赖图Dump输出解读">9.2 RDG 依赖图 Dump 输出解读</h3>
 
   <p>下面是一个简化的 5 节点 RDG 依赖图示例，模拟 GraphViz 输出风格，展示典型的延迟渲染帧的 Pass 依赖拓扑：</p>
 
@@ -1340,7 +1428,7 @@ LogRDG: <span class="kw">Error</span>: Pass [<span class="str">SSR_IndirectCompo
     </svg>
   </div>
 
-  <h3>9.3 Unreal Insights 集成</h3>
+  <h3 id="93UnrealInsights集成">9.3 Unreal Insights 集成</h3>
 
   <p>RDG Pass 自动生成 Unreal Insights Trace Event——通过 <code>RDG_EVENT_NAME("MyPass")</code> 宏定义的名称会直接显示在 Insights 的 CPU/GPU 时间线中。无需额外插桩，无需手动 Trace 宏，所有通过 <code>AddPass</code> 注册的 Pass 自动出现在 Trace 中：</p>
 
@@ -1397,7 +1485,7 @@ LogRDG: <span class="kw">Error</span>: Pass [<span class="str">SSR_IndirectCompo
   <h2 id="10性能与陷阱">10. 性能与陷阱</h2>
   <p class="section-desc">RDG 使用中的常见性能陷阱，包括过度细分的 Pass 导致编译开销过大、不必要的资源拷贝、Transient 资源过度分配等问题及最佳实践。</p>
 
-  <h3>10.1 RDG 开销分析</h3>
+  <h3 id="101RDG开销分析">10.1 RDG 开销分析</h3>
 
   <p>在典型 UE5 帧中，RDG 本身的 CPU 开销可分为四个主要项：Pass 注册、拓扑排序、Transient 分配和 Pass Lambda 调度。下表给出各阶段的典型耗时：</p>
 
@@ -1431,7 +1519,7 @@ LogRDG: <span class="kw">Error</span>: Pass [<span class="str">SSR_IndirectCompo
 
   <p>典型 UE5 帧包含 <strong>200-500 个 RDG Pass</strong>，RDG 框架自身的 CPU 总开销约 2-5ms，占 RenderThread 总时间的 5-15%。影响开销的主要因素：Pass 数量（成正比）、参数结构体复杂度（字段越多反射越慢）、依赖图密度（边越多排序越慢）。<strong>关键结论：</strong>RDG 的 CPU 开销远低于它消除的资源管理 bug 和维护成本——除非 Pass 数量极度膨胀（1000+），否则不应为了"节省 RDG 开销"而绕过 RDG 直接使用 RHI。</p>
 
-  <h3>10.2 Lambda 捕获注意事项</h3>
+  <h3 id="102Lambda捕获注意事项">10.2 Lambda 捕获注意事项</h3>
 
   <p>Pass Lambda 的捕获方式是 RDG 性能调优中最容易被忽略的细节。不当的捕获策略可能导致堆分配、悬空引用和 CPU 开销膨胀：</p>
 
@@ -1487,7 +1575,7 @@ GraphBuilder.<span class="fn">AddPass</span>(...,
         SomeMaterial-&gt;<span class="fn">CacheShaders</span>(...);
     });</code></div>
 
-  <h3>10.3 常见性能反模式</h3>
+  <h3 id="103常见性能反模式">10.3 常见性能反模式</h3>
 
   <p>以下四种反模式是 UE5 渲染开发中最常见的 RDG 性能陷阱，按影响程度从高到低排列：</p>
 
@@ -1522,7 +1610,7 @@ GraphBuilder.<span class="fn">AddPass</span>(...,
     </div>
   </div>
 
-  <h3>10.4 最佳实践摘要</h3>
+  <h3 id="104最佳实践摘要">10.4 最佳实践摘要</h3>
 
   <div class="info-callout green">
     <strong>RDG 开发最佳实践（5 条核心原则）：</strong>
@@ -1785,6 +1873,13 @@ GraphBuilder.<span class="fn">AddPass</span>(...,
 
 <!-- 回到顶部 -->
 <a href="#" class="back-top" title="回到顶部">&#9650;</a>
+
+</main>
+
+<script>
+(function(){var nav=document.getElementById('sideNav');var links=nav.querySelectorAll('a');var sections=[];links.forEach(function(a){var id=a.getAttribute('href');if(id&&id.startsWith('#')&&id.length>1){var el=document.getElementById(id.substring(1));if(el)sections.push({el:el,a:a});}});function onScroll(){var current=sections[0];for(var i=0;i<sections.length;i++){if(sections[i].el.getBoundingClientRect().top<=120)current=sections[i];}links.forEach(function(a){a.classList.remove('active');});if(current)current.a.classList.add('active');}window.addEventListener('scroll',onScroll,{passive:true});onScroll();})();
+function filterNav(){var q=document.getElementById('navSearch').value.trim().toLowerCase();var links=document.querySelectorAll('#sideNav a');links.forEach(function(a){var txt=a.textContent.toLowerCase();a.classList.toggle('hidden-by-search',q!==''&&!txt.includes(q));});}
+</script>
 
 </body>
 </html>

@@ -156,9 +156,89 @@ a:hover{text-decoration:underline}
 .toc-list a:hover{color:var(--accent);text-decoration:none}
 @media(max-width:768px){.toc-list{columns:1}}
 
+
+/* ===== 侧边栏变量 ===== */
+:root{--sidebar-w:260px}
+
+/* ===== 布局调整 ===== */
+body{display:flex}
+
+/* ===== 侧边栏 ===== */
+#sidebar{position:fixed;top:0;left:0;bottom:0;width:var(--sidebar-w);background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;transition:transform 0.2s ease;overflow:hidden}
+.sidebar-header{height:56px;display:flex;align-items:center;padding:0 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:1rem;color:var(--accent);letter-spacing:0.5px;flex-shrink:0}
+.sidebar-search{padding:12px 16px;flex-shrink:0}
+.sidebar-search input{width:100%;padding:7px 12px;border:1px solid rgba(255,255,255,0.1);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.85rem;outline:none;transition:border 0.2s}
+.sidebar-search input:focus{border-color:var(--accent)}
+.sidebar-search input::placeholder{color:var(--text-dim)}
+#sidebar nav{flex:1;overflow-y:auto;padding:8px 0}
+#sidebar nav a{display:block;padding:6px 18px;font-size:0.84rem;color:var(--text-dim);border-left:3px solid transparent;transition:all 0.15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sidebar nav a:hover,#sidebar nav a.active{color:var(--text);background:var(--accent-dim);border-left-color:var(--accent);text-decoration:none}
+#sidebar nav a.sub{padding-left:36px;font-size:0.8rem}
+#sidebar nav a.hidden-by-search{display:none}
+
+/* ===== 返回首页链接 ===== */
+#sidebar nav a.home-link{color:var(--accent);font-weight:600;border-left:3px solid var(--accent);background:var(--accent-dim)}
+
+/* ===== 主内容区 ===== */
+#content{margin-left:var(--sidebar-w);flex:1;min-width:0;padding:24px 32px 0}
+
+/* ===== 汉堡按钮 (移动端) ===== */
+.burger-btn{display:none}
+@media(max-width:860px){
+  #sidebar{transform:translateX(-100%)}
+  #sidebar.open{transform:translateX(0)}
+  #content{margin-left:0;padding:20px 16px 0}
+  .burger-btn{display:block;position:fixed;top:12px;left:12px;z-index:200;background:var(--card);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:var(--text);font-size:1.3rem;padding:4px 10px;cursor:pointer}
+}
+
+/* ===== 面包屑适配 ===== */
+.breadcrumb{max-width:none;margin:0;padding:0 0 12px}
+
 </style>
 </head>
 <body>
+<button class="burger-btn" onclick="document.getElementById('sidebar').classList.toggle('open')">&#9776;</button>
+<aside id="sidebar">
+<div class="sidebar-header">材质体系</div>
+<div class="sidebar-search"><input id="navSearch" type="text" placeholder="搜索章节..." oninput="filterNav()"></div>
+<nav id="sideNav">
+<a href="../../index.html" class="home-link">← 返回首页</a>
+<a href="#1管线中的位置">1. 管线中的位置</a>
+<a href="#2核心概念">2. 核心概念</a>
+<a href="#3材质与MeshDrawCommand">3. 材质与 MeshDrawCommand</a>
+<a href="#4BasePass中的材质">4. BasePass 中的材质</a>
+<a href="#5Nanite中的材质">5. Nanite 中的材质</a>
+<a href="#6半透明材质">6. 半透明材质</a>
+<a href="#7DBuffer贴花">7. DBuffer 贴花</a>
+<a href="#8材质着色模型">8. 材质着色模型</a>
+<a href="#9CVar速查">9. CVar 速查</a>
+<a href="#10核心源码索引">10. 核心源码索引</a>
+<a href="#21材质全路径转化链" class="sub">2.1 材质全路径转化链</a>
+<a href="#22核心数据结构关系" class="sub">2.2 核心数据结构关系</a>
+<a href="#23材质域MaterialDomain分类" class="sub">2.3 材质域（MaterialDomain）分类</a>
+<a href="#31FMeshDrawCommand结构" class="sub">3.1 FMeshDrawCommand 结构</a>
+<a href="#32FinishGatherDynamicMeshElements的作用" class="sub">3.2 FinishGatherDynamicMeshElements 的作用</a>
+<a href="#33DrawCall排序与批处理策略" class="sub">3.3 DrawCall 排序与批处理策略</a>
+<a href="#41RenderBasePass函数签名" class="sub">4.1 RenderBasePass 函数签名</a>
+<a href="#42GBuffer通道编码详解" class="sub">4.2 GBuffer 通道编码详解</a>
+<a href="#43材质属性与ShadingModel选择" class="sub">4.3 材质属性与 ShadingModel 选择</a>
+<a href="#51从BuildShadingCommands到GBuffer的全流程" class="sub">5.1 从 BuildShadingCommands 到 GBuffer 的全流程</a>
+<a href="#52提前执行优化" class="sub">5.2 提前执行优化</a>
+<a href="#61混合模式与排序策略" class="sub">6.1 混合模式与排序策略</a>
+<a href="#62扭曲材质Distortion" class="sub">6.2 扭曲材质（Distortion）</a>
+<a href="#63OITOrder-IndependentTransparency乱序透明" class="sub">6.3 OIT（Order-Independent Transparency）乱序透明</a>
+<a href="#71渲染流程" class="sub">7.1 渲染流程</a>
+<a href="#72贴花材质流程" class="sub">7.2 贴花材质流程</a>
+<a href="#81Substrate材质分类框架" class="sub">8.1 Substrate 材质分类框架</a>
+<a href="#82传统ShadingModel对照表" class="sub">8.2 传统 Shading Model 对照表</a>
+<a href="#91材质通用" class="sub">9.1 材质通用</a>
+<a href="#92Substrate" class="sub">9.2 Substrate</a>
+<a href="#93遮罩与半透明" class="sub">9.3 遮罩与半透明</a>
+<a href="#94DBuffer贴花" class="sub">9.4 DBuffer 贴花</a>
+</nav>
+</aside>
+<main id="content">
+
 
 <!-- ===== 面包屑导航 ===== -->
 <nav class="breadcrumb">
@@ -268,7 +348,7 @@ a:hover{text-decoration:underline}
   <h2 id="2核心概念">2. 核心概念</h2>
   <p class="section-desc">理解 UE5.8 材质系统需要掌握从 UObject 到 GPU Shader 的完整数据转化路径。</p>
 
-  <h3>2.1 材质全路径转化链</h3>
+  <h3 id="21材质全路径转化链">2.1 材质全路径转化链</h3>
 
   <!-- SVG: 材质转化流程图 -->
   <div class="svg-container" style="margin-bottom:28px">
@@ -365,7 +445,7 @@ a:hover{text-decoration:underline}
     </svg>
   </div>
 
-  <h3>2.2 核心数据结构关系</h3>
+  <h3 id="22核心数据结构关系">2.2 核心数据结构关系</h3>
 
   <div class="card-grid">
     <div class="info-card">
@@ -394,7 +474,7 @@ a:hover{text-decoration:underline}
     </div>
   </div>
 
-  <h3>2.3 材质域（MaterialDomain）分类</h3>
+  <h3 id="23材质域MaterialDomain分类">2.3 材质域（MaterialDomain）分类</h3>
 
   <table class="info-table">
     <thead>
@@ -419,7 +499,7 @@ a:hover{text-decoration:underline}
   <h2 id="3材质与MeshDrawCommand">3. 材质与 MeshDrawCommand</h2>
   <p class="section-desc">MeshDrawCommand 是渲染器内部的 DrawCall 原子封装，每条命令都绑定了一套完整的材质 Shader + 渲染状态。理解 MeshDrawCommand 的结构是理解材质渲染的关键。</p>
 
-  <h3>3.1 FMeshDrawCommand 结构</h3>
+  <h3 id="31FMeshDrawCommand结构">3.1 FMeshDrawCommand 结构</h3>
 
   <div class="card-grid">
     <div class="info-card">
@@ -456,7 +536,7 @@ a:hover{text-decoration:underline}
     </div>
   </div>
 
-  <h3>3.2 FinishGatherDynamicMeshElements 的作用</h3>
+  <h3 id="32FinishGatherDynamicMeshElements的作用">3.2 FinishGatherDynamicMeshElements 的作用</h3>
 
   <p><code>FinishGatherDynamicMeshElements</code> 在可见性计算完成后调用（DeferredShadingRenderer.cpp L2241），负责：</p>
 
@@ -473,7 +553,7 @@ a:hover{text-decoration:underline}
     <strong>设计要点：</strong>FinishGatherDynamicMeshElements 是 CPU 端渲染任务中最昂贵的一环。它需要为每个可见的材质 Section 调用 Shader 编译器生成的 Shader 绑定代码。UE5.8 通过 PSO 缓存（跳过已编译的 PSO）、StateBucket 合批（相同 SortKey + PSO 的 DrawCall 合并为 Instancing）、以及延迟队列（异步生成命令）来优化此阶段。
   </div>
 
-  <h3>3.3 DrawCall 排序与批处理策略</h3>
+  <h3 id="33DrawCall排序与批处理策略">3.3 DrawCall 排序与批处理策略</h3>
 
   <p>生成的 FMeshDrawCommand 按 SortKey 排序后形成三个处理区间，与光照系统三桶分类类似：</p>
 
@@ -504,7 +584,7 @@ a:hover{text-decoration:underline}
   <h2 id="4BasePass中的材质">4. BasePass 中的材质</h2>
   <p class="section-desc">BasePass 是材质属性的"写入"阶段。传统几何体通过 FMeshDrawCommand 硬件光栅化写入 GBuffer，Nanite 几何体通过 Compute Shader 着色路径写入同一组 GBuffer。</p>
 
-  <h3>4.1 RenderBasePass 函数签名</h3>
+  <h3 id="41RenderBasePass函数签名">4.1 RenderBasePass 函数签名</h3>
 
   <div class="code-block"><code><span class="cmt">// DeferredShadingRenderer.cpp L3094-L3098</span>
 <span class="fn">RenderBasePass</span>(*this, GraphBuilder, Views, SceneTextures,
@@ -523,7 +603,7 @@ a:hover{text-decoration:underline}
     <div class="chain-step"><strong>路径 2（Nanite 几何）：</strong>通过 <code>Scene->NaniteShadingCommands[ENaniteMeshPass::BasePass]</code> 传入预构建的 Nanite 着色命令。Compute Shader 按 ShadingBin 分组执行，从 VisBuffer64 解码三角形 ID，计算材质属性并写入 GBuffer。</div>
   </div>
 
-  <h3>4.2 GBuffer 通道编码详解</h3>
+  <h3 id="42GBuffer通道编码详解">4.2 GBuffer 通道编码详解</h3>
 
   <p>GBuffer 是延迟渲染的核心数据结构，共五张 RT（A/B/C/D/E），加上 <code>LightingChannelsTexture</code> 和 <code>SceneDepth</code> 构成完整的材质数据输出。以下表格为 UE5.8 默认模式的编码格式：</p>
 
@@ -569,7 +649,7 @@ a:hover{text-decoration:underline}
     <strong>Nanite 与传统路径兼容性：</strong>Nanite Compute Shader 写入的 GBuffer 格式与传统 Pixel Shader 写入的格式完全一致。延迟光照阶段无需区分几何体来源——GBuffer 统一采样器同时适用于两条路径。这是 Nanite 与现有管线无缝集成的核心设计保证。
   </div>
 
-  <h3>4.3 材质属性与 ShadingModel 选择</h3>
+  <h3 id="43材质属性与ShadingModel选择">4.3 材质属性与 ShadingModel 选择</h3>
 
   <p><code>GBufferB.A</code> 中的 <code>ShadingModelID</code> 是决定延迟光照如何解释 GBuffer 数据的关键。每个 ShadingModel 在 BasePass Pixel Shader 中有独立的编码路径，在延迟光照阶段有对应的 BRDF 解码路径：</p>
 
@@ -585,7 +665,7 @@ a:hover{text-decoration:underline}
   <h2 id="5Nanite中的材质">5. Nanite 中的材质</h2>
   <p class="section-desc">Nanite 采用延迟材质着色（Deferred Material Shading）方案：先将所有可见三角形 ID 记录到 VisBuffer，再将像素按材质分组（Material Bin），最后用 Compute Shader 批量计算材质属性。</p>
 
-  <h3>5.1 从 BuildShadingCommands 到 GBuffer 的全流程</h3>
+  <h3 id="51从BuildShadingCommands到GBuffer的全流程">5.1 从 BuildShadingCommands 到 GBuffer 的全流程</h3>
 
   <!-- SVG: Nanite 材质着色流程 -->
   <div class="svg-container" style="margin-bottom:28px">
@@ -655,7 +735,7 @@ a:hover{text-decoration:underline}
     </svg>
   </div>
 
-  <h3>5.2 提前执行优化</h3>
+  <h3 id="52提前执行优化">5.2 提前执行优化</h3>
 
   <p><code>Nanite::BuildShadingCommands</code> 在预通道后立即执行（L2729），而非等到 BasePass 阶段。源码注释明确阐述：</p>
 
@@ -682,7 +762,7 @@ a:hover{text-decoration:underline}
   <h2 id="6半透明材质">6. 半透明材质</h2>
   <p class="section-desc">半透明材质使用前向渲染路径（而非延迟渲染），直接采样半透明光照体积（Translucency Lighting Volume）获取光照信息。排序策略和混合模式是半透明渲染的核心性能决策点。</p>
 
-  <h3>6.1 混合模式与排序策略</h3>
+  <h3 id="61混合模式与排序策略">6.1 混合模式与排序策略</h3>
 
   <table class="info-table">
     <thead>
@@ -697,11 +777,11 @@ a:hover{text-decoration:underline}
     </tbody>
   </table>
 
-  <h3>6.2 扭曲材质（Distortion）</h3>
+  <h3 id="62扭曲材质Distortion">6.2 扭曲材质（Distortion）</h3>
 
   <p>扭曲材质通过 <code>RenderDistortion</code> 函数（位于 <code>DistortionRendering.cpp</code>）在单独的 Pass 中渲染。写入 <code>SceneTextures.Distortion</code> 纹理，在后处理阶段用于屏幕空间 UV 偏移。关键参数包括 <code>r.Distortion</code> 和 <code>r.Distortion.SceneColorFringe</code>。</p>
 
-  <h3>6.3 OIT（Order-Independent Transparency）乱序透明</h3>
+  <h3 id="63OITOrder-IndependentTransparency乱序透明">6.3 OIT（Order-Independent Transparency）乱序透明</h3>
 
   <p>UE5.8 支持 OIT 乱序透明渲染（<code>OIT/OIT.cpp</code>），用于解决传统排序半透明中的顺序问题。OIT 在单个 Pass 中收集所有半透明片元，使用加权混合或链表排序生成最终颜色：</p>
 
@@ -717,7 +797,7 @@ a:hover{text-decoration:underline}
   <h2 id="7DBuffer贴花">7. DBuffer 贴花</h2>
   <p class="section-desc">DBuffer（Decal Buffer）贴花是 UE5 延迟贴花系统的重要组成部分。贴花材质（<code>MD_DeferredDecal</code>）通过 DBuffer 纹理投影到 GBuffer，修改不透明表面的法线、粗糙度、颜色等属性。</p>
 
-  <h3>7.1 渲染流程</h3>
+  <h3 id="71渲染流程">7.1 渲染流程</h3>
 
   <!-- SVG: DBuffer 流程 -->
   <div class="svg-container" style="margin-bottom:28px">
@@ -761,7 +841,7 @@ a:hover{text-decoration:underline}
     </svg>
   </div>
 
-  <h3>7.2 贴花材质流程</h3>
+  <h3 id="72贴花材质流程">7.2 贴花材质流程</h3>
 
   <p>DBuffer 贴花的完整渲染流程是一个多阶段管线：</p>
 
@@ -783,7 +863,7 @@ a:hover{text-decoration:underline}
   <h2 id="8材质着色模型">8. 材质着色模型</h2>
   <p class="section-desc">UE5.8 支持两种材质着色模型框架：传统的 <code>EMaterialShadingModel</code> 枚举系统和 UE5 新增的 Substrate 材质分类框架。</p>
 
-  <h3>8.1 Substrate 材质分类框架</h3>
+  <h3 id="81Substrate材质分类框架">8.1 Substrate 材质分类框架</h3>
 
   <p>Substrate 是 UE5 引入的实验性材质框架，取代了传统的单一 ShadingModel 选择。在 Substrate 框架中，材质被表示为多个层次（Slab）的组合，每个 Slab 可以有不同的材质属性。分类 Pass（<code>Substrate::AddSubstrateMaterialClassificationPass</code>）在 BasePass 后对每个像素进行材质分类：</p>
 
@@ -799,7 +879,7 @@ a:hover{text-decoration:underline}
 
   <p>分类 Pass 产出一张像素级分类纹理（Material Classification Map），用于后续的随机光照 Tile 分类 (<code>StochasticLightingTileClassificationMark</code>)，指导 MegaLights 等系统在每个 Tile 选择合适的光源采样策略。</p>
 
-  <h3>8.2 传统 Shading Model 对照表</h3>
+  <h3 id="82传统ShadingModel对照表">8.2 传统 Shading Model 对照表</h3>
 
   <table class="info-table">
     <thead>
@@ -832,7 +912,7 @@ a:hover{text-decoration:underline}
   <h2 id="9CVar速查">9. CVar 速查</h2>
   <p class="section-desc">材质系统相关的关键控制台变量，涵盖材质编译、缓存、参数更新和 Substrate 框架。</p>
 
-  <h3>9.1 材质通用</h3>
+  <h3 id="91材质通用">9.1 材质通用</h3>
   <div class="cvar-table-wrap">
     <table class="cvar-table">
       <thead>
@@ -853,7 +933,7 @@ a:hover{text-decoration:underline}
     </table>
   </div>
 
-  <h3>9.2 Substrate</h3>
+  <h3 id="92Substrate">9.2 Substrate</h3>
   <div class="cvar-table-wrap">
     <table class="cvar-table">
       <thead>
@@ -870,7 +950,7 @@ a:hover{text-decoration:underline}
     </table>
   </div>
 
-  <h3>9.3 遮罩与半透明</h3>
+  <h3 id="93遮罩与半透明">9.3 遮罩与半透明</h3>
   <div class="cvar-table-wrap">
     <table class="cvar-table">
       <thead>
@@ -886,7 +966,7 @@ a:hover{text-decoration:underline}
     </table>
   </div>
 
-  <h3>9.4 DBuffer 贴花</h3>
+  <h3 id="94DBuffer贴花">9.4 DBuffer 贴花</h3>
   <div class="cvar-table-wrap">
     <table class="cvar-table">
       <thead>
@@ -1026,6 +1106,13 @@ a:hover{text-decoration:underline}
 
 <!-- 回到顶部 -->
 <a href="#" class="back-top" title="回到顶部">&#9650;</a>
+
+</main>
+
+<script>
+(function(){var nav=document.getElementById('sideNav');var links=nav.querySelectorAll('a');var sections=[];links.forEach(function(a){var id=a.getAttribute('href');if(id&&id.startsWith('#')&&id.length>1){var el=document.getElementById(id.substring(1));if(el)sections.push({el:el,a:a});}});function onScroll(){var current=sections[0];for(var i=0;i<sections.length;i++){if(sections[i].el.getBoundingClientRect().top<=120)current=sections[i];}links.forEach(function(a){a.classList.remove('active');});if(current)current.a.classList.add('active');}window.addEventListener('scroll',onScroll,{passive:true});onScroll();})();
+function filterNav(){var q=document.getElementById('navSearch').value.trim().toLowerCase();var links=document.querySelectorAll('#sideNav a');links.forEach(function(a){var txt=a.textContent.toLowerCase();a.classList.toggle('hidden-by-search',q!==''&&!txt.includes(q));});}
+</script>
 
 </body>
 </html>

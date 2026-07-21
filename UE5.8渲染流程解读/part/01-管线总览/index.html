@@ -155,9 +155,73 @@ a:hover{text-decoration:underline}
 .toc-list a:hover{color:var(--accent);text-decoration:none}
 @media(max-width:768px){.toc-list{columns:1}}
 
+
+/* ===== 侧边栏变量 ===== */
+:root{--sidebar-w:260px}
+
+/* ===== 布局调整 ===== */
+body{display:flex}
+
+/* ===== 侧边栏 ===== */
+#sidebar{position:fixed;top:0;left:0;bottom:0;width:var(--sidebar-w);background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;transition:transform 0.2s ease;overflow:hidden}
+.sidebar-header{height:56px;display:flex;align-items:center;padding:0 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:1rem;color:var(--accent);letter-spacing:0.5px;flex-shrink:0}
+.sidebar-search{padding:12px 16px;flex-shrink:0}
+.sidebar-search input{width:100%;padding:7px 12px;border:1px solid rgba(255,255,255,0.1);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.85rem;outline:none;transition:border 0.2s}
+.sidebar-search input:focus{border-color:var(--accent)}
+.sidebar-search input::placeholder{color:var(--text-dim)}
+#sidebar nav{flex:1;overflow-y:auto;padding:8px 0}
+#sidebar nav a{display:block;padding:6px 18px;font-size:0.84rem;color:var(--text-dim);border-left:3px solid transparent;transition:all 0.15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sidebar nav a:hover,#sidebar nav a.active{color:var(--text);background:var(--accent-dim);border-left-color:var(--accent);text-decoration:none}
+#sidebar nav a.sub{padding-left:36px;font-size:0.8rem}
+#sidebar nav a.hidden-by-search{display:none}
+
+/* ===== 返回首页链接 ===== */
+#sidebar nav a.home-link{color:var(--accent);font-weight:600;border-left:3px solid var(--accent);background:var(--accent-dim)}
+
+/* ===== 主内容区 ===== */
+#content{margin-left:var(--sidebar-w);flex:1;min-width:0;padding:24px 32px 0}
+
+/* ===== 汉堡按钮 (移动端) ===== */
+.burger-btn{display:none}
+@media(max-width:860px){
+  #sidebar{transform:translateX(-100%)}
+  #sidebar.open{transform:translateX(0)}
+  #content{margin-left:0;padding:20px 16px 0}
+  .burger-btn{display:block;position:fixed;top:12px;left:12px;z-index:200;background:var(--card);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:var(--text);font-size:1.3rem;padding:4px 10px;cursor:pointer}
+}
+
+/* ===== 面包屑适配 ===== */
+.breadcrumb{max-width:none;margin:0;padding:0 0 12px}
+
 </style>
 </head>
 <body>
+<button class="burger-btn" onclick="document.getElementById('sidebar').classList.toggle('open')">&#9776;</button>
+<aside id="sidebar">
+<div class="sidebar-header">渲染管线总览</div>
+<div class="sidebar-search"><input id="navSearch" type="text" placeholder="搜索章节..." oninput="filterNav()"></div>
+<nav id="sideNav">
+<a href="../../index.html" class="home-link">← 返回首页</a>
+<a href="#Render函数定位">Render 函数定位</a>
+<a href="#Render函数核心参数与概念">Render 函数核心参数与概念</a>
+<a href="#九阶段总览流程图">九阶段总览流程图</a>
+<a href="#九阶段详细拆解">九阶段详细拆解</a>
+<a href="#阶段间数据流">阶段间数据流</a>
+<a href="#异步并行执行">异步并行执行</a>
+<a href="#深入各模块">深入各模块</a>
+<a href="#视图与管线初始化" class="sub">视图与管线初始化</a>
+<a href="#光追初始化" class="sub">光追初始化</a>
+<a href="#视图与可见性初始化" class="sub">视图与可见性初始化</a>
+<a href="#预通道与Nanite渲染" class="sub">预通道与 Nanite 渲染</a>
+<a href="#BasePassG-Buffer写入" class="sub">BasePass（G-Buffer 写入）</a>
+<a href="#延迟光照计算" class="sub">延迟光照计算</a>
+<a href="#半透明渲染" class="sub">半透明渲染</a>
+<a href="#后处理" class="sub">后处理</a>
+<a href="#清理与收尾" class="sub">清理与收尾</a>
+</nav>
+</aside>
+<main id="content">
+
 
 <!-- ===== 面包屑导航 ===== -->
 <nav class="breadcrumb">
@@ -515,7 +579,7 @@ a:hover{text-decoration:underline}
     <summary>
       <span class="stage-header">
         <span class="stage-num">阶段 1 / 9</span>
-        <h3>视图与管线初始化</h3>
+        <h3 id="视图与管线初始化">视图与管线初始化</h3>
         <span class="stage-range">DeferredShadingRenderer.cpp:1826-1868</span>
       </span>
     </summary>
@@ -546,7 +610,7 @@ a:hover{text-decoration:underline}
     <summary>
       <span class="stage-header">
         <span class="stage-num">阶段 2 / 9</span>
-        <h3>光追初始化</h3>
+        <h3 id="光追初始化">光追初始化</h3>
         <span class="stage-range">DeferredShadingRenderer.cpp:1870-1900</span>
       </span>
     </summary>
@@ -577,7 +641,7 @@ a:hover{text-decoration:underline}
     <summary>
       <span class="stage-header">
         <span class="stage-num">阶段 3 / 9</span>
-        <h3>视图与可见性初始化</h3>
+        <h3 id="视图与可见性初始化">视图与可见性初始化</h3>
         <span class="stage-range">DeferredShadingRenderer.cpp:1902-2465</span>
       </span>
     </summary>
@@ -620,7 +684,7 @@ a:hover{text-decoration:underline}
     <summary>
       <span class="stage-header">
         <span class="stage-num">阶段 4 / 9</span>
-        <h3>预通道与 Nanite 渲染</h3>
+        <h3 id="预通道与Nanite渲染">预通道与 Nanite 渲染</h3>
         <span class="stage-range">DeferredShadingRenderer.cpp:2476-2534</span>
       </span>
     </summary>
@@ -653,7 +717,7 @@ a:hover{text-decoration:underline}
     <summary>
       <span class="stage-header">
         <span class="stage-num">阶段 5 / 9</span>
-        <h3>BasePass（G-Buffer 写入）</h3>
+        <h3 id="BasePassG-Buffer写入">BasePass（G-Buffer 写入）</h3>
         <span class="stage-range">DeferredShadingRenderer.cpp:3094-3131</span>
       </span>
     </summary>
@@ -737,7 +801,7 @@ Color = Color * Fogging.a + Fogging.rgb + Emissive
     <summary>
       <span class="stage-header">
         <span class="stage-num">阶段 6 / 9</span>
-        <h3>延迟光照计算</h3>
+        <h3 id="延迟光照计算">延迟光照计算</h3>
         <span class="stage-range">DeferredShadingRenderer.cpp:3507-3523</span>
       </span>
     </summary>
@@ -768,7 +832,7 @@ Color = Color * Fogging.a + Fogging.rgb + Emissive
     <summary>
       <span class="stage-header">
         <span class="stage-num">阶段 7 / 9</span>
-        <h3>半透明渲染</h3>
+        <h3 id="半透明渲染">半透明渲染</h3>
         <span class="stage-range">DeferredShadingRenderer.cpp:4057-4098</span>
       </span>
     </summary>
@@ -800,7 +864,7 @@ Color = Color * Fogging.a + Fogging.rgb + Emissive
     <summary>
       <span class="stage-header">
         <span class="stage-num">阶段 8 / 9</span>
-        <h3>后处理</h3>
+        <h3 id="后处理">后处理</h3>
         <span class="stage-range">DeferredShadingRenderer.cpp:4274-4382</span>
       </span>
     </summary>
@@ -833,7 +897,7 @@ Color = Color * Fogging.a + Fogging.rgb + Emissive
     <summary>
       <span class="stage-header">
         <span class="stage-num">阶段 9 / 9</span>
-        <h3>清理与收尾</h3>
+        <h3 id="清理与收尾">清理与收尾</h3>
         <span class="stage-range">DeferredShadingRenderer.cpp:4423-4456</span>
       </span>
     </summary>
@@ -1043,6 +1107,13 @@ Color = Color * Fogging.a + Fogging.rgb + Emissive
 
 <!-- 回到顶部 -->
 <a href="#" class="back-top" title="回到顶部">&#x2191;</a>
+
+</main>
+
+<script>
+(function(){var nav=document.getElementById('sideNav');var links=nav.querySelectorAll('a');var sections=[];links.forEach(function(a){var id=a.getAttribute('href');if(id&&id.startsWith('#')&&id.length>1){var el=document.getElementById(id.substring(1));if(el)sections.push({el:el,a:a});}});function onScroll(){var current=sections[0];for(var i=0;i<sections.length;i++){if(sections[i].el.getBoundingClientRect().top<=120)current=sections[i];}links.forEach(function(a){a.classList.remove('active');});if(current)current.a.classList.add('active');}window.addEventListener('scroll',onScroll,{passive:true});onScroll();})();
+function filterNav(){var q=document.getElementById('navSearch').value.trim().toLowerCase();var links=document.querySelectorAll('#sideNav a');links.forEach(function(a){var txt=a.textContent.toLowerCase();a.classList.toggle('hidden-by-search',q!==''&&!txt.includes(q));});}
+</script>
 
 </body>
 </html>

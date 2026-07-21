@@ -156,9 +156,87 @@ a:hover{text-decoration:underline}
 .toc-list a:hover{color:var(--accent);text-decoration:none}
 @media(max-width:768px){.toc-list{columns:1}}
 
+
+/* ===== 侧边栏变量 ===== */
+:root{--sidebar-w:260px}
+
+/* ===== 布局调整 ===== */
+body{display:flex}
+
+/* ===== 侧边栏 ===== */
+#sidebar{position:fixed;top:0;left:0;bottom:0;width:var(--sidebar-w);background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;transition:transform 0.2s ease;overflow:hidden}
+.sidebar-header{height:56px;display:flex;align-items:center;padding:0 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:1rem;color:var(--accent);letter-spacing:0.5px;flex-shrink:0}
+.sidebar-search{padding:12px 16px;flex-shrink:0}
+.sidebar-search input{width:100%;padding:7px 12px;border:1px solid rgba(255,255,255,0.1);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.85rem;outline:none;transition:border 0.2s}
+.sidebar-search input:focus{border-color:var(--accent)}
+.sidebar-search input::placeholder{color:var(--text-dim)}
+#sidebar nav{flex:1;overflow-y:auto;padding:8px 0}
+#sidebar nav a{display:block;padding:6px 18px;font-size:0.84rem;color:var(--text-dim);border-left:3px solid transparent;transition:all 0.15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sidebar nav a:hover,#sidebar nav a.active{color:var(--text);background:var(--accent-dim);border-left-color:var(--accent);text-decoration:none}
+#sidebar nav a.sub{padding-left:36px;font-size:0.8rem}
+#sidebar nav a.hidden-by-search{display:none}
+
+/* ===== 返回首页链接 ===== */
+#sidebar nav a.home-link{color:var(--accent);font-weight:600;border-left:3px solid var(--accent);background:var(--accent-dim)}
+
+/* ===== 主内容区 ===== */
+#content{margin-left:var(--sidebar-w);flex:1;min-width:0;padding:24px 32px 0}
+
+/* ===== 汉堡按钮 (移动端) ===== */
+.burger-btn{display:none}
+@media(max-width:860px){
+  #sidebar{transform:translateX(-100%)}
+  #sidebar.open{transform:translateX(0)}
+  #content{margin-left:0;padding:20px 16px 0}
+  .burger-btn{display:block;position:fixed;top:12px;left:12px;z-index:200;background:var(--card);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:var(--text);font-size:1.3rem;padding:4px 10px;cursor:pointer}
+}
+
+/* ===== 面包屑适配 ===== */
+.breadcrumb{max-width:none;margin:0;padding:0 0 12px}
+
 </style>
 </head>
 <body>
+<button class="burger-btn" onclick="document.getElementById('sidebar').classList.toggle('open')">&#9776;</button>
+<aside id="sidebar">
+<div class="sidebar-header">多线程与RHI</div>
+<div class="sidebar-search"><input id="navSearch" type="text" placeholder="搜索章节..." oninput="filterNav()"></div>
+<nav id="sideNav">
+<a href="../../index.html" class="home-link">← 返回首页</a>
+<a href="#1管线中的位置">1. 管线中的位置</a>
+<a href="#2三线程模型">2. 三线程模型</a>
+<a href="#3TaskGraph调度">3. TaskGraph 调度</a>
+<a href="#4FRenderCommandFence与同步原语">4. FRenderCommandFence 与同步原语</a>
+<a href="#5RHI命令队列">5. RHI 命令队列</a>
+<a href="#6FDynamicRHI与平台抽象">6. FDynamicRHI 与平台抽象</a>
+<a href="#7管道状态对象PSO">7. 管道状态对象（PSO）</a>
+<a href="#8AsyncCompute并行">8. AsyncCompute 并行</a>
+<a href="#9CVar速查与性能分析">9. CVar 速查与性能分析</a>
+<a href="#21线程职责边界" class="sub">2.1 线程职责边界</a>
+<a href="#22线程流水线时序" class="sub">2.2 线程流水线时序</a>
+<a href="#23Latency与并行度" class="sub">2.3 Latency 与并行度</a>
+<a href="#31FTaskGraphInterface核心概念" class="sub">3.1 FTaskGraphInterface 核心概念</a>
+<a href="#32渲染任务依赖" class="sub">3.2 渲染任务依赖</a>
+<a href="#33渲染线程绑定" class="sub">3.3 渲染线程绑定</a>
+<a href="#41核心同步类型" class="sub">4.1 核心同步类型</a>
+<a href="#42FlushRenderingCommands详解" class="sub">4.2 FlushRenderingCommands 详解</a>
+<a href="#51FRHICommandList结构" class="sub">5.1 FRHICommandList 结构</a>
+<a href="#52ImmediatevsDeferred上下文" class="sub">5.2 Immediate vs Deferred 上下文</a>
+<a href="#53FRHICommand宏生成机制" class="sub">5.3 FRHICommand 宏生成机制</a>
+<a href="#61FDynamicRHI接口体系" class="sub">6.1 FDynamicRHI 接口体系</a>
+<a href="#62D3D12RHIvsVulkanRHI实现差异" class="sub">6.2 D3D12RHI vs VulkanRHI 实现差异</a>
+<a href="#63资源创建路径" class="sub">6.3 资源创建路径</a>
+<a href="#71PSO缓存系统" class="sub">7.1 PSO 缓存系统</a>
+<a href="#72PSO预编译Precache" class="sub">7.2 PSO 预编译（Precache）</a>
+<a href="#73PSO数量与性能影响" class="sub">7.3 PSO 数量与性能影响</a>
+<a href="#81AsyncComputeQueue概念" class="sub">8.1 AsyncCompute Queue 概念</a>
+<a href="#82AsyncCompute并行执行" class="sub">8.2 AsyncCompute 并行执行</a>
+<a href="#83RDG中的AsyncCompute" class="sub">8.3 RDG 中的 AsyncCompute</a>
+<a href="#84典型AsyncCompute用途" class="sub">8.4 典型 AsyncCompute 用途</a>
+</nav>
+</aside>
+<main id="content">
+
 
 <!-- ===== 面包屑导航 ===== -->
 <nav class="breadcrumb">
@@ -252,7 +330,7 @@ a:hover{text-decoration:underline}
   <h2 id="2三线程模型">2. 三线程模型</h2>
   <p class="section-desc">GameThread 负责游戏逻辑和渲染状态设置，RenderThread 负责渲染命令的生成和 RDG Pass 调度，RHIThread 负责将 RHI 命令提交到 GPU 驱动。三线程以异步流水线方式运行，减少 GPU 空闲等待。</p>
 
-  <h3>2.1 线程职责边界</h3>
+  <h3 id="21线程职责边界">2.1 线程职责边界</h3>
 
   <table class="info-table">
     <thead>
@@ -286,7 +364,7 @@ a:hover{text-decoration:underline}
     </tbody>
   </table>
 
-  <h3>2.2 线程流水线时序</h3>
+  <h3 id="22线程流水线时序">2.2 线程流水线时序</h3>
 
   <div class="svg-container" style="margin-bottom:20px">
     <svg viewBox="0 0 1050 460" xmlns="http://www.w3.org/2000/svg">
@@ -386,7 +464,7 @@ a:hover{text-decoration:underline}
     <strong>流水线解读：</strong>理想情况下三条线程形成 3 级流水线——GameThread 处理第 N+1 帧的 InitViews 时，RenderThread 正在执行第 N 帧的 RDG Pass，RHIThread 还在提交第 N-1 帧的 GPU 命令。同步点 <code>FRenderCommandFence</code>（GameThread 等待 RenderThread 完成）和 <code>FRHICommandListFence</code>（RenderThread 等待 RHIThread 完成）仅在需要读取渲染结果时才触发，正常流水线状态下不产生阻塞。
   </div>
 
-  <h3>2.3 Latency 与并行度</h3>
+  <h3 id="23Latency与并行度">2.3 Latency 与并行度</h3>
 
   <p>三线程流水线的核心权衡在于<strong>吞吐量</strong>与<strong>延迟</strong>：</p>
 
@@ -421,7 +499,7 @@ a:hover{text-decoration:underline}
   <h2 id="3TaskGraph调度">3. TaskGraph 调度</h2>
   <p class="section-desc">TaskGraph 是 UE5 的通用任务图调度系统，渲染模块大量使用 NamedThread 和 TaskGraph Task 来组织渲染工作，支持前置任务（Prereqs）和异步回调。</p>
 
-  <h3>3.1 FTaskGraphInterface 核心概念</h3>
+  <h3 id="31FTaskGraphInterface核心概念">3.1 FTaskGraphInterface 核心概念</h3>
 
   <p>TaskGraph 是 UE 底层的<strong>任务调度系统</strong>，所有线程（包括 GameThread、RenderThread、RHIThread）都由 TaskGraph 管理。每个线程维护一个 <code>FTaskThreadBase</code> 实例，拥有自己的任务队列（Lock-free MPSC 队列）。任务以 <code>TGraphTask</code> 模板的形式提交，支持前置任务依赖链和完成事件回调。</p>
 
@@ -444,7 +522,7 @@ a:hover{text-decoration:underline}
     <li><strong>Worker Thread（工作线程）：</strong>由 <code>ENamedThreads::AnyThread</code> 标记的线程池线程。没有固定名称和专用队列，可以动态创建和销毁。TaskGraph 将 AnyThread 任务分发到全局线程池，由空闲 Worker 执行。适合 CPU 密集的并行计算（如可见性计算、遮挡剔除）。</li>
   </ul>
 
-  <h3>3.2 渲染任务依赖</h3>
+  <h3 id="32渲染任务依赖">3.2 渲染任务依赖</h3>
 
   <p>以 <code>InitViews</code> 阶段为例，可见性计算通过 TaskGraph 拆分为多个并行和串行的子任务，形成以下依赖图：</p>
 
@@ -511,7 +589,7 @@ a:hover{text-decoration:underline}
     <strong>TaskGraph 依赖规则：</strong>任务创建时指定的 <code>Prerequisites</code> 参数是一个 <code>FGraphEventArray</code> 或单个 <code>FGraphEventRef</code>。只有当所有前置任务的 <code>FGraphEvent</code> 被标记为完成时，TaskGraph 才会将该任务从队列中取出并执行。这种声明式依赖模型避免了手动加锁，天然避免了死锁——只要依赖图是 DAG（无环），调度就是安全的。
   </div>
 
-  <h3>3.3 渲染线程绑定</h3>
+  <h3 id="33渲染线程绑定">3.3 渲染线程绑定</h3>
 
   <div class="card-grid">
     <div class="info-card">
@@ -561,7 +639,7 @@ a:hover{text-decoration:underline}
   <h2 id="4FRenderCommandFence与同步原语">4. FRenderCommandFence 与同步原语</h2>
   <p class="section-desc">跨线程同步是保证渲染正确性的关键。FRenderCommandFence、RHI Fence 和 GPU Fence 等同步原语确保 GameThread 对渲染资源的访问不会与 GPU 执行产生数据竞争。</p>
 
-  <h3>4.1 核心同步类型</h3>
+  <h3 id="41核心同步类型">4.1 核心同步类型</h3>
 
   <div class="card-grid">
     <div class="info-card">
@@ -593,7 +671,7 @@ a:hover{text-decoration:underline}
     </div>
   </div>
 
-  <h3>4.2 FlushRenderingCommands 详解</h3>
+  <h3 id="42FlushRenderingCommands详解">4.2 FlushRenderingCommands 详解</h3>
 
   <p><code>FlushRenderingCommands()</code> 是 GameThread 阻塞等待 RenderThread + RHIThread 完成所有已提交命令的<strong>全局同步点</strong>。它内部依次执行：发送 <code>FRenderCommandFence</code> 并 Wait → 如果需要，再发送 <code>FRHICommandListFence</code> 并 Wait，确保两个线程都处理完所有已排队命令。</p>
 
@@ -648,7 +726,7 @@ a:hover{text-decoration:underline}
   <h2 id="5RHI命令队列">5. RHI 命令队列</h2>
   <p class="section-desc">FRHICommandList 将高层渲染操作序列化为平台无关的命令流，RHI 线程批量提交到 GPU 驱动。命令队列支持 Immediate 和 Deferred 两种模式，直接影响渲染吞吐量和延迟。</p>
 
-  <h3>5.1 FRHICommandList 结构</h3>
+  <h3 id="51FRHICommandList结构">5.1 FRHICommandList 结构</h3>
 
   <p><code>FRHICommandList</code> 是 RHI 层的核心抽象——它将 RenderThread 发出的渲染指令（如 <code>SetRenderTarget</code>、<code>DrawPrimitive</code>、<code>SetShaderParameter</code>）逐一序列化为 <code>FRHICommand*</code> 派生类对象，存储在命令内存缓冲区中。RHIThread（或 Immediate 模式下的 RenderThread）消费这些命令并翻译为平台 API 调用。</p>
 
@@ -673,7 +751,7 @@ a:hover{text-decoration:underline}
     </div>
   </div>
 
-  <h3>5.2 Immediate vs Deferred 上下文</h3>
+  <h3 id="52ImmediatevsDeferred上下文">5.2 Immediate vs Deferred 上下文</h3>
 
   <div class="card-grid">
     <div class="info-card">
@@ -698,7 +776,7 @@ a:hover{text-decoration:underline}
     </div>
   </div>
 
-  <h3>5.3 FRHICommand 宏生成机制</h3>
+  <h3 id="53FRHICommand宏生成机制">5.3 FRHICommand 宏生成机制</h3>
 
   <p>每个 RHI 函数调用对应一个 <code>FRHICommand*</code> 派生类。UE 通过 <code>RHICMD_*</code> 系列宏自动生成两类回调：（1）<strong>录制回调</strong>——在调用线程上执行，将参数存储到命令对象中；（2）<strong>执行回调</strong>——在 RHIThread（或 Immediate 模式）上执行，调用平台 API。</p>
 
@@ -740,7 +818,7 @@ a:hover{text-decoration:underline}
   <h2 id="6FDynamicRHI与平台抽象">6. FDynamicRHI 与平台抽象</h2>
   <p class="section-desc">FDynamicRHI 是 RHI 的平台抽象层接口，提供 D3D12、Vulkan、Metal 等后端适配。上层渲染代码通过统一接口操作 GPU 资源，无需关心平台差异。</p>
 
-  <h3>6.1 FDynamicRHI 接口体系</h3>
+  <h3 id="61FDynamicRHI接口体系">6.1 FDynamicRHI 接口体系</h3>
 
   <p><code>FDynamicRHI</code> 定义了约 <strong>300+</strong> 纯虚函数，覆盖完整的 GPU 操作接口。它是一个抽象基类，由平台特化子类（<code>FD3D12DynamicRHI</code>、<code>FVulkanDynamicRHI</code>、<code>FMetalDynamicRHI</code> 等）实现。所有上层渲染代码通过 <code>GDynamicRHI</code> 全局指针（在 <code>DynamicRHI.h</code> 中声明）间接调用，无需关心后端是 D3D12 还是 Vulkan。</p>
 
@@ -753,7 +831,7 @@ a:hover{text-decoration:underline}
     <li><strong>屏障管理：</strong><code>RHIBeginTransitions()</code> / <code>RHIEndTransitions()</code>（UE5.x 新接口）— 批量资源状态转换，替代旧版的逐个资源屏障调用。内部映射到 D3D12 <code>ResourceBarrier(count, barriers[])</code> 或 Vulkan <code>vkCmdPipelineBarrier()</code>。</li>
   </ul>
 
-  <h3>6.2 D3D12RHI vs VulkanRHI 实现差异</h3>
+  <h3 id="62D3D12RHIvsVulkanRHI实现差异">6.2 D3D12RHI vs VulkanRHI 实现差异</h3>
 
   <table class="info-table">
     <thead>
@@ -813,7 +891,7 @@ a:hover{text-decoration:underline}
     </tbody>
   </table>
 
-  <h3>6.3 资源创建路径</h3>
+  <h3 id="63资源创建路径">6.3 资源创建路径</h3>
 
   <p>从 RDG 声明纹理到 D3D12 创建 Committed Resource 的完整调用链，展示 RHI 层如何在 RDG 和平台 API 之间桥接：</p>
 
@@ -837,7 +915,7 @@ a:hover{text-decoration:underline}
   <h2 id="7管道状态对象PSO">7. 管道状态对象（PSO）</h2>
   <p class="section-desc">PSO（Pipeline State Object）封装了 GPU 管线的完整状态——Shader 绑定、混合模式、光栅化状态、深度模板状态等。PSO 缓存机制避免了每帧重新创建管线状态的开销，直接影响 DrawCall 效率。</p>
 
-  <h3>7.1 PSO 缓存系统</h3>
+  <h3 id="71PSO缓存系统">7.1 PSO 缓存系统</h3>
 
   <p><code>FGraphicsPipelineState</code> 是完整图形 PSO 描述符。<code>FGraphicsMinimalPipelineStateId</code> 是 PSO 哈希到 ID 的映射，存储在全局 <code>PersistentIdTable</code> 中。以下展示 PSO 从创建到缓存的完整流程：</p>
 
@@ -850,7 +928,7 @@ a:hover{text-decoration:underline}
     <div class="chain-step">Step 5<span class="chain-arrow">&#8594;</span>D3D12: <code>ID3D12Device::CreateGraphicsPipelineState()</code> &#8594; 耗时 5-100ms（首次）。Vulkan: <code>vkCreateGraphicsPipelines()</code> + <code>vkCreatePipelineCache()</code></div>
   </div>
 
-  <h3>7.2 PSO 预编译（Precache）</h3>
+  <h3 id="72PSO预编译Precache">7.2 PSO 预编译（Precache）</h3>
 
   <div class="card-grid">
     <div class="info-card">
@@ -873,7 +951,7 @@ a:hover{text-decoration:underline}
     </div>
   </div>
 
-  <h3>7.3 PSO 数量与性能影响</h3>
+  <h3 id="73PSO数量与性能影响">7.3 PSO 数量与性能影响</h3>
 
   <table class="info-table">
     <thead>
@@ -908,11 +986,11 @@ a:hover{text-decoration:underline}
   <h2 id="8AsyncCompute并行">8. AsyncCompute 并行</h2>
   <p class="section-desc">AsyncCompute 允许 Compute Shader 工作与 Graphics 管线并行执行，典型应用包括 Nanite 裁剪、Lumen 光照评估、PostProcess 降噪等 Compute-heavy Pass 与 BasePass 并行。</p>
 
-  <h3>8.1 AsyncCompute Queue 概念</h3>
+  <h3 id="81AsyncComputeQueue概念">8.1 AsyncCompute Queue 概念</h3>
 
   <p>GPU 有两个主要命令队列——<strong>Graphics Queue</strong>（3D 渲染，包括 Draw/Dispatch/Copy）和 <strong>Compute Queue</strong>（通用计算，仅 Dispatch/Copy）。两者可并行执行，前提是无资源依赖。Desktop GPU（NVIDIA/AMD/Intel）通常提供 1 个 Graphics Queue + 1-2 个 Compute Queue。引擎通过 <code>ERDGPassFlags::AsyncCompute</code> 将 Pass 标记为 AsyncCompute，RDG 自动处理跨队列同步。</p>
 
-  <h3>8.2 AsyncCompute 并行执行</h3>
+  <h3 id="82AsyncCompute并行执行">8.2 AsyncCompute 并行执行</h3>
 
   <div class="svg-container" style="margin-bottom:20px">
     <svg viewBox="0 0 1050 340" xmlns="http://www.w3.org/2000/svg">
@@ -977,7 +1055,7 @@ a:hover{text-decoration:underline}
     </svg>
   </div>
 
-  <h3>8.3 RDG 中的 AsyncCompute</h3>
+  <h3 id="83RDG中的AsyncCompute">8.3 RDG 中的 AsyncCompute</h3>
 
   <p>UE5 通过 RDG 的 <code>ERDGPassFlags::AsyncCompute</code> 标志将 Pass 标记为可在 Compute Queue 上执行。RDG 的依赖分析系统自动处理跨队列同步：</p>
 
@@ -988,7 +1066,7 @@ a:hover{text-decoration:underline}
     <li><strong>有依赖</strong> — RDG 自动插入跨 Queue Fence 同步。跨 Queue 同步需要 GPU Fence（比同 Queue Barrier 开销大，约 10-50μs 额外延迟），因此 AsyncCompute 适合运行时间较长（&gt;0.5ms）的 Pass，短 Pass 的 Fence 开销可能抵消并行收益</li>
   </ul>
 
-  <h3>8.4 典型 AsyncCompute 用途</h3>
+  <h3 id="84典型AsyncCompute用途">8.4 典型 AsyncCompute 用途</h3>
 
   <div class="card-grid">
     <div class="info-card">
@@ -1179,6 +1257,13 @@ a:hover{text-decoration:underline}
 
 <!-- 回到顶部 -->
 <a href="#" class="back-top" title="回到顶部">&#9650;</a>
+
+</main>
+
+<script>
+(function(){var nav=document.getElementById('sideNav');var links=nav.querySelectorAll('a');var sections=[];links.forEach(function(a){var id=a.getAttribute('href');if(id&&id.startsWith('#')&&id.length>1){var el=document.getElementById(id.substring(1));if(el)sections.push({el:el,a:a});}});function onScroll(){var current=sections[0];for(var i=0;i<sections.length;i++){if(sections[i].el.getBoundingClientRect().top<=120)current=sections[i];}links.forEach(function(a){a.classList.remove('active');});if(current)current.a.classList.add('active');}window.addEventListener('scroll',onScroll,{passive:true});onScroll();})();
+function filterNav(){var q=document.getElementById('navSearch').value.trim().toLowerCase();var links=document.querySelectorAll('#sideNav a');links.forEach(function(a){var txt=a.textContent.toLowerCase();a.classList.toggle('hidden-by-search',q!==''&&!txt.includes(q));});}
+</script>
 
 </body>
 </html>

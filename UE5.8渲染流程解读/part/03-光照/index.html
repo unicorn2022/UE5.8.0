@@ -168,9 +168,100 @@ a:hover{text-decoration:underline}
 .toc-list a:hover{color:var(--accent);text-decoration:none}
 @media(max-width:768px){.toc-list{columns:1}}
 
+
+/* ===== 侧边栏变量 ===== */
+:root{--sidebar-w:260px}
+
+/* ===== 布局调整 ===== */
+body{display:flex}
+
+/* ===== 侧边栏 ===== */
+#sidebar{position:fixed;top:0;left:0;bottom:0;width:var(--sidebar-w);background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;transition:transform 0.2s ease;overflow:hidden}
+.sidebar-header{height:56px;display:flex;align-items:center;padding:0 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:1rem;color:var(--accent);letter-spacing:0.5px;flex-shrink:0}
+.sidebar-search{padding:12px 16px;flex-shrink:0}
+.sidebar-search input{width:100%;padding:7px 12px;border:1px solid rgba(255,255,255,0.1);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.85rem;outline:none;transition:border 0.2s}
+.sidebar-search input:focus{border-color:var(--accent)}
+.sidebar-search input::placeholder{color:var(--text-dim)}
+#sidebar nav{flex:1;overflow-y:auto;padding:8px 0}
+#sidebar nav a{display:block;padding:6px 18px;font-size:0.84rem;color:var(--text-dim);border-left:3px solid transparent;transition:all 0.15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sidebar nav a:hover,#sidebar nav a.active{color:var(--text);background:var(--accent-dim);border-left-color:var(--accent);text-decoration:none}
+#sidebar nav a.sub{padding-left:36px;font-size:0.8rem}
+#sidebar nav a.hidden-by-search{display:none}
+
+/* ===== 返回首页链接 ===== */
+#sidebar nav a.home-link{color:var(--accent);font-weight:600;border-left:3px solid var(--accent);background:var(--accent-dim)}
+
+/* ===== 主内容区 ===== */
+#content{margin-left:var(--sidebar-w);flex:1;min-width:0;padding:24px 32px 0}
+
+/* ===== 汉堡按钮 (移动端) ===== */
+.burger-btn{display:none}
+@media(max-width:860px){
+  #sidebar{transform:translateX(-100%)}
+  #sidebar.open{transform:translateX(0)}
+  #content{margin-left:0;padding:20px 16px 0}
+  .burger-btn{display:block;position:fixed;top:12px;left:12px;z-index:200;background:var(--card);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:var(--text);font-size:1.3rem;padding:4px 10px;cursor:pointer}
+}
+
+/* ===== 面包屑适配 ===== */
+.breadcrumb{max-width:none;margin:0;padding:0 0 12px}
+
 </style>
 </head>
 <body>
+<button class="burger-btn" onclick="document.getElementById('sidebar').classList.toggle('open')">&#9776;</button>
+<aside id="sidebar">
+<div class="sidebar-header">光照系统</div>
+<div class="sidebar-search"><input id="navSearch" type="text" placeholder="搜索章节..." oninput="filterNav()"></div>
+<nav id="sideNav">
+<a href="../../index.html" class="home-link">← 返回首页</a>
+<a href="#1管线中的位置">1. 管线中的位置</a>
+<a href="#2核心概念">2. 核心概念</a>
+<a href="#ClusteredDeferred聚簇网格原理">Clustered Deferred 聚簇网格原理</a>
+<a href="#3光源收集与排序">3. 光源收集与排序</a>
+<a href="#4ClusteredDeferredShading">4. Clustered Deferred Shading</a>
+<a href="#5MegaLights">5. MegaLights</a>
+<a href="#6虚拟阴影贴图VSM">6. 虚拟阴影贴图（VSM）</a>
+<a href="#7间接光照与AO">7. 间接光照与 AO</a>
+<a href="#8反射与天空光">8. 反射与天空光</a>
+<a href="#9半透明光照体积">9. 半透明光照体积</a>
+<a href="#10CVar速查">10. CVar 速查</a>
+<a href="#11核心源码索引">11. 核心源码索引</a>
+<a href="#21延迟光照vs前向光照" class="sub">2.1 延迟光照 vs 前向光照</a>
+<a href="#22ClusteredDeferredShading3D聚簇网格原理" class="sub">2.2 Clustered Deferred Shading — 3D 聚簇网格原理</a>
+<a href="#23光源分类四段式排序" class="sub">2.3 光源分类四段式排序</a>
+<a href="#31异步任务启动" class="sub">3.1 异步任务启动</a>
+<a href="#32GatherAndSortLights内部逻辑" class="sub">3.2 GatherAndSortLights 内部逻辑</a>
+<a href="#33三桶分类结果" class="sub">3.3 三桶分类结果</a>
+<a href="#41三阶段流水线" class="sub">4.1 三阶段流水线</a>
+<a href="#42LightGridInjection核心机制" class="sub">4.2 LightGridInjection 核心机制</a>
+<a href="#43光照函数图集LightFunctionAtlas" class="sub">4.3 光照函数图集（LightFunctionAtlas）</a>
+<a href="#51系统概述" class="sub">5.1 系统概述</a>
+<a href="#52三种运行模式" class="sub">5.2 三种运行模式</a>
+<a href="#53随机光源采样算法" class="sub">5.3 随机光源采样算法</a>
+<a href="#54HWRTSDF双路径" class="sub">5.4 HWRT / SDF 双路径</a>
+<a href="#55时序降噪策略" class="sub">5.5 时序降噪策略</a>
+<a href="#56帧级调用流程" class="sub">5.6 帧级调用流程</a>
+<a href="#57关键CVar" class="sub">5.7 关键 CVar</a>
+<a href="#61VSM在光照管线中的定位" class="sub">6.1 VSM 在光照管线中的定位</a>
+<a href="#62调用流程" class="sub">6.2 调用流程</a>
+<a href="#63关键参数" class="sub">6.3 关键参数</a>
+<a href="#71函数签名" class="sub">7.1 函数签名</a>
+<a href="#72调用时机与职责" class="sub">7.2 调用时机与职责</a>
+<a href="#73间接光照方法" class="sub">7.3 间接光照方法</a>
+<a href="#81函数签名" class="sub">8.1 函数签名</a>
+<a href="#82调用时机与职责" class="sub">8.2 调用时机与职责</a>
+<a href="#83反射方法" class="sub">8.3 反射方法</a>
+<a href="#91函数签名" class="sub">9.1 函数签名</a>
+<a href="#92体素标记机制" class="sub">9.2 体素标记机制</a>
+<a href="#101光源管理" class="sub">10.1 光源管理</a>
+<a href="#102MegaLights" class="sub">10.2 MegaLights</a>
+<a href="#103阴影" class="sub">10.3 阴影</a>
+<a href="#104间接光照" class="sub">10.4 间接光照</a>
+</nav>
+</aside>
+<main id="content">
+
 
 <!-- ===== 面包屑导航 ===== -->
 <nav class="breadcrumb">
@@ -257,11 +348,11 @@ a:hover{text-decoration:underline}
 <section class="section-block" id="core-concepts">
   <h2 id="2核心概念">2. 核心概念</h2>
 
-  <h3>2.1 延迟光照 vs 前向光照</h3>
+  <h3 id="21延迟光照vs前向光照">2.1 延迟光照 vs 前向光照</h3>
   <p>UE5.8 默认使用 <strong>延迟渲染（Deferred Shading）</strong> 管线。在延迟渲染中，Base Pass 将几何体属性（法线、粗糙度、材质 ID 等）写入 G-Buffer，光照计算推迟到 <code>RenderLights</code> 阶段统一进行。每种光源类型至少写入一个全屏或 Tile 限定区域的光照贡献，最终累加到场景颜色。</p>
   <p>前向渲染（Forward Shading）仅作为可选路径用于特定平台或启用 <code>r.ForwardShading</code> 时，其光照在 Base Pass 中逐像素计算，不需要 G-Buffer。</p>
 
-  <h3>2.2 Clustered Deferred Shading — 3D 聚簇网格原理</h3>
+  <h3 id="22ClusteredDeferredShading3D聚簇网格原理">2.2 Clustered Deferred Shading — 3D 聚簇网格原理</h3>
   <p>Clustered Deferred Shading 是 UE5.8 延迟光照计算的核心技术。其核心思想是将相机视锥空间沿 X（屏幕宽）、Y（屏幕高）、Z（深度）三个维度剖分为规则的 3D Tile 网格，每个 Tile（称为一个 Cluster）维护一份对该 Tile 有贡献的光源列表。</p>
   <p>相对于传统的 Tiled Deferred（仅 2D 屏幕划分），Clustered 方法在深度维度也做剖分，有效解决了大深度范围内光源过多导致的 culling 效率低下问题。</p>
 
@@ -364,7 +455,7 @@ a:hover{text-decoration:underline}
 </section>
 
 <section class="section-block">
-  <h3>2.3 光源分类四段式排序</h3>
+  <h3 id="23光源分类四段式排序">2.3 光源分类四段式排序</h3>
   <p>在 <code>FSortedLightSetSceneInfo</code> 中，光源按 SortKey 排序后形成四段区间，由五个边界变量划分：</p>
 
   <table class="info-table">
@@ -386,7 +477,7 @@ a:hover{text-decoration:underline}
 <section class="section-block" id="gather-and-sort">
   <h2 id="3光源收集与排序">3. 光源收集与排序</h2>
 
-  <h3>3.1 异步任务启动</h3>
+  <h3 id="31异步任务启动">3.1 异步任务启动</h3>
   <p><code>GatherAndSortLights</code> 是光源准备流程的总入口。它通过 <code>LaunchSceneRenderTask</code> 作为异步任务启动，与后续的深度 PrePass、Nanite Visibility 等阶段并行执行，仅在需要光照数据时（<code>PrepareForwardLightData</code>）才调用 <code>Wait()</code> 同步。</p>
 
   <div class="code-block"><code><span class="cmt">// DeferredShadingRenderer.cpp L2354-L2368</span>
@@ -403,7 +494,7 @@ a:hover{text-decoration:underline}
 
   <p>异步任务的依赖链：<code>GetGatherAndSortLightsPrerequisiteTask</code>（等待 Dynamic Shadows 初始化完成）+ <code>UpdateLightFunctionAtlasTask</code>（等待光照函数图集更新完成）。</p>
 
-  <h3>3.2 GatherAndSortLights 内部逻辑</h3>
+  <h3 id="32GatherAndSortLights内部逻辑">3.2 GatherAndSortLights 内部逻辑</h3>
   <p>定义于 <code>LightRendering.cpp L1409</code>，核心流程如下：</p>
 
   <div class="call-chain">
@@ -419,7 +510,7 @@ a:hover{text-decoration:underline}
     <div class="chain-step">8. 二分查找确定 SimpleLightsEnd / ClusteredSupportedEnd / UnbatchedLightStart / MegaLightsLightStart 边界</div>
   </div>
 
-  <h3>3.3 三桶分类结果</h3>
+  <h3 id="33三桶分类结果">3.3 三桶分类结果</h3>
   <div class="bucket-grid">
     <div class="bucket-card">
       <h4>Batched（批处理光源）</h4>
@@ -443,7 +534,7 @@ a:hover{text-decoration:underline}
 <section class="section-block" id="clustered-deferred">
   <h2 id="4ClusteredDeferredShading">4. Clustered Deferred Shading</h2>
 
-  <h3>4.1 三阶段流水线</h3>
+  <h3 id="41三阶段流水线">4.1 三阶段流水线</h3>
   <p>Clustered Deferred 光照计算在源码中由三个关键函数按序完成：</p>
 
   <div class="call-chain">
@@ -466,7 +557,7 @@ a:hover{text-decoration:underline}
     <div class="chain-step"><span class="fn">RenderLight</span>(...) — 对 Unbatched 区间光源逐光源渲染（带阴影/光照函数）</div>
   </div>
 
-  <h3>4.2 LightGridInjection 核心机制</h3>
+  <h3 id="42LightGridInjection核心机制">4.2 LightGridInjection 核心机制</h3>
   <p><code>LightGridInjection.cpp</code> 中的 <code>ComputeLightGrid</code> 函数是 Clustered Deferred 的 CPU 端核心。它使用 Froxel 网格工具（<code>FroxelGridUtils.h</code>）创建每个视图的 3D 体素化光照网格：</p>
   <ul class="info-list">
     <li><strong>CullLightsToGrid：</strong>对每个 Froxel Cell，测试所有 Batched 聚类光源的包围球/包围盒，剔除不可见光源</li>
@@ -475,7 +566,7 @@ a:hover{text-decoration:underline}
     <li><strong>CSV 统计：</strong><code>CSV_CUSTOM_STAT(LightCount, Batched, ...)</code> 和 <code>CSV_CUSTOM_STAT(LightCount, Unbatched, ...)</code> 输出调试指标</li>
   </ul>
 
-  <h3>4.3 光照函数图集（LightFunctionAtlas）</h3>
+  <h3 id="43光照函数图集LightFunctionAtlas">4.3 光照函数图集（LightFunctionAtlas）</h3>
   <p>光照函数（Light Function）是一种材质驱动的光源遮罩/衰减自定义机制。传统方式需要为每个带光照函数的光源单独渲染，无法批处理。UE5.8 的光照函数图集机制（<code>FLightFunctionAtlas</code>）将多个光照函数材质渲染到一张 2D 图集纹理中，使得支持图集的光源也能被 Clustered Deferred 批处理。</p>
   <div class="code-block"><code><span class="cmt">// LightFunctionAtlas.h:151 — 图集渲染入口</span>
 <span class="kw">void</span> <span class="fn">FLightFunctionAtlas::RenderLightFunctionAtlas</span>(FRDGBuilder& GraphBuilder, TArray&lt;FViewInfo&gt;& Views);
@@ -490,14 +581,14 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
 <section class="section-block" id="megalights">
   <h2 id="5MegaLights">5. MegaLights</h2>
 
-  <h3>5.1 系统概述</h3>
+  <h3 id="51系统概述">5.1 系统概述</h3>
   <p>MegaLights 是 UE5.8 引入的实验性大量动态可投影光源系统。它使用 <strong>随机光源采样（Stochastic Light Sampling）</strong> 策略，每像素仅采样少量光源而非遍历所有可见光源，从而支持场景中数十甚至数百个投射阴影的动态光源，同时保持可预测的低 GPU 成本。</p>
 
   <div class="info-callout warn">
     <strong>关键限制：</strong>MegaLights 需要 Hardware Ray Tracing 支持，且不适用于 Directional Light（方向光）。启用后通过 Post Process Volume 或光源级别（bAllowMegaLights）逐光源控制。
   </div>
 
-  <h3>5.2 三种运行模式</h3>
+  <h3 id="52三种运行模式">5.2 三种运行模式</h3>
   <p>由 <code>MegaLights::GetMegaLightsMode()</code> 为每个光源判定运行模式：</p>
   <table class="info-table">
     <thead>
@@ -510,7 +601,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
     </tbody>
   </table>
 
-  <h3>5.3 随机光源采样算法</h3>
+  <h3 id="53随机光源采样算法">5.3 随机光源采样算法</h3>
   <p>MegaLights 的核心采样策略（<code>MegaLightsSampling.cpp</code>）包含以下关键步骤：</p>
   <ol class="info-list" style="list-style-type:decimal">
     <li><strong>Tile Classification（Tile 分类）</strong> — <code>MegaLights::SetupTileClassifyParameters()</code>：将屏幕划分为 Tile，对每个 Tile 评估哪些光源可能对像素产生有意义的贡献。使用历史帧信息（<code>MegaLightsHistoryDistanceThreshold</code>）引导分类。</li>
@@ -519,7 +610,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
     <li><strong>Lighting Accumulation（光照累积）</strong> — Shader 中对每个可见光源评估 BRDF，加权累加漫反射和高光贡献。</li>
   </ol>
 
-  <h3>5.4 HWRT / SDF 双路径</h3>
+  <h3 id="54HWRTSDF双路径">5.4 HWRT / SDF 双路径</h3>
   <div class="bucket-grid">
     <div class="bucket-card">
       <h4>HWRT（Hardware Ray Tracing）</h4>
@@ -538,7 +629,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
     </div>
   </div>
 
-  <h3>5.5 时序降噪策略</h3>
+  <h3 id="55时序降噪策略">5.5 时序降噪策略</h3>
   <p>MegaLights 使用两层时序降噪（<code>MegaLightsDenoising.cpp</code>）：</p>
   <ul class="info-list">
     <li><strong>时间累积：</strong>使用 <code>MegaLightsHistoryDistanceThreshold</code> 结合重投影，将当前帧的稀疏采样结果与历史帧累积结果混合。历史引导采样（<code>r.MegaLights.GuideByHistory</code>，默认开启）减少对前一帧被遮挡光源的采样概率，降低高对比度阴影区域的噪声。</li>
@@ -546,7 +637,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
     <li><strong>降采样优化：</strong>支持 <code>r.MegaLights.DownsampleMode</code>（0=全分辨率 / 1=棋盘格 2x1 / 2=半分辨率 2x2），在降采样空间做采样和追踪，再上采样融合回全分辨率。</li>
   </ul>
 
-  <h3>5.6 帧级调用流程</h3>
+  <h3 id="56帧级调用流程">5.6 帧级调用流程</h3>
   <div class="call-chain">
     <div class="chain-main">MegaLights 帧级调用链（DeferredShadingRenderer.cpp）</div>
     <div class="chain-step"><span class="fn">CreateMegaLightsFrameTemporaries</span>(GraphBuilder, SceneTextures) — L3059：创建帧内临时资源（Tile 分类、光照体积纹理等）</div>
@@ -557,7 +648,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
     <div class="chain-step"><span class="fn">RenderMegaLightsFrontLayerTranslucency</span>(...) — L3549：半透明前层 MegaLights 光照</div>
   </div>
 
-  <h3>5.7 关键 CVar</h3>
+  <h3 id="57关键CVar">5.7 关键 CVar</h3>
   <table class="info-table">
     <thead>
       <tr><th>CVar</th><th>默认值</th><th>说明</th></tr>
@@ -578,11 +669,11 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
 <section class="section-block" id="vsm">
   <h2 id="6虚拟阴影贴图VSM">6. 虚拟阴影贴图（VSM）</h2>
 
-  <h3>6.1 VSM 在光照管线中的定位</h3>
+  <h3 id="61VSM在光照管线中的定位">6.1 VSM 在光照管线中的定位</h3>
   <p>虚拟阴影贴图（Virtual Shadow Maps）是 UE5.5+ 默认的阴影系统，用于替代传统的级联阴影贴图（CSM）。VSM 使用虚拟化纹理技术，只分配被屏幕像素实际需要的阴影页面（Page），从而实现极高分辨率的阴影（每 Page <code>VSM_PAGE_SIZE</code> = 128x128 像素）同时控制内存开销。</p>
   <p>在光照管线中，VSM 与 MegaLights、Clustered Deferred 紧密集成：<code>BeginMarkVirtualShadowMapPages</code> 标记需要渲染的阴影页面，<code>RenderShadowDepthMaps</code> 渲染阴影深度，后续的 <code>RenderVirtualShadowMapProjectionMaskBits</code> 生成投影遮罩供光照 Pass 使用。</p>
 
-  <h3>6.2 调用流程</h3>
+  <h3 id="62调用流程">6.2 调用流程</h3>
   <div class="call-chain">
     <div class="chain-main">VSM 标记与渲染调用链</div>
     <div class="chain-step"><span class="fn">ShadowSceneRenderer.BeginMarkVirtualShadowMapPages</span>(GraphBuilder, ...) — L3312：页面标记开始</div>
@@ -598,7 +689,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
     <strong>前置条件：</strong>VSM 支持 <code>r.Shadow.Virtual.Enable</code>（默认开启）且 <code>VirtualShadowMapArray.IsEnabled()</code> 返回 true。前向着色路径和 <code>r.shadow.ShadowMapsRenderEarly</code> 模式下 VSM 被禁用。
   </div>
 
-  <h3>6.3 关键参数</h3>
+  <h3 id="63关键参数">6.3 关键参数</h3>
   <table class="info-table">
     <thead>
       <tr><th>参数</th><th>值</th><th>说明</th></tr>
@@ -618,7 +709,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
 <section class="section-block" id="indirect-lighting">
   <h2 id="7间接光照与AO">7. 间接光照与 AO</h2>
 
-  <h3>7.1 函数签名</h3>
+  <h3 id="71函数签名">7.1 函数签名</h3>
   <div class="code-block"><code><span class="cmt">// DeferredShadingRenderer.h:633</span>
 <span class="kw">void</span> <span class="fn">RenderDiffuseIndirectAndAmbientOcclusion</span>(
     FRDGBuilder& GraphBuilder,
@@ -629,7 +720,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
     <span class="kw">bool</span> bIsVisualizePass,
     FAsyncLumenIndirectLightingOutputs& AsyncLumenIndirectLightingOutputs);</code></div>
 
-  <h3>7.2 调用时机与职责</h3>
+  <h3 id="72调用时机与职责">7.2 调用时机与职责</h3>
   <p>该函数在 Phase 6 延迟光照阶段被调用（L3562），位于 <code>RenderLights</code> 之后、<code>RenderDeferredReflectionsAndSkyLighting</code> 之前。设计意图是让异步 Lumen 工作与直接光照计算时间重叠：</p>
 
   <div class="call-chain">
@@ -642,7 +733,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
     <div class="chain-step">6. <strong>Subsurface Scattering：</strong>添加次表面散射 Pass</div>
   </div>
 
-  <h3>7.3 间接光照方法</h3>
+  <h3 id="73间接光照方法">7.3 间接光照方法</h3>
   <table class="info-table">
     <thead>
       <tr><th>方法</th><th>枚举</th><th>说明</th></tr>
@@ -660,7 +751,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
 <section class="section-block" id="reflections-skylight">
   <h2 id="8反射与天空光">8. 反射与天空光</h2>
 
-  <h3>8.1 函数签名</h3>
+  <h3 id="81函数签名">8.1 函数签名</h3>
   <div class="code-block"><code><span class="cmt">// DeferredShadingRenderer.h:643</span>
 <span class="kw">void</span> <span class="fn">RenderDeferredReflectionsAndSkyLighting</span>(
     FRDGBuilder& GraphBuilder,
@@ -668,7 +759,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
     FLumenSceneFrameTemporaries& LumenFrameTemporaries,
     TArray&lt;FRDGTextureRef&gt;& DynamicBentNormalAOTextures);</code></div>
 
-  <h3>8.2 调用时机与职责</h3>
+  <h3 id="82调用时机与职责">8.2 调用时机与职责</h3>
   <p>在 <code>RenderDiffuseIndirectAndAmbientOcclusion</code> 之后调用（L3573），仅作用于不透明像素：</p>
 
   <div class="call-chain">
@@ -681,7 +772,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
     <div class="chain-step">6. <strong>光追天空光：</strong>如果启用且非 Lumen GI 模式，执行 <code>RenderRayTracingSkyLight</code> + <code>CompositeRayTracingSkyLight</code></div>
   </div>
 
-  <h3>8.3 反射方法</h3>
+  <h3 id="83反射方法">8.3 反射方法</h3>
   <table class="info-table">
     <thead>
       <tr><th>方法</th><th>枚举</th><th>说明</th></tr>
@@ -698,14 +789,14 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
 <section class="section-block" id="translucency-lighting">
   <h2 id="9半透明光照体积">9. 半透明光照体积</h2>
 
-  <h3>9.1 函数签名</h3>
+  <h3 id="91函数签名">9.1 函数签名</h3>
   <div class="code-block"><code><span class="cmt">// DeferredShadingRenderer.h:835</span>
 <span class="kw">void</span> <span class="fn">RenderTranslucencyLightingVolume</span>(
     FRDGBuilder& GraphBuilder,
     FTranslucencyLightingVolumeTextures& Textures,
     <span class="kw">const</span> FSortedLightSetSceneInfo& SortedLightSet);</code></div>
 
-  <h3>9.2 体素标记机制</h3>
+  <h3 id="92体素标记机制">9.2 体素标记机制</h3>
   <p>半透明光照体积（Translucency Lighting Volume）是 UE5 用于加速半透明物体光照计算的 3D 体素化结构。它在相机周围创建一张 3D 网格，每个体素存储该位置的环境光照和方向光照信息。半透明渲染阶段从此体积采样，避免对每个半透明像素执行昂贵的光照计算。</p>
 
   <div class="call-chain">
@@ -728,7 +819,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
 <section class="section-block" id="cvar-reference">
   <h2 id="10CVar速查">10. CVar 速查</h2>
 
-  <h3>10.1 光源管理</h3>
+  <h3 id="101光源管理">10.1 光源管理</h3>
   <div class="cvar-table-wrap">
     <table class="cvar-table">
       <thead>
@@ -743,7 +834,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
     </table>
   </div>
 
-  <h3>10.2 MegaLights</h3>
+  <h3 id="102MegaLights">10.2 MegaLights</h3>
   <div class="cvar-table-wrap">
     <table class="cvar-table">
       <thead>
@@ -764,7 +855,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
     </table>
   </div>
 
-  <h3>10.3 阴影</h3>
+  <h3 id="103阴影">10.3 阴影</h3>
   <div class="cvar-table-wrap">
     <table class="cvar-table">
       <thead>
@@ -780,7 +871,7 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
     </table>
   </div>
 
-  <h3>10.4 间接光照</h3>
+  <h3 id="104间接光照">10.4 间接光照</h3>
   <div class="cvar-table-wrap">
     <table class="cvar-table">
       <thead>
@@ -934,6 +1025,13 @@ UpdateLightFunctionAtlasTask = <span class="fn">LaunchSceneRenderTask</span>(<sp
 
 <!-- 回到顶部 -->
 <a href="#" class="back-top" title="回到顶部">&#9650;</a>
+
+</main>
+
+<script>
+(function(){var nav=document.getElementById('sideNav');var links=nav.querySelectorAll('a');var sections=[];links.forEach(function(a){var id=a.getAttribute('href');if(id&&id.startsWith('#')&&id.length>1){var el=document.getElementById(id.substring(1));if(el)sections.push({el:el,a:a});}});function onScroll(){var current=sections[0];for(var i=0;i<sections.length;i++){if(sections[i].el.getBoundingClientRect().top<=120)current=sections[i];}links.forEach(function(a){a.classList.remove('active');});if(current)current.a.classList.add('active');}window.addEventListener('scroll',onScroll,{passive:true});onScroll();})();
+function filterNav(){var q=document.getElementById('navSearch').value.trim().toLowerCase();var links=document.querySelectorAll('#sideNav a');links.forEach(function(a){var txt=a.textContent.toLowerCase();a.classList.toggle('hidden-by-search',q!==''&&!txt.includes(q));});}
+</script>
 
 </body>
 </html>
