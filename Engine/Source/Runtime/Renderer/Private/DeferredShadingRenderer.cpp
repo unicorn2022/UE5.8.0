@@ -1901,7 +1901,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		}
 	#endif // RHI_RAYTRACING
 	
-	// 启动可见性计算, 返回的任务数据句柄贯穿后续所有 Pass
+	// 初始化可见性计算的所有任务句柄
 	FInitViewTaskDatas InitViewTaskDatas = OnRenderBegin(GraphBuilder, SceneUpdateInputs);
 
 	// 2.1 光追预渲染
@@ -2106,7 +2106,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	RDG_EVENT_SCOPE(GraphBuilder, "Scene");
 
 	// ------------------------------------------------------------
-	//				第三阶段：申请全局纹理资源
+	//		第三阶段：申请全局纹理资源 AllocateRendertargets
 	// ------------------------------------------------------------
 	// 3.1 更新预计算 LUT 纹理图集
 	if (RendererOutput == ERendererOutput::FinalSceneColor) {
@@ -2156,9 +2156,9 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	FSceneTextures& SceneTextures = GetActiveSceneTextures();
 
 	// ------------------------------------------------------------
-	//					第四阶段：可见性计算
+	//			第四阶段：可见性计算 VisibilityCommands
 	// ------------------------------------------------------------
-	// 4.1 开启可见性计算
+	// 4.1 开启可见性计算 (异步)
 	{
 		// GPU 调试事件: VisibilityCommands
 		RDG_EVENT_SCOPE_STAT(GraphBuilder, VisibilityCommands, "VisibilityCommands");
@@ -2184,64 +2184,56 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		}
 	}
 
-	if (RendererOutput == ERendererOutput::FinalSceneColor)
-	{
+	// 4.4 更新光追的全局资源
+	if (RendererOutput == ERendererOutput::FinalSceneColor) {
 		// Prepare the scene for rendering this frame.
-
 		#if RHI_RAYTRACING
-			if (ViewFamily.EngineShowFlags.PathTracing)
-			{
-				if (ShouldPrepareRayTracingDecals(*Scene, ViewFamily))
-				{
+			if (ViewFamily.EngineShowFlags.PathTracing) {
+				// 4.4.1 处理光追 Decal: 为场景中每个 Decal 注册一个 Callable Shader 槽位
+				// 当 Path Tracer 的光线命中几何体时，通过查询空间网格（Decal Grid）确定该位置受哪些 Decal 影响，然后调用对应的 Callable Shader 来修改材质属性
+				if (ShouldPrepareRayTracingDecals(*Scene, ViewFamily)) {
 					// Calculate decal grid for ray tracing per view since decal fade is view dependent
 					// TODO: investigate reusing the same grid for all views (ie: different callable shader SBT entries for each view so fade alpha is still correct for each view)
-
-					for (FViewInfo& View : Views)
-					{
+					for (FViewInfo& View : Views) {
 						View.RayTracingDecalUniformBuffer = CreateRayTracingDecalData(GraphBuilder, *Scene, View, RayTracingSBT.NumCallableShaderSlots);
 						View.bHasRayTracingDecals = true;
 						RayTracingSBT.NumCallableShaderSlots += Scene->Decals.Num();
 					}
 				}
-				else
-				{
+				// 为每个 View 绑定空的 FRayTracingDecals Uniform Buffer
+				else {
 					TRDGUniformBufferRef<FRayTracingDecals> NullRayTracingDecalUniformBuffer = CreateNullRayTracingDecalsUniformBuffer(GraphBuilder);
-
-					for (FViewInfo& View : Views)
-					{
+					for (FViewInfo& View : Views) {
 						View.RayTracingDecalUniformBuffer = NullRayTracingDecalUniformBuffer;
 						View.bHasRayTracingDecals = false;
 					}
 				}
 
+				// 4.4.2 处理光追云
 				// If we might be path tracing the clouds -- call the path tracer's method for cloud callable shader setup
 				// this will skip work if cloud rendering is not being used
 				PreparePathTracingCloudMaterial(GraphBuilder, Scene, Views);
 			}
 
-			if (IsRayTracingEnabled(ViewFamily.GetShaderPlatform()) && ShouldCompileRayTracingShadersForProject(ViewFamily.GetShaderPlatform()))
-			{
-				if (!ViewFamily.EngineShowFlags.PathTracing)
-				{
+			if (IsRayTracingEnabled(ViewFamily.GetShaderPlatform()) && ShouldCompileRayTracingShadersForProject(ViewFamily.GetShaderPlatform())) {
+				// 4.4.3 在非 PathTracing 光追管线中，提前获取默认的 Light Miss Shader
+				if (!ViewFamily.EngineShowFlags.PathTracing) {
 					// get the default lighting miss shader (to implicitly fill in the MissShader library before the RT pipeline is created)
 					GetRayTracingLightingMissShader(GetGlobalShaderMap(FeatureLevel));
 					RayTracingSBT.NumMissShaderSlots++;
 				}
 
-				if (ViewFamily.EngineShowFlags.LightFunctions)
-				{
+				// 4.4.4 收集 Light Function, 在光追下, Light Function 需要作为 Miss Shader 或 Callable Shader 来评估
+				if (ViewFamily.EngineShowFlags.LightFunctions) {
 					// gather all the light functions that may be used (and also count how many miss shaders we will need)
 					FRayTracingLightFunctionMap RayTracingLightFunctionMap;
-					if (ViewFamily.EngineShowFlags.PathTracing)
-					{
+					if (ViewFamily.EngineShowFlags.PathTracing) {
 						RayTracingLightFunctionMap = GatherLightFunctionLightsPathTracing(Scene, ViewFamily.EngineShowFlags, FeatureLevel);
 					}
-					else
-					{
+					else {
 						RayTracingLightFunctionMap = GatherLightFunctionLights(Scene, ViewFamily.EngineShowFlags, FeatureLevel);
 					}
-					if (!RayTracingLightFunctionMap.IsEmpty())
-					{
+					if (!RayTracingLightFunctionMap.IsEmpty()) {
 						// If we got some light functions in our map, store them in the RDG blackboard so downstream functions can use them.
 						// The map itself will be strictly read-only from this point on.
 						GraphBuilder.Blackboard.Create<FRayTracingLightFunctionMap>(MoveTemp(RayTracingLightFunctionMap));
@@ -2250,30 +2242,39 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			}
 		#endif // RHI_RAYTRACING
 
+		// 4.4.5 Debug 渲染
 		#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 			Scene->DebugRender(Views);
 		#endif
 	}
 
-	// 完成动态网格元素收集 — 所有Mesh Draw Command在此就绪
-	// 完成动态网格元素收集 — 所有FMeshDrawCommand并行收集完成
+	// 4.5 完成动态网格体的收集
 	InitViewTaskDatas.VisibilityTaskData->FinishGatherDynamicMeshElements(BasePassDepthStencilAccess, InstanceCullingManager, VirtualTextureUpdater.Get());
 
-	// Notify the FX system that the scene is about to be rendered.
-	// TODO: These should probably be moved to scene extensions
-	// 通知FX系统场景即将渲染 — GPU粒子模拟准备
-	if (FXSystem && Views.IsValidIndex(0))
-	{
+	// 4.6 通知 FX 系统即将渲染, 让它们提前完成粒子模拟调度和 GPU 排序任务的准备工作
+	if (FXSystem && Views.IsValidIndex(0)) {
+		// Notify the FX system that the scene is about to be rendered.
+		// TODO: These should probably be moved to scene extensions
 		SCOPE_CYCLE_COUNTER(STAT_FDeferredShadingSceneRenderer_FXSystem_PreRender);
+
+		// 4.6.1 判断是否是当前是链表的头节点渲染器, 保证 GPU 粒子模拟仅执行一次
 		const bool bAllowGPUParticleUpdate = IsHeadLink();
+
+		// 4.6.2 FX 系统执行渲染前准备工作, 完成粒子模拟调度和 GPU 排序任务的准备工作
 		FXSystem->PreRender(GraphBuilder, GetSceneViews(), GetSceneUniforms(), bAllowGPUParticleUpdate);
-		if (FGPUSortManager* GPUSortManager = FXSystem->GetGPUSortManager())
-		{
+
+		// 4.6.3 GPU 排序准备
+		if (FGPUSortManager* GPUSortManager = FXSystem->GetGPUSortManager()) {
 			GPUSortManager->OnPreRender(GraphBuilder);
 		}
 	}
 
+	// ------------------------------------------------------------
+	//			第五阶段：GPU 场景更新 GPUSceneUpdate
+	// ------------------------------------------------------------
+	// 5.1 将动态网格体的数据上传到 GPU
 	{
+		// GPU 调试事件: GPUSceneUpdate
 		RDG_CSV_STAT_EXCLUSIVE_SCOPE(GraphBuilder, UpdateGPUScene);
 		RDG_EVENT_SCOPE_STAT(GraphBuilder, GPUSceneUpdate, "GPUSceneUpdate");
 
@@ -2282,20 +2283,16 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			FViewInfo& View = *AllViews[ViewIndex];
 			RDG_GPU_MASK_SCOPE(GraphBuilder, View.GPUMask);
 
-			// GPU场景上传动态图元着色器数据到GPU
-			// GPU场景更新 — 上传动态图元着色器数据（变换矩阵等）
 			Scene->GPUScene.UploadDynamicPrimitiveShaderDataForView(GraphBuilder, View);
 			Scene->GPUScene.DebugRender(GraphBuilder, GetSceneUniforms(), View);
 		}
 
 		// Must be called after all views have flushed the dynamic primitives.
-		// 实例状态初始化 — 必须在所有视图动态图元刷新后调用
 		ViewDataManager.InitInstanceState(GraphBuilder);
 
 		if (Views.Num() > 0)
 		{
 			FViewInfo& View = Views[0];
-			// 物理场更新 — 布料/破坏等物理模拟数据上传
 			Scene->UpdatePhysicsField(GraphBuilder, View);
 		}
 	}
