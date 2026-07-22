@@ -588,11 +588,55 @@ body{display:flex}
       <div class="call-chain">
         <h4>关键函数调用链</h4>
         <pre><code><span class="fn">FDeferredShadingSceneRenderer::Render</span>(GraphBuilder, SceneUpdateInputs)
-  <span class="arrow">&#x2192;</span> <span class="fn">GetRendererOutput</span>()                    <span class="cmt">// 确定输出模式：FinalSceneColor / DepthPrepassOnly</span>
-  <span class="arrow">&#x2192;</span> <span class="fn">ShouldRenderNanite</span>()                    <span class="cmt">// 判断是否启用 Nanite 虚拟几何</span>
-  <span class="arrow">&#x2192;</span> <span class="fn">HasRayTracedOverlay</span>(ViewFamily)         <span class="cmt">// 检测光追覆盖模式</span>
-  <span class="arrow">&#x2192;</span> RenderCaptureInterface::FScopedCapture      <span class="cmt">// 调试捕获（非 Shipping 构建）</span></code></pre>
+  <span class="arrow">&#x2192;</span> for Views: View.ViewState->Scene = Scene       <span class="cmt">// 关联ViewState到场景</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">GetRayTracingVisualizationData</span>()           <span class="cmt">// 获取光追可视化全局单例</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">GetRendererOutput</span>()                        <span class="cmt">// 确定输出模式：FinalSceneColor / DepthPrepassOnly</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">ShouldRenderNanite</span>()                       <span class="cmt">// 判断是否启用 Nanite 虚拟几何</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">HasRayTracedOverlay</span>(ViewFamily)            <span class="cmt">// 检测光追覆盖模式</span>
+  <span class="arrow">&#x2192;</span> RenderCaptureInterface::FScopedCapture         <span class="cmt">// 调试捕获（非 Shipping 构建）</span></code></pre>
       </div>
+
+      <!-- 源码行级解读 -->
+      <div class="line-by-line" style="margin-bottom:18px">
+        <h4 style="font-size:0.82rem;color:var(--accent);margin-bottom:10px;letter-spacing:0.5px">源码行级解读</h4>
+
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:4px">L1834-1846: Views 遍历 + ViewState 关联</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">Views</code> 是 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FSceneRenderer</code> 基类成员（SceneRendering.h:2187），类型为 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">TArray&lt;FViewInfo&gt;</code>。每个 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FViewInfo</code> 对应一个"渲染视点"：主相机、SceneCapture 2D/3D、VR 左右眼、自定义渲染 Pass。遍历所有 View，将每个 View 的 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">ViewState</code>（跨帧持久化状态，存储 TAA 历史、时间戳等）关联到当前 Scene。这是每帧渲染最开始的簿记工作。
+          </p>
+        </div>
+
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:4px">L1848-1856: 光追调试可视化自动激活</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">GetRayTracingVisualizationData()</code> 返回全局单例 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FRayTracingVisualizationData</code>，管理约 40 种光追调试模式（Barycentrics、BaseColor、WorldNormal、InstanceOverlap 等）。<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">HasOverrides()</code> 检查控制台变量 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">r.RayTracing.Visualize</code> 是否已设值。如果检测到覆盖则自动调用 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">SetRayTracingDebug(true)</code>，免去开发者手动切换到 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">viewmode RayTracingDebug</code> 的步骤。这是一种调试流程的 UX 优化。
+          </p>
+        </div>
+
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:4px">L1857: GetRendererOutput() — 渲染输出模式</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">ERendererOutput</code> 枚举有两个值：<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">DepthPrepassOnly</code>（仅渲染深度预通道，SceneCapture 仅需深度时走快速路径）和 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FinalSceneColor</code>（完整渲染管线）。判断逻辑：非 SceneCapture → 完整管线；SceneCapture 仅需深度 + 优化开关 → 深度预通道快速路径；否则完整管线。这个标志在后续大量 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">if (RendererOutput == ERendererOutput::FinalSceneColor)</code> 分支中使用。
+          </p>
+        </div>
+
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:4px">L1859-1860: bNaniteEnabled + bHasRayTracedOverlay</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">bNaniteEnabled</code> 是帧级全局判断，贯穿整个 Render()，决定是否执行 Nanite VisBuffer 裁剪/光栅化、深度预通道是否跳过 Nanite 几何、VSM 是否使用 Nanite 快速路径等。<code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">bHasRayTracedOverlay</code> 检测是否需要渲染光追调试叠加层。
+          </p>
+        </div>
+
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:4px">L1862-1865: RenderCapture 帧捕获钩子（<code style="font-family:var(--font-mono);font-size:0.72rem;background:rgba(255,183,77,0.08);padding:1px 4px;border-radius:2px;color:var(--warn)">!UE_BUILD_SHIPPING</code>）</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            通过控制台变量 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">r.CaptureNextDeferredShadingRendererFrame</code> 控制：<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">-1</code> 禁用（默认），<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">0</code> 立即捕获下一帧，<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">>0</code> 延迟 N 帧后捕获。在 RDG 中插入标记使 RenderDoc/PIX 等工具能定位捕获区域。构造后自动递减为 -1 防止重复触发。<br/>
+            <strong style="color:var(--warn)">关于 Shipping：</strong>UE 有三种构建配置 — <strong>Debug</strong>（全调试符号）、<strong>Development</strong>（部分优化 + 日志/Console 命令）、<strong>Shipping</strong>（最终发行版，全优化，剥离所有调试功能）。<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">#if !UE_BUILD_SHIPPING</code> 包裹的代码在 Shipping 中完全不编译，零开销。
+          </p>
+        </div>
+      </div>
+
       <div class="stage-output">
         <h4>产出资源 / 状态</h4>
         <ul>
@@ -616,6 +660,42 @@ body{display:flex}
     </summary>
     <div class="stage-body">
       <p class="stage-purpose">更新光追几何体加速结构（BLAS/TLAS），重置 Shader Binding Table（SBT），遍历所有视图注册到 RayTracingScene。只在 <code>RHI_RAYTRACING</code> 宏启用时编译。</p>
+
+      <!-- 源码行级解读 -->
+      <div class="line-by-line" style="margin-bottom:18px">
+        <h4 style="font-size:0.82rem;color:var(--accent);margin-bottom:10px;letter-spacing:0.5px">源码行级解读</h4>
+
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:4px">L1870: GPU_MESSAGE_SCOPE</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            在 RenderDoc/PIX 等 GPU 调试器中插入帧内标记，便于在 GPU Timeline 上定位渲染管线各阶段。
+          </p>
+        </div>
+
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:4px">L1873-1881: 光追几何体更新（仅 SceneUpdateInputs 非空时）</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">SceneUpdateInputs</code> 非空表示这是真实渲染帧（而非仅深度捕获等特殊路径）：<br/>
+            • <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">GRayTracingGeometryManager->Update()</code> — 检查所有 BLAS 是否需要重建（静态网格加载/卸载、骨骼网格变形等）<br/>
+            • <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">ProcessBuildRequests()</code> — 执行实际 BLAS 构建/重建请求。注释标注了已知瑕疵：多 View 场景下可能重复处理构建请求（TODO）。
+          </p>
+        </div>
+
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:4px">L1883-1885: SBT 重置</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            SBT（Shader Binding Table）是光追中的"函数表"，GPU 根据命中事件查表决定调用哪个 Shader：Ray Generation → Hit Group → Miss。调用 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">ResetMissAndCallableShaders()</code> 清空上一帧的 Miss Shader 和 Callable Shader 注册，本帧各 Pass 会重新绑定。
+          </p>
+        </div>
+
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:4px">L1887-1900: 视图注册到光追场景</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            遍历所有 View，跳过 VR 副眼（VR 左右眼共享同一组 TLAS，只需注册一次）。每个 View 通过 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">RayTracingScene.AddView()</code> 获取 handle，再通过 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">SetViewParams()</code> 设置视图矩阵和裁剪参数。后续光追 Pass（反射、阴影、MegaLights 等）通过 handle 找到对应的 TLAS。
+          </p>
+        </div>
+      </div>
+
       <div class="call-chain">
         <h4>关键函数调用链</h4>
         <pre><code><span class="fn">GRayTracingGeometryManager->Update</span>(RHICmdList)
@@ -646,7 +726,135 @@ body{display:flex}
       </span>
     </summary>
     <div class="stage-body">
-      <p class="stage-purpose">Render 函数中最长也是最复杂的阶段（约 560 行）。完成可见性计算的全部 CPU 准备工作：光照函数图集、VSM 初始化、Lumen 场景任务、Nanite 可见性查询、距离场准备、视锥/遮挡裁剪、GPU Scene 上传。大量子任务以异步方式并行执行。</p>
+      <p class="stage-purpose">Render 函数中最长也是最复杂的阶段（约 560 行）。完成可见性计算的全部 CPU 准备工作：RAII 资源管理、虚拟纹理更新、光照函数图集、VSM 初始化、Lumen 场景任务、Nanite CPU 端可见性预查询、距离场准备、视锥/遮挡裁剪、GPU Scene 上传。大量子任务以异步方式并行执行。</p>
+
+      <!-- 源码行级解读 -->
+      <div class="line-by-line" style="margin-bottom:18px">
+        <h4 style="font-size:0.82rem;color:var(--accent);margin-bottom:10px;letter-spacing:0.5px">源码行级解读</h4>
+
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:4px">RAII 资源生命周期管理对象</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            • <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FRDGExternalAccessQueue</code> — 延迟执行队列，收集 Render 线程外部对 RDG 资源的访问请求，最后在 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">Submit()</code> 时统一提交，确保 GPU 同步点正确<br/>
+            • <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FVirtualTextureUpdater</code> — 虚拟纹理帧级更新句柄，TUniquePtr 确保提前 return 不泄漏<br/>
+            • <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FLumenSceneFrameTemporaries</code> — Lumen 帧临时数据，根据 Views 数量预分配，衔接后续 Lumen 任务链<br/>
+            • <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FGPUSceneScopeBeginEndHelper</code> — 纯 RAII 守卫：构造时 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">GPUScene.BeginRender()</code>，析构时 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">GPUScene.EndRender()</code>，无论正常返回还是提前退出都对
+          </p>
+        </div>
+
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:4px">虚拟纹理（Virtual Texture）帧级更新</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            RVT（Runtime Virtual Texture）用于将复杂地形材质"烘焙"成纹理按需流送。<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">UseVirtualTexturing()</code> 检查平台支持。保护条件 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">RendererOutput != DepthPrepassOnly</code> 跳过深度捕获路径（深度预通道不需要 VT）。<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">BeginUpdate()</code> 启动更新并收集需要刷新的 VT 页面；<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">VirtualTextureFeedbackBegin()</code> 将上一帧 GPU 的页面需求反馈取回，驱动本帧优先级和分配。后续有 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">EndUpdate()</code> 和 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FinalizeRequests()</code> 完成整个更新周期。
+          </p>
+        </div>
+
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:4px">CommitFinalPipelineState() + GSystemTextures</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(79,195,247,0.08);padding:1px 5px;border-radius:3px;color:var(--accent)">CommitFinalPipelineState()</code> 遍历所有 Renderer（分屏多玩家可能有多个），计算并<strong>冻结</strong>本帧所有相互依赖的特性开关（光追/Lumen/VSM/Nanite 最终状态、各 Pass 是否执行）。冻结后整帧查询结果一致，避免中途状态变化导致逻辑矛盾。<br/>
+            <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">GSystemTextures.InitializeTextures()</code> 确保内置系统纹理（White/Black/Gray/DefaultNormal 等）已创建，幂等操作，已存在则不做事。
+          </p>
+        </div>
+
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:4px">UpdateLightFunctionAtlasTask — 光照函数图集异步更新</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            光照函数（Light Function）是贴在光源上的材质，用于生成复杂光影图案（投影纹理、树影斑驳、舞台灯光等）。这些材质被烘焙到共享图集中。<br/>
+            <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">LaunchSceneRenderTask</code> 启动渲染线程异步任务更新脏的 Light Function 材质，无需等待可见性结果。返回的 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">UpdateLightFunctionAtlasTask</code> 句柄后续传给 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">GatherAndSortLights</code> 作为前置依赖，确保光源收集排序等待图集更新完成。
+          </p>
+        </div>
+
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:4px">阴影 + VSM + Lumen + Nanite 可见性（FShadowSceneRenderer 作用域内）</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            <strong>1. 全局距离场视点更新：</strong><code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">UpdateGlobalDistanceFieldViewOrigin()</code> 更新观察原点 + 相机速度偏移（<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">CameraVelocityOffset</code>），必须在 Lumen 之前执行。<br/>
+            <strong>2. VSM 初始化：</strong><code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">VirtualShadowMapArray.Initialize()</code> 决定本帧是否启用 VSM 并按需分配 Shadow Page。<br/>
+            <strong>3. Lumen 场景任务启动：</strong><code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">BeginUpdateLumenSceneTasks()</code> + <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">BeginGatherLumenLights()</code>，后者等待 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">UpdateLightFunctionAtlasTask</code>。<br/>
+            <strong>4. Nanite 可见性预查询：</strong>只对 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">ENaniteMeshPass::BasePass</code> 做 CPU 端预裁剪。详见下方"Nanite 可见性 CPU 预裁剪"专题。
+          </p>
+        </div>
+
+        <!-- Nanite 可见性专题 -->
+        <div style="background:var(--code);border:1px solid var(--warn-border);border-left:3px solid var(--warn);border-radius:0 8px 8px 0;padding:18px 22px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.78rem;color:var(--warn);margin-bottom:8px;letter-spacing:0.5px">专题：Nanite 可见性 CPU 预裁剪（BeginVisibilityQuery）</div>
+
+          <div style="margin-bottom:12px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:3px">ENaniteMeshPass 枚举（PrimitiveSceneInfo.h:246）</div>
+            <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+              Nanite 支持的三种 Pass：<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">BasePass</code>（GBuffer 材质着色）、<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">LumenCardCapture</code>（Lumen 表面缓存捕获）、<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">MaterialCache</code>（材质缓存预评估）。每种 Pass 有独立的三组场景级数组：
+            </p>
+            <table style="width:100%;border-collapse:collapse;font-size:0.82rem;margin:8px 0">
+              <tr style="border-bottom:1px solid var(--border)">
+                <td style="padding:5px 10px;font-family:var(--font-mono);color:var(--accent)">NaniteVisibility[Pass]</td>
+                <td style="padding:5px 10px;color:var(--text-dim)">该 Pass 的 CPU 端可见性状态</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--border)">
+                <td style="padding:5px 10px;font-family:var(--font-mono);color:var(--accent)">NaniteRasterPipelines[Pass]</td>
+                <td style="padding:5px 10px;color:var(--text-dim)">光栅化管线配置（硬件/软件/混合调度、裁剪参数、输出模式）</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 10px;font-family:var(--font-mono);color:var(--accent)">NaniteShadingPipelines[Pass]</td>
+                <td style="padding:5px 10px;color:var(--text-dim)">材质着色管线数据（ShadingBin 分类、CS Dispatch 参数、Material Slots）</td>
+              </tr>
+            </table>
+          </div>
+
+          <div style="margin-bottom:12px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:3px">BeginVisibilityQuery() 执行流程</div>
+            <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+              1. 前置检查：<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">GNaniteMaterialVisibility == 0</code> 或未调用 Begin 或视图为空 → 直接返回 nullptr<br/>
+              2. 创建 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FNaniteVisibilityQuery</code>，包含所有视锥体引用、RasterBin/ShadingBin 可见性位数组<br/>
+              3. 启动 UE::Tasks 任务（可异步），前置依赖为 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">GetCacheNaniteMaterialBinsTask()</code> + <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">ComputeRelevanceTask</code><br/>
+              4. 在任务内调用 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">PerformNaniteVisibility()</code>：
+            </p>
+            <pre style="background:var(--code);border:1px solid var(--border);border-radius:6px;padding:10px 14px;overflow-x:auto;font-size:0.76rem;line-height:1.55;color:#c8ccd4;margin:8px 0"><code><span class="fn">for</span> (每个已注册的Nanite图元) {
+    <span class="cmt">// 1. 视锥体裁剪 — 图元包围盒 ∩ 所有视锥体</span>
+    bPrimitiveVisible = <span class="fn">IsNanitePrimitiveVisible</span>(Query, SceneInfo);
+        <span class="cmt">// → 取 PrimitiveBounds[Index].BoxSphereBounds</span>
+        <span class="cmt">// → View.IntersectBox(Origin, BoxExtent)</span>
+
+    <span class="fn">if</span> (bPrimitiveVisible) {
+        <span class="cmt">// 2. 标记该图元所属 RasterBin 为可见</span>
+        <span class="fn">for</span> (RasterBin : References.RasterBins)
+            Query->RasterBinVisibility[BinIndex] = <span class="fn">true</span>;
+
+        <span class="cmt">// 3. 标记该图元所属 ShadingBin 为可见</span>
+        <span class="fn">for</span> (ShadingBin : References.ShadingBins)
+            Query->ShadingBinVisibility[BinIndex] = <span class="fn">true</span>;
+    }
+}</code></pre>
+          </div>
+
+          <div style="margin-bottom:12px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:3px">裁剪粒度：Bin 级别，不是 Cluster 级别</div>
+            <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+              这里裁剪的目标不是三角形或 Cluster，而是 <strong>RasterBin / ShadingBin</strong>：<br/>
+              • <strong>RasterBin：</strong>同一光栅化配置的图元集合，GPU 光栅化时同一 Bin 用同一 Pass<br/>
+              • <strong>ShadingBin：</strong>同一材质着色配置的图元集合，CS 着色时同 Bin 一起 dispatch<br/>
+              如果一个图元不可见，它对应的 RasterBin 和 ShadingBin 标记为 false，GPU 端后续裁剪时<strong>整个 Bin 的 Cluster 都可跳过</strong>，大幅减少 GPU 裁剪输入规模。
+            </p>
+          </div>
+
+          <div style="margin-bottom:4px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:3px">"图元"（Primitive）在 UE 中的含义</div>
+            <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+              图元 = UPrimitiveComponent 的渲染表示 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FPrimitiveSceneInfo</code>。一个 Static Mesh Actor、一个 Skeletal Mesh 角色、一个 Landscape 地形、一个 ISM 组件各自对应一个图元。关键区别：ISM 内部可能有 1000 个实例，但这里只拿<strong>图元整体包围盒</strong>做测试，不裁剪单个实例。实例级精细裁剪在 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">InstanceCullingManager</code> 的 GPU 端完成。策略是"剪得保守，宁可放进来也不漏掉"。
+            </p>
+          </div>
+
+          <div style="margin-top:12px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:3px">可控 Console Variables</div>
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+              <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">r.Nanite.MaterialVisibility</td><td style="padding:4px 8px;color:var(--text-dim)">总开关，0 禁用 → BeginVisibilityQuery 直接返回 nullptr</td></tr>
+              <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">r.Nanite.MaterialVisibility.Primitives</td><td style="padding:4px 8px;color:var(--text-dim)">是否对图元做视锥体裁剪</td></tr>
+              <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">r.Nanite.MaterialVisibility.RasterBins</td><td style="padding:4px 8px;color:var(--text-dim)">是否裁剪 RasterBin</td></tr>
+              <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">r.Nanite.MaterialVisibility.ShadingBins</td><td style="padding:4px 8px;color:var(--text-dim)">是否裁剪 ShadingBin</td></tr>
+              <tr><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">r.Nanite.MaterialVisibility.Async</td><td style="padding:4px 8px;color:var(--text-dim)">异步（1）还是内联（0）执行</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
       <div class="call-chain">
         <h4>关键函数调用链</h4>
         <pre><code><span class="fn">OnRenderBegin</span>(GraphBuilder, SceneUpdateInputs)
