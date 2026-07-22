@@ -668,7 +668,15 @@ body{display:flex}
         <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
           <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:4px">L1870: GPU_MESSAGE_SCOPE</div>
           <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
-            在 RenderDoc/PIX 等 GPU 调试器中插入帧内标记，便于在 GPU Timeline 上定位渲染管线各阶段。
+            <code style="font-family:var(--font-mono);font-size:0.82rem;background:rgba(255,183,77,0.08);padding:1px 5px;border-radius:3px;color:var(--warn)">GPU_MESSAGE_SCOPE</code>（GPUMessaging.h:15）<strong>不是调试事件宏</strong>——它是 GPU→CPU 消息传递系统。Shader 可以将少量数据（如事件计数）写入 GPU 消息 Buffer，作用域结束时 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">~FScope()</code> 析构函数将消息提交给 CPU。它在 <strong>RenderDoc 中不可见</strong>。<br/>
+            <strong style="color:var(--warn);margin-top:6px;display:inline-block">RenderDoc 抓帧时的三种调试宏对比：</strong><br/>
+            <table style="width:100%;border-collapse:collapse;font-size:0.78rem;margin:8px 0">
+              <tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 8px;font-weight:bold;color:#fff">宏</td><td style="padding:3px 8px;font-weight:bold;color:#fff">RenderDoc可见</td><td style="padding:3px 8px;font-weight:bold;color:#fff">GPU统计</td><td style="padding:3px 8px;font-weight:bold;color:#fff">本质</td></tr>
+              <tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 8px;font-family:var(--font-mono);color:var(--text-dim)">GPU_MESSAGE_SCOPE</td><td style="padding:3px 8px;color:var(--warn)">不出现</td><td style="padding:3px 8px;color:var(--warn)">无</td><td style="padding:3px 8px;color:var(--text-dim)">GPU→CPU 数据通信</td></tr>
+              <tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 8px;font-family:var(--font-mono);color:var(--accent)">RDG_EVENT_SCOPE</td><td style="padding:3px 8px;color:#fff">出现</td><td style="padding:3px 8px;color:var(--warn)">无</td><td style="padding:3px 8px;color:var(--text-dim)">RDG 层调试标签</td></tr>
+              <tr><td style="padding:3px 8px;font-family:var(--font-mono);color:var(--accent)">RDG_RHI_EVENT_SCOPE_STAT</td><td style="padding:3px 8px;color:#fff">出现</td><td style="padding:3px 8px;color:#fff">有 (stat gpu)</td><td style="padding:3px 8px;color:var(--text-dim)">RDG+RHI 双时间线标签+计时</td></tr>
+            </table>
+            <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">RDG_RHI_EVENT_SCOPE_STAT</code> 展开为 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">RDG_EVENT_SCOPE_STAT</code>（RDG 时间线）+ <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">RHI_BREADCRUMB_EVENT_STAT</code>（RHI 命令列表），是三者中最完整的——RenderDoc 可见 + GPU Profiler 可统计耗时。
           </p>
         </div>
 
@@ -854,6 +862,125 @@ body{display:flex}
             </table>
           </div>
         </div>
+        <!-- 管线初始化补充：ShaderPrint / SVT / Nanite / MGPU / AllocateRendertargets -->
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px;margin-top:16px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:6px">场景扩展 + ShaderPrint + SVT + Nanite + MGPU 初始化 (L2036-2108)</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 10px">
+            在管线状态冻结和可见性计算之间，有一系列按固定顺序执行的子系统初始化。以下是源码中的完整流程：
+          </p>
+          <pre style="background:var(--code);border:1px solid var(--border);border-radius:6px;padding:10px 14px;overflow-x:auto;font-size:0.76rem;line-height:1.55;color:#c8ccd4;margin:8px 0"><code><span class="cmt">// L2039 — 场景扩展PreInitViews</span>
+<span class="fn">GetSceneExtensionsRenderers</span>().PreInitViews(GraphBuilder);
+
+<span class="cmt">// L2041-2046 — ShaderPrint: GPU端调试输出系统</span>
+<span class="fn">ShaderPrint::BeginViews</span>(GraphBuilder, Views);
+<span class="fn">ON_SCOPE_EXIT</span> { <span class="fn">ShaderPrint::EndViews</span>(Views); };
+
+<span class="cmt">// L2048-2054 — 距离场场景准备（全局距离场 + 网格距离场）</span>
+<span class="fn">PrepareDistanceFieldScene</span>(GraphBuilder, ExternalAccessQueue, *SceneUpdateInputs);
+
+<span class="cmt">// L2056 — SVT 稀疏体积纹理流式管理器</span>
+<span class="fn">UE::SVT::GetStreamingManager</span>().BeginAsyncUpdate(GraphBuilder);
+
+<span class="cmt">// L2058-2093 — Nanite全局资源更新 + 流式管理器 + 可视化模式</span>
+<span class="fn">Nanite::GGlobalResources.Update</span>(GraphBuilder);
+<span class="fn">Nanite::GStreamingManager.BeginAsyncUpdate</span>(GraphBuilder);
+<span class="fn">GetNaniteVisualizationData</span>().Update(NaniteViewMode);  <span class="cmt">// 编辑器Nanite调试视图模式</span>
+
+<span class="cmt">// L2097-2101 — MGPU多GPU初始化</span>
+<span class="fn">ComputeGPUMasks</span>(&GraphBuilder.RHICmdList);  <span class="cmt">// 分配View到不同GPU</span>
+<span class="fn">RDG_GPU_MASK_SCOPE</span>(GraphBuilder, AllViewsGPUMask);  <span class="cmt">// 限制RDG Pass仅在使用的GPU上执行</span>
+
+<span class="cmt">// L2102-2108 — GPU调试标记 + 渲染目标分配 + LUT图集更新</span>
+<span class="fn">RDG_EVENT_SCOPE</span>(GraphBuilder, <span class="cmt">"Scene"</span>);
+<span class="fn">SubsurfaceProfile::UpdateSubsurfaceProfileTexture</span>(...);  <span class="cmt">// 次表面散射配置</span>
+<span class="fn">SpecularProfile::UpdateSpecularProfileTextureAtlas</span>(...);  <span class="cmt">// 镜面反射配置</span>
+<span class="fn">ToonProfile::UpdateToonProfileTextureAtlas</span>(...);        <span class="cmt">// 卡通渲染配置 (5.8.0)</span>
+<span class="fn">RectLightAtlas::UpdateAtlasTexture</span>(...);                <span class="cmt">// 矩形光LTC矩阵</span>
+<span class="fn">IESAtlas::UpdateAtlasTexture</span>(...);                      <span class="cmt">// IES光照配置</span></code></pre>
+          <div style="margin-top:10px;font-size:0.82rem;color:var(--text-dim)">
+            <strong style="color:var(--warn)">ShaderPrint：</strong>UE5 的"GPU 端 printf"——允许任何 Shader 类型在 GPU 端输出调试文字/线段/三角形到屏幕。生命周期：<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">BeginViews()</code> 为每个 View 分配 GPU 缓冲区 → 中间各 Pass 的 Shader 写入调试数据 → <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">EndViews()</code> 清理。由 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">r.ShaderPrint</code> 控制开关（默认关闭）。C++ 端通过 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">SHADER_PARAMETER_STRUCT_INCLUDE(ShaderPrint::FShaderParameters)</code> 在 Shader 参数中绑定 RWBuffer，HLSL 端通过 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">#include "ShaderPrintCommon.ush"</code> 使用 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">ShaderPrint()</code> 系列函数。
+          </div>
+          <div style="margin-top:8px;font-size:0.82rem;color:var(--text-dim)">
+            <strong style="color:var(--warn)">SVT（Sparse Volume Texture）：</strong>稀疏体积纹理流式系统，用于体积数据（体积云/烟雾/火焰）的按需流式加载。将 3D 纹理分为 16³ 的 Tile，按 Mip 级别异步从磁盘加载到 GPU Tile Pool。由 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">r.SparseVolumeTexture</code> 控制总开关。配对：<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">BeginAsyncUpdate()</code> 在帧开始启动异步 IO → <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">EndAsyncUpdate()</code> 在帧结束等待完成。
+          </div>
+          <div style="margin-top:8px;font-size:0.82rem;color:var(--text-dim)">
+            <strong style="color:var(--warn)">MGPU Fork-and-Join：</strong>在多 GPU 系统上（nDisplay/VR），<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">ComputeGPUMasks()</code> 将不同 View 分配到不同 GPU（如左眼→GPU0，右眼→GPU1），每个 GPU 独立渲染后通过 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FCrossGPUTransfersDeferred</code> 传输结果。路径追踪强制使用 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FRHIGPUMask::All()</code>。由 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">r.EnableMultiGPUForkAndJoin</code> 控制。
+          </div>
+        </div>
+
+        <!-- 渲染参数准备 + ViewUniformBuffer + View数量 + CRP -->
+        <div style="background:var(--code);border:1px solid var(--warn-border);border-left:3px solid var(--warn);border-radius:0 8px 8px 0;padding:18px 22px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.78rem;color:var(--warn);margin-bottom:8px;letter-spacing:0.5px">专题：ViewUniformBuffer —— Shader 的"全局字典"</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 8px">
+            <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">ViewUniformBuffer</code> 是 UE 渲染管线中最重要的 GPU 常量缓冲区之一。定义在 <strong>SceneView.h:1157</strong>，结构体为 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FViewUniformShaderParameters</code>，包含 100+ 个字段，几乎每个 Shader 都会绑定它。
+          </p>
+          <table style="width:100%;border-collapse:collapse;font-size:0.78rem;margin:8px 0">
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">变换矩阵（~30个）</td><td style="padding:4px 8px;color:var(--text-dim)">ViewToClip、TranslatedWorldToView、ClipToPrevClip、TemporalAAJitter 等</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">相机信息</td><td style="padding:4px 8px;color:var(--text-dim)">ViewOriginHigh/Low、ViewForward/Up/Right、NearPlane、ViewRectMin 等</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">时间/帧信息</td><td style="padding:4px 8px;color:var(--text-dim)">GameTime、RealTime、FrameNumber、StateFrameIndex、Random 等</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">后处理</td><td style="padding:4px 8px;color:var(--text-dim)">TemporalAAParams、DepthOfField*、PreExposure、MotionBlurNormalizedToPixel 等</td></tr>
+            <tr><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">光照相关</td><td style="padding:4px 8px;color:var(--text-dim)">DirectionalLightColor/Direction、IndirectLightingColorScale、TranslucencyLightingVolumeMin/InvSize[] 等</td></tr>
+          </table>
+          <p style="font-size:0.83rem;color:var(--text-dim);margin:8px 0 0">每个 View 在 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">InitRHIResources()</code> 时将自身数据填充到结构体，创建 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">TUniformBufferRef</code>。在 HLSL 中通过 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">ResolvedView.ViewToClip</code> 等直接访问。可类比为 GPU Shader 眼中的"C++ 全局变量"。</p>
+        </div>
+
+        <div style="background:var(--code);border:1px solid var(--warn-border);border-left:3px solid var(--warn);border-radius:0 8px 8px 0;padding:18px 22px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.78rem;color:var(--warn);margin-bottom:8px;letter-spacing:0.5px">专题：一帧的 View 数量如何决定</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 8px">
+            一帧的 View 来自两类来源，最终合并为 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">AllViews</code>（SceneRendering.h:2244）。
+          </p>
+          <table style="width:100%;border-collapse:collapse;font-size:0.78rem;margin:8px 0">
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:bold;color:#fff">来源</td><td style="padding:4px 8px;font-weight:bold;color:#fff">说明</td><td style="padding:4px 8px;font-weight:bold;color:#fff">典型数量</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">主 Views</td><td style="padding:4px 8px;color:var(--text-dim)">来自 ViewFamily.Views，由 ULocalPlayer::CalcSceneView() 在游戏线程创建（LocalPlayer.cpp:936-943）</td><td style="padding:4px 8px;color:var(--text-dim)">单人：1；VR：2；分屏：2~4；编辑器：N</td></tr>
+            <tr><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">CRP Views</td><td style="padding:4px 8px;color:var(--text-dim)">来自 Scene->CustomRenderPassRendererInputs，每个 FCustomRenderPassBase 各创建独立 View（SceneRendering.cpp:3140-3255）</td><td style="padding:4px 8px;color:var(--text-dim)">每个 CRP 1 个 View</td></tr>
+          </table>
+          <p style="font-size:0.83rem;color:var(--text-dim);margin:8px 0 0"><code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">AllViews.Empty(Views.Num() + NumAdditionalViews);</code> 然后依次 Append 主 Views 和 CRP Views。两个数组中的 View 在 InitViews 阶段统一计算可见性，但在后续渲染阶段走完全不同的路径（见下方"CRP vs 主 View 渲染"专题）。</p>
+        </div>
+
+        <div style="background:var(--code);border:1px solid var(--warn-border);border-left:3px solid var(--warn);border-radius:0 8px 8px 0;padding:18px 22px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.78rem;color:var(--warn);margin-bottom:8px;letter-spacing:0.5px">专题：CustomRenderPass 为什么有独立的 View</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 8px">
+            CustomRenderPass（定义在 <strong>CustomRenderPass.h:49</strong>）是主渲染循环中内嵌的轻量渲染通道，用于场景捕获、自定义深度/BaseColor/Normal 输出等场景。它需要独立 View 是因为这三个维度都与主 View 不同：
+          </p>
+          <table style="width:100%;border-collapse:collapse;font-size:0.78rem;margin:8px 0">
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:bold;color:#fff">维度</td><td style="padding:4px 8px;font-weight:bold;color:#fff">主 View</td><td style="padding:4px 8px;font-weight:bold;color:#fff">CRP View</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">从哪看</td><td style="padding:4px 8px;color:var(--text-dim)">主相机位置/朝向/投影</td><td style="padding:4px 8px;color:var(--text-dim)">完全独立的相机参数（自定义位置/朝向/投影矩阵）</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">看什么</td><td style="padding:4px 8px;color:var(--text-dim)">全局可见性（视锥体+遮挡裁剪）</td><td style="padding:4px 8px;color:var(--text-dim)">ShowOnlyPrimitives/HiddenPrimitives 额外过滤 + 独立 ShowFlags</td></tr>
+            <tr><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">怎么看</td><td style="padding:4px 8px;color:var(--text-dim)">完整延迟渲染管线（15+ Pass）</td><td style="padding:4px 8px;color:var(--text-dim)">裁减管线：DepthPass 或 DepthAndBasePass（无阴影/光照/Lumen/后处理）</td></tr>
+          </table>
+          <p style="font-size:0.83rem;color:var(--text-dim);margin:8px 0 0"><strong>CRP View 与主 View 的关键区别：</strong>独立 ViewFamily（独立 ShowFlags、PostProcess）、<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">CustomRenderPass</code> 指针非空、<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">bDisableQuerySubmissions = true</code>（不提交遮挡查询）、<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">ViewRect = UnscaledViewRect</code>（无屏幕百分比缩放）、单次使用后即从 Scene 中移除、默认与主 View 共享 FSceneTextures（但可独立创建，如非 MSAA 版本）。</p>
+        </div>
+
+        <div style="background:var(--code);border:1px solid var(--warn-border);border-left:3px solid var(--warn);border-radius:0 8px 8px 0;padding:18px 22px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.78rem;color:var(--warn);margin-bottom:8px;letter-spacing:0.5px">专题：主 View 与 CRP View 各自的渲染位置</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 10px">
+            两套 View 在同一个 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">Render()</code> 函数中完成渲染，但执行顺序和路径完全不同：
+          </p>
+          <div style="margin-bottom:8px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:3px">CRP View 渲染路径（L2600-2785，CustomRenderPasses 循环）</div>
+            <pre style="background:var(--code);border:1px solid var(--border);border-radius:6px;padding:8px 12px;overflow-x:auto;font-size:0.76rem;line-height:1.55;color:#c8ccd4;margin:4px 0"><code><span class="fn">for</span> (CustomRenderPassInfo) {
+    <span class="fn">RenderPrepassAndVelocity</span>(CRPViews, ...);      <span class="cmt">// 深度预通道</span>
+    <span class="fn">RenderBasePass</span>(CRPViews, ...);               <span class="cmt">// GBuffer（仅 DepthAndBasePass 模式）</span>
+    <span class="fn">RenderTranslucency</span>(CRPViews, ...);           <span class="cmt">// 半透明（可选）</span>
+    <span class="fn">CopySceneCaptureComponentToTarget</span>(...);     <span class="cmt">// 拷贝到 CRP 的 RenderTarget</span>
+    <span class="fn">Mip生成 + CrossGPU传输</span>
+}</code></pre>
+          </div>
+          <div>
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:3px">主 View 渲染路径（L2788 起，完整延迟管线）</div>
+            <pre style="background:var(--code);border:1px solid var(--border);border-radius:6px;padding:8px 12px;overflow-x:auto;font-size:0.76rem;line-height:1.55;color:#c8ccd4;margin:4px 0"><code><span class="fn">RenderPrepassAndVelocity</span>(Views, ...);          <span class="cmt">// 深度预通道 (L2790)</span>
+<span class="fn">RenderShadowDepthMaps</span>(...);                   <span class="cmt">// 阴影深度贴图</span>
+<span class="fn">RenderBasePass</span>(Views, ...);                   <span class="cmt">// GBuffer写入</span>
+<span class="fn">RenderLumenSceneLighting</span>(...);               <span class="cmt">// Lumen 场景光照</span>
+<span class="fn">RenderDiffuseIndirectAndAO</span>(...);              <span class="cmt">// GI + 环境光遮蔽</span>
+<span class="fn">RenderLights</span>(Views, ...);                     <span class="cmt">// Clustered Deferred 直接光照</span>
+<span class="fn">RenderTranslucency</span>(Views, ...);               <span class="cmt">// 半透明渲染</span>
+<span class="fn">PostProcessing</span>(Views, ...);                   <span class="cmt">// 后处理</span>
+<span class="fn">→ ViewFamilyTexture</span>                           <span class="cmt">// 最终输出</span></code></pre>
+          </div>
+          <p style="font-size:0.83rem;color:var(--text-dim);margin:10px 0 0">CRP <strong>先行渲染</strong>，主 View 紧随其后。CRP 只跑裁减管线（无阴影/Lumen/延迟光照/后处理），输出到各自 RenderTarget；主 View 跑全部 15+ Pass，输出到 ViewFamilyTexture。CRP 在主 View BasePass 前完成，这样主 View 后续 Pass（如 MegaLights、体积雾）可以引用 CRP 产出的 UserSceneTexture。</p>
+        </div>
+
       </div>
       <div class="call-chain">
         <h4>关键函数调用链</h4>
