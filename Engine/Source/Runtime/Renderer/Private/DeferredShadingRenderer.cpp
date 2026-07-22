@@ -1831,7 +1831,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	SCOPED_NAMED_EVENT(FDeferredShadingSceneRenderer_Render, FColor::Emerald);
 
 	// ------------------------------------------------------------
-	//               第一阶段：视图与管线初始化
+	//				第一阶段：View 收集与调试初始化
 	// ------------------------------------------------------------
 	// 1.1 遍历场景中的所有 View, 确保每个 View 的 ViewState 正确关联到当前 Scene
 	// ViewState: 跨帧持久化状态，存储 TAA 历史、时间戳等
@@ -1867,10 +1867,11 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	#endif
 
 	// ------------------------------------------------------------
-	//					第二阶段：光追初始化
+	//					第二阶段：各模块预处理
 	// ------------------------------------------------------------
-	// GPU 调试标记
+	// GPU→CPU 消息传递: GPU 将少量数据写入 Buffer, 析构时将消息提交给 CPU
 	GPU_MESSAGE_SCOPE(GraphBuilder);
+	
 	// 光追初始化
 	#if RHI_RAYTRACING
 		// 2.1 光追几何体更新
@@ -1899,43 +1900,40 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			RayTracingScene.SetViewParams(View.GetRayTracingSceneViewHandle(), View.ViewMatrices, View.RayTracingCullingParameters);
 		}
 	#endif // RHI_RAYTRACING
-
-	// ------------------------------------------------------------
-	//				第三阶段：视图与可见性初始化
-	// ------------------------------------------------------------
+	
 	// 启动可见性计算, 返回的任务数据句柄贯穿后续所有 Pass
 	FInitViewTaskDatas InitViewTaskDatas = OnRenderBegin(GraphBuilder, SceneUpdateInputs);
 
-	// 3.1 光追预渲染
+	// 2.1 光追预渲染
 	#if RHI_RAYTRACING
 		if (RendererOutput == FSceneRenderer::ERendererOutput::FinalSceneColor && FamilyPipelineState[&FFamilyPipelineState::bRayTracing]) {
 			GRayTracingGeometryManager->PreRender();
 		}
 	#endif // RHI_RAYTRACING
 
-	// 3.2 更新曝光补偿曲线LUT
+	// 2.2 更新曝光补偿曲线LUT
 	FUpdateExposureCompensationCurveLUTTaskData UpdateExposureCompensationCurveLUTTaskData;
 	BeginUpdateExposureCompensationCurveLUT(Views, &UpdateExposureCompensationCurveLUTTaskData);
 
-	// 3.3 声明资源生命周期管理对象
+	// 2.3 声明资源生命周期管理对象
 	FRDGExternalAccessQueue ExternalAccessQueue;				// Render 线程外部访问 RDG 资源
 	TUniquePtr<FVirtualTextureUpdater> VirtualTextureUpdater;	// VT 更新器
 	FLumenSceneFrameTemporaries LumenFrameTemporaries(Views);	// Lumen 临时帧数据
 
-	// 3.4 GPU 场景作用域管理器: 自动调用 GPUScene.Begin/EndRender()
+	// 2.4 GPU 场景作用域管理器: 自动调用 GPUScene.Begin/EndRender()
 	FGPUSceneScopeBeginEndHelper GPUSceneScopeBeginEndHelper(GraphBuilder, Scene->GPUScene, GPUSceneDynamicContext);
 
-	// 3.5 更新 VT, 仅深度的 Pass 不需要 VT
+	// 2.5 更新 VT, 仅深度的 Pass 不需要 VT
 	const bool bUseVirtualTexturing = UseVirtualTexturing(ShaderPlatform);
 	if (bUseVirtualTexturing && RendererOutput != ERendererOutput::DepthPrepassOnly) {
-		// 3.5.1 启动 VT 更新
+		// 2.5.1 启动 VT 更新
 		FVirtualTextureUpdateSettings Settings(ViewFamily);
 		VirtualTextureUpdater = FVirtualTextureSystem::Get().BeginUpdate(GraphBuilder, FeatureLevel, this, Settings);
-		// 3.5.2 将上一帧 GPU 端记录的需求反馈, 驱动本帧的页面优先级和分配决策
+		// 2.5.2 将上一帧 GPU 端记录的需求反馈, 驱动本帧的页面优先级和分配决策
 		VirtualTextureFeedbackBegin(GraphBuilder, Views, GetActiveSceneTexturesConfig().Extent);
 	}
 
-	// 3.6 提交最终管线状态
+	// 2.6 提交最终管线状态
 	if (SceneUpdateInputs) {
 		{
 			TRACE_CPUPROFILER_EVENT_SCOPE(CommitFinalPipelineState);
@@ -1949,7 +1947,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		GSystemTextures.InitializeTextures(GraphBuilder.RHICmdList, FeatureLevel);
 	}
 
-	// 3.7 异步更新光照函数图集, 其更新不依赖可见性结果
+	// 2.7 异步更新光照函数图集, 其更新不依赖可见性结果
 	UE::Tasks::TTask<void> UpdateLightFunctionAtlasTask;
 	if (LightFunctionAtlas.IsLightFunctionAtlasEnabled()) {
 		UpdateLightFunctionAtlasTask = LaunchSceneRenderTask<void>(
@@ -1959,53 +1957,53 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		);
 	}
 
-	// 3.8 获取阴影渲染器, 保证其生命周期覆盖整帧
+	// 2.8 获取阴影渲染器, 保证其生命周期覆盖整帧
 	FShadowSceneRenderer& ShadowSceneRenderer = GetSceneExtensionsRenderers().GetRenderer<FShadowSceneRenderer>();
 
-	// 3.9 更新 SDF/VSM/Lumen/Nanite
+	// 2.9 更新全局距离场, 初始化 VSM、Lumen, 执行 Nanite CPU Culling
 	{
-		// 3.9.1 更新全局距离场
+		// 2.9.1 更新全局距离场
 		if (SceneUpdateInputs) {
 			// 必须比 Lumen 更早执行, 以保证 GlobalDistanceFieldData->CameraVelocityOffset 被更新
 			UpdateGlobalDistanceFieldViewOrigin(*SceneUpdateInputs);
 		}
 
-		// 3.9.2 初始化 VSM + Lumen
+		// 2.9.2 初始化 VSM + Lumen
 		if (RendererOutput == ERendererOutput::FinalSceneColor) {
 			InitViewTaskDatas.LumenFrameTemporaries = &LumenFrameTemporaries;
-			// 3.9.2.1 初始化 VSM
+			// 2.9.2.1 初始化 VSM
 			// Important that this uses consistent logic throughout the frame, so evaluate once and pass in the flag from here
 			// NOTE: Must be done after system texture initialization
 			const bool bEnableVirtualShadowMaps = UseVirtualShadowMaps(ShaderPlatform, FeatureLevel) && ViewFamily.EngineShowFlags.DynamicShadows && !bHasRayTracedOverlay;
 			VirtualShadowMapArray.Initialize(GraphBuilder, Scene->GetVirtualShadowMapCache(), bEnableVirtualShadowMaps, ViewFamily.EngineShowFlags);
 			
-			// 3.9.2.2 初始化 Lumen
+			// 2.9.2.2 初始化 Lumen
 			if (InitViewTaskDatas.LumenFrameTemporaries) {
 				BeginUpdateLumenSceneTasks(GraphBuilder, *InitViewTaskDatas.LumenFrameTemporaries);
 			}
 			
-			// 3.9.2.3 收集对所有 Lumen 光源的引用
+			// 2.9.2.3 收集对所有 Lumen 光源的引用
 			BeginGatherLumenLights(*InitViewTaskDatas.LumenFrameTemporaries, InitViewTaskDatas.LumenDirectLighting, InitViewTaskDatas.VisibilityTaskData, UpdateLightFunctionAtlasTask);
 		}
 
-		// 3.9.3 Nanite CPU Culling
+		// 2.9.3 Nanite CPU Culling
 		if (bNaniteEnabled) {
-			// 3.9.3.1 收集所有 View 的视锥体, ！！！所有 View 共享相同的 Culling 结果！！！
+			// 2.9.3.1 收集所有 View 的视锥体, 所有 View 共享相同的 CPU Culling 结果
 			TArray<FConvexVolume, TInlineAllocator<2>> NaniteCullingViews;
 			for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++) {
 				FViewInfo& View = Views[ViewIndex];
 				NaniteCullingViews.Add(View.ViewFrustum);
 			}
 
-			// 3.9.3.2 使用 BasePass 对应的 可见性状态 + 光栅化管线配置 + 材质着色管线配置
+			// 2.9.3.2 使用 BasePass 对应的 可见性状态 + 光栅化管线配置 + 材质着色管线配置
 			FNaniteVisibility& NaniteVisibility = Scene->NaniteVisibility[ENaniteMeshPass::BasePass];
 			const FNaniteRasterPipelines&  NaniteRasterPipelines  = Scene->NaniteRasterPipelines[ENaniteMeshPass::BasePass];
 			const FNaniteShadingPipelines& NaniteShadingPipelines = Scene->NaniteShadingPipelines[ENaniteMeshPass::BasePass];
 
-			// 3.9.3.3 开始 Nanite 可见性帧
+			// 2.9.3.3 开始 Nanite 可见性帧
 			NaniteVisibility.BeginVisibilityFrame();
 
-			// 3.9.3.4 启动 Nanite CPU 端 UPrimitiveComponent 级别的 Culling
+			// 2.9.3.4 启动 Nanite CPU 端 UPrimitiveComponent 级别的 Culling
 			NaniteBasePassVisibility.Visibility = &NaniteVisibility;
 			NaniteBasePassVisibility.Query = NaniteVisibility.BeginVisibilityQuery(
 				Allocator,
@@ -2018,81 +2016,75 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		}
 	}
 	
-	// ShaderPrint视图开始 — GPU调试输出系统初始化
+	// 2.10 初始化 GPU 调试器 ShaderPrint
+	// 2.10.1 为每个 View 分配 GPU 缓冲区
 	ShaderPrint::BeginViews(GraphBuilder, Views);
-
-	// ShaderPrint作用域保护 — 退出时自动调用EndViews
-	ON_SCOPE_EXIT
-	{
+	// 2.10.2 作用域保护 — 退出时自动调用EndViews
+	ON_SCOPE_EXIT {
 		ShaderPrint::EndViews(Views);
 	};
 
-	// 场景扩展PreInitViews回调 — 允许扩展在视图初始化前设置数据
+	// 2.11 初始化场景扩展渲染器, 调用 PreInitViews 回调让扩展提前准备数据
 	GetSceneExtensionsRenderers().PreInitViews(GraphBuilder);
 
-	if (SceneUpdateInputs)
-	{
-		// 准备距离场场景数据 — 更新全局距离场和网格距离场
+	// 2.12 更新距离场场景数据, 包括全局距离场、网格距离场
+	if (SceneUpdateInputs) {
 		PrepareDistanceFieldScene(GraphBuilder, ExternalAccessQueue, *SceneUpdateInputs);
 	}
 
-	if (RendererOutput == ERendererOutput::FinalSceneColor)
-	{
-		// 着色能量守恒初始化 — 确保多 bounce 间接光照能量守恒
+	// 2.13 初始化 Shading 所需资源
+	if (RendererOutput == ERendererOutput::FinalSceneColor) {
+		// 2.13.1 初始化 Shading 能量守恒系统: 计算和存储各材质的能量衰减因子, 确保多 bounce 间接光照能量守恒
 		ShadingEnergyConservation::Init(GraphBuilder, Views);
-		for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
-		{
+
+		// 2.13.2 初始化 Glint 着色 LUT: 模拟微观几何表面的细小高光, 为每个 View 初始化 LUT
+		for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++) {
 			FViewInfo& View = Views[ViewIndex];
 			RDG_GPU_MASK_SCOPE(GraphBuilder, View.GPUMask);
 
-			// Glint着色LUT状态初始化 — 高光闪烁效果的查找表
 			FGlintShadingLUTsStateData::Init(GraphBuilder, View);
 		}
 
+		// 2.13.3 硬件光追 instance 收集
 		#if RHI_RAYTRACING
-			if (FamilyPipelineState[&FFamilyPipelineState::bRayTracing])
-			{
+			if (FamilyPipelineState[&FFamilyPipelineState::bRayTracing]) {
+				// 创建 TLAS 构建任务
 				InitViewTaskDatas.RayTracingGatherInstances = RayTracing::CreateGatherInstancesTaskData(Allocator, *Scene, Views.Num());
-
-				for (FViewInfo& View : Views)
-				{
+				// 为每个 View 添加需要的几何实例
+				for (FViewInfo& View : Views) {
 					const FPerViewPipelineState& ViewPipelineState = GetViewPipelineState(View);
-
 					RayTracing::AddView(*InitViewTaskDatas.RayTracingGatherInstances, View, ViewPipelineState.DiffuseIndirectMethod, ViewPipelineState.ReflectionsMethod);
 				}
-
+				// 绑定到视锥体裁剪任务
 				RayTracing::BeginGatherInstances(*InitViewTaskDatas.RayTracingGatherInstances, InitViewTaskDatas.VisibilityTaskData->GetFrustumCullTask());
 			}
 		#endif
 	}
 
-	// 稀疏体积纹理(SVT)流式管理器 — 开始异步更新
+	// 2.14 异步更新 SVT (稀疏体积纹理) 流式管理器
 	UE::SVT::GetStreamingManager().BeginAsyncUpdate(GraphBuilder);
 
+	// 2.15 初始化 Nanite
 	bool bVisualizeNanite = false;
-	if (bNaniteEnabled)
-	{
-		// 更新Nanite全局资源 — 共享的GPU缓冲区和常量
+	if (bNaniteEnabled) {
+		// 2.15.1 全局资源更新
 		Nanite::GGlobalResources.Update(GraphBuilder);
-		// Nanite流式管理器 — 开始异步流式加载
+
+		// 2.15.2 异步更新流式管理器
 		Nanite::GStreamingManager.BeginAsyncUpdate(GraphBuilder);
 
-		// Nanite可视化数据 — 支持运行时切换Nanite调试视图模式
+		// 2.15.3 设置可视化模式
 		FNaniteVisualizationData& NaniteVisualization = GetNaniteVisualizationData();
-		if (Views.Num() > 0)
-		{
+		if (Views.Num() > 0) {
 			FName NaniteViewMode = Views[0].CurrentNaniteVisualizationMode;
 			
 			EDebugViewShaderMode DebugViewShaderMode = ViewFamily.GetDebugViewShaderMode();
-			if (DebugViewShaderMode == DVSM_ShadowCasters)
-			{
+			if (DebugViewShaderMode == DVSM_ShadowCasters) {
 				NaniteViewMode = FName("ShadowCasters");
-				// 自动启用VisualizeNanite显示标志 — 方便命令行调试
 				ViewFamily.EngineShowFlags.SetVisualizeNanite(true);
 			}
 
-			if (NaniteVisualization.Update(NaniteViewMode))
-			{
+			if (NaniteVisualization.Update(NaniteViewMode)) {
 				// When activating the view modes from the command line, automatically enable the VisualizeNanite show flag for convenience.
 				ViewFamily.EngineShowFlags.SetVisualizeNanite(true);
 			}
@@ -2101,93 +2093,94 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		}
 	}
 
+	// 2.16 初始化多显卡
+	// 2.16.1 计算多显卡任务掩码
 	#if WITH_MGPU
 		ComputeGPUMasks(&GraphBuilder.RHICmdList);
 	#endif // WITH_MGPU
-
+	// 2.16.2 限制当前作用域内的所有 RDG Pass 只在指定 GPU 上执行
 	// By default, limit our GPU usage to only GPUs specified in the view masks.
-	// GPU Mask作用域 — 路径追踪使用所有GPU，否则仅使用视图指定的GPU
 	RDG_GPU_MASK_SCOPE(GraphBuilder, ViewFamily.EngineShowFlags.PathTracing ? FRHIGPUMask::All() : AllViewsGPUMask);
-	// RDG事件作用域 — 将后续所有Pass分组到Scene事件下
-	RDG_EVENT_SCOPE(GraphBuilder, "Scene");
 	
-	if (RendererOutput == ERendererOutput::FinalSceneColor)
-	{
+	// GPU 调试事件: Scene
+	RDG_EVENT_SCOPE(GraphBuilder, "Scene");
+
+	// ------------------------------------------------------------
+	//				第三阶段：申请全局纹理资源
+	// ------------------------------------------------------------
+	// 3.1 更新预计算 LUT 纹理图集
+	if (RendererOutput == ERendererOutput::FinalSceneColor) {
 		SCOPE_CYCLE_COUNTER(STAT_FDeferredShadingSceneRenderer_Render_Init);
+		
+		// GPU 调试事件: AllocateRendertargets
 		RDG_RHI_EVENT_SCOPE_STAT(GraphBuilder, AllocateRendertargets, "AllocateRendertargets");
 
 		// Force the subsurface profiles and specular profiles textures to be updated.
-		// 强制更新次表面散射/高光/Toon轮廓纹理图集
-		// 强制更新次表面散射Profile纹理 — 确保使用最新的SSS数据
-		SubsurfaceProfile::UpdateSubsurfaceProfileTexture(GraphBuilder, ShaderPlatform);
-		SpecularProfile::UpdateSpecularProfileTextureAtlas(GraphBuilder, ShaderPlatform);
-		ToonProfile::UpdateToonProfileTextureAtlas(GraphBuilder, ShaderPlatform);
-
+		SubsurfaceProfile::UpdateSubsurfaceProfileTexture(GraphBuilder, ShaderPlatform);	// 次表面散射配置纹理
+		SpecularProfile::UpdateSpecularProfileTextureAtlas(GraphBuilder, ShaderPlatform);	// 镜面反射配置纹理
+		ToonProfile::UpdateToonProfileTextureAtlas(GraphBuilder, ShaderPlatform);			// 卡通渲染配置纹理 (5.8.0 新增)
 		// Force the rect light texture & IES texture to be updated.
-		// 强制更新矩形光源图集纹理和IES图集纹理
-		RectLightAtlas::UpdateAtlasTexture(GraphBuilder, FeatureLevel);
-		IESAtlas::UpdateAtlasTexture(GraphBuilder, ShaderPlatform);
+		RectLightAtlas::UpdateAtlasTexture(GraphBuilder, FeatureLevel);						// 矩形光源的 LTC 矩阵查找表
+		IESAtlas::UpdateAtlasTexture(GraphBuilder, ShaderPlatform);							// IES 光照配置文件纹理
 	}
 
-	// 获取当前活跃的场景纹理配置 — 分辨率、格式、MSAA等
+	// 3.2 获取配置并创建系统默认纹理
 	FSceneTexturesConfig& SceneTexturesConfig = GetActiveSceneTexturesConfig();
-	// 创建RDG系统纹理 — 提供Black/White/Gray等通用纹理
 	const FRDGSystemTextures& SystemTextures = FRDGSystemTextures::Create(GraphBuilder);
 
-	// 静态光照判断 — 光追覆盖模式下禁用静态光照
+	// 3.3 计算各种开关
+	// 3.3.1 静态光照是否启用
 	const bool bAllowStaticLighting = !bHasRayTracedOverlay && IsStaticLightingAllowed();
-
+	// 3.3.2 深度缓冲是否已完整建立
 	// if DDM_AllOpaqueNoVelocity was used, then velocity should have already been rendered as well
 	const bool bIsEarlyDepthComplete = (DepthPass.EarlyZPassMode == DDM_AllOpaque || DepthPass.EarlyZPassMode == DDM_AllOpaqueNoVelocity);
-
+	// 3.3.3 BasePass 对深度缓冲是否只读
 	// Use read-only depth in the base pass if we have a full depth prepass.
-	// BasePass只读深度判断 — 完整深度预通道时BasePass可只读深度，提升带宽效率
 	const bool bAllowReadOnlyDepthBasePass = bIsEarlyDepthComplete
 		&& !ViewFamily.EngineShowFlags.ShaderComplexity
 		&& !ViewFamily.UseDebugViewPS()
 		&& !ViewFamily.EngineShowFlags.Wireframe
 		&& !ViewFamily.EngineShowFlags.LightMapDensity;
-
-	// BasePass深度模板访问模式 — 只读深度+写模板 或 读写深度+写模板
+	// 3.3.4 BasePass 对 深度模板缓冲 的访问模式
 	const FExclusiveDepthStencil::Type BasePassDepthStencilAccess =
 		bAllowReadOnlyDepthBasePass
 		? FExclusiveDepthStencil::DepthRead_StencilWrite
 		: FExclusiveDepthStencil::DepthWrite_StencilWrite;
 
-	// 视图数据管理器 — 管理所有视图的UniformBuffer数据
+	// 3.4 创建 RDG View 数据管理器 + GPU 实例裁剪管理器
 	FRendererViewDataManager& ViewDataManager = *GraphBuilder.AllocObject<FRendererViewDataManager>(GraphBuilder, *Scene, GetSceneUniforms(), AllViews);
 	FInstanceCullingManager& InstanceCullingManager = *GraphBuilder.AllocObject<FInstanceCullingManager>(GraphBuilder, *Scene, GetSceneUniforms(), ViewDataManager);
 
-	// 初始化ViewFamily场景纹理 — 分配SceneColor、SceneDepth、GBuffer等
+	// 3.5 初始化场景纹理: Color, Depth, GBuffer, Velocity
 	FSceneTextures::InitializeViewFamily(GraphBuilder, ViewFamily, FamilySize);
 	FSceneTextures& SceneTextures = GetActiveSceneTextures();
 
+	// ------------------------------------------------------------
+	//					第四阶段：可见性计算
+	// ------------------------------------------------------------
+	// 4.1 开启可见性计算
 	{
+		// GPU 调试事件: VisibilityCommands
 		RDG_EVENT_SCOPE_STAT(GraphBuilder, VisibilityCommands, "VisibilityCommands");
-		// 开始视图初始化 — 执行可见性计算（视锥裁剪、遮挡裁剪、Nanite可见性）
-		// 开始视图初始化 — 视锥裁剪、遮挡裁剪、Nanite可见性计算
 		BeginInitViews(GraphBuilder, SceneTexturesConfig, InstanceCullingManager, ExternalAccessQueue, InitViewTaskDatas);
 	}
-
+	
+	// 4.2 强制暂停, 用于分析 InitView 的耗时
 	#if !UE_BUILD_SHIPPING
-		if (CVarStallInitViews.GetValueOnRenderThread() > 0.0f)
-		{
+		if (CVarStallInitViews.GetValueOnRenderThread() > 0.0f) {
 			SCOPE_CYCLE_COUNTER(STAT_InitViews_Intentional_Stall);
 			FPlatformProcess::Sleep(CVarStallInitViews.GetValueOnRenderThread() / 1000.0f);
 		}
 	#endif
 
-	// 持久化视图UniformBuffer扩展 — BeginFrame和PrepareView在RHI线程刷新前执行
+	// 4.3 View Uniform Buffer 持久化扩展系统: 允许外部系统扩展 View 相关的 Uniform 数据
 	extern TSet<IPersistentViewUniformBufferExtension*> PersistentViewUniformBufferExtensions;
+	for (IPersistentViewUniformBufferExtension* Extension : PersistentViewUniformBufferExtensions) {
+		Extension->BeginFrame();	// 通知扩展：新帧开始
 
-	for (IPersistentViewUniformBufferExtension* Extension : PersistentViewUniformBufferExtensions)
-	{
-		Extension->BeginFrame();
-
-		for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
-		{
+		for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++) {
 			// Must happen before RHI thread flush so any tasks we dispatch here can land in the idle gap during the flush
-			Extension->PrepareView(&Views[ViewIndex]);
+			Extension->PrepareView(&Views[ViewIndex]);	// 通知扩展：准备此 View 的数据
 		}
 	}
 
