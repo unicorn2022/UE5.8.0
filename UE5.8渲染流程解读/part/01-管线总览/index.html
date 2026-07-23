@@ -735,7 +735,7 @@ t<a href="#Nanite几何数据存储" class="sub">Nanite 几何数据存储</a>
       </span>
     </summary>
     <div class="stage-body">
-      <p class="stage-purpose">Render 函数中最长也是最复杂的阶段（约 560 行）。完成可见性计算的全部 CPU 准备工作：RAII 资源管理、虚拟纹理更新、光照函数图集、VSM 初始化、Lumen 场景任务、Nanite CPU 端可见性预查询、距离场准备、视锥/遮挡裁剪、GPU Scene 上传。大量子任务以异步方式并行执行。</p>
+      <p class="stage-purpose">Render 函数中最长也是最复杂的阶段（约 560 行）。完成可见性计算的全部 CPU 准备工作 + 可见性完成后的一系列收尾与状态判断：RAII 资源管理、虚拟纹理 BeginUpdate + EndUpdate + FinalizeRequests 完整三阶段、光照函数图集、VSM 初始化、Lumen 场景任务、Nanite CPU 端可见性预查询、距离场准备、视锥/遮挡裁剪、GPU Scene 上传、场景扩展更新、MaterialCache 标签更新、光源收集异步启动、雾效/光照开关判断、EndInitViews 同步点。大量子任务以异步方式并行执行。</p>
 
       <!-- 源码行级解读 -->
       <div class="line-by-line" style="margin-bottom:18px">
@@ -982,11 +982,201 @@ t<a href="#Nanite几何数据存储" class="sub">Nanite 几何数据存储</a>
           <p style="font-size:0.83rem;color:var(--text-dim);margin:10px 0 0">CRP <strong>先行渲染</strong>，主 View 紧随其后。CRP 只跑裁减管线（无阴影/Lumen/延迟光照/后处理），输出到各自 RenderTarget；主 View 跑全部 15+ Pass，输出到 ViewFamilyTexture。CRP 在主 View BasePass 前完成，这样主 View 后续 Pass（如 MegaLights、体积雾）可以引用 CRP 产出的 UserSceneTexture。</p>
         </div>
 
+        <!-- ===== 可见性计算后的收尾操作 (L2302-2468) ===== -->
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:6px">L2302-2313: Scene Culling + Scene Extensions 更新 + BeginDeferredCulling</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 10px">
+            可见性计算完成后、GPU Scene 更新完毕后，在执行真正的渲染 Pass 之前，需要完成场景扩展的视图/场景数据更新并启动延迟实例裁剪：
+          </p>
+          <div style="margin-bottom:10px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:3px">1. SceneCullingRenderer::DebugRender()</div>
+            <p style="font-size:0.83rem;color:var(--text-dim);margin:0 0 8px">
+              Scene Culling 是 UE5 的 GPU 加速可见性系统，预先生成裁剪网格（culling grid）。如果启用了 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">r.SceneCulling</code>，DebugRender 将裁剪网格和裁剪状态可视化输出供调试——后续 InstanceCullingManager 会基于此网格剔除不可见实例。
+            </p>
+          </div>
+          <div style="margin-bottom:10px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:3px">2. SceneExtensions::UpdateViewData()</div>
+            <p style="font-size:0.83rem;color:var(--text-dim);margin:0 0 8px">
+              通知所有已注册的场景扩展渲染器（Lumen、VSM、MegaLights 等）更新它们需要写入 View Uniform Buffer 的数据。这允许各子系统向 View 中注入自定义参数（如 Lumen 需要在 View 中写入自己的配置）。
+            </p>
+          </div>
+          <div style="margin-bottom:10px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:3px">3. SceneExtensions::UpdateSceneUniformBuffer()</div>
+            <p style="font-size:0.83rem;color:var(--text-dim);margin:0 0 8px">
+              类似上一步，但在 <strong>Scene 级别</strong> 修改 Uniform Buffer。注释强调 "after GPU scene has fully updated"——GPU Scene 已更新完毕（Primitive Data 已上传到 GPU Buffer），扩展可以安全地引用这些数据。
+            </p>
+          </div>
+          <div style="margin-bottom:4px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:3px">4. InstanceCullingManager::BeginDeferredCulling()</div>
+            <p style="font-size:0.83rem;color:var(--text-dim);margin:0">
+              启动 <strong>GPU 实例裁剪</strong>。注释明确："Must happen after visibility state & scene UB has been updated." 可见性确定后、Scene UB 更新后，裁剪 Shader 才能正确读取变换矩阵。创建 GPU 裁剪上下文后，后续 BasePass/Shadow 等 Pass 复用同一裁剪结果，避免重复计算。实例裁剪的粒度为 Instance 级别（ISM 内部每个实例），比 Nanite Visibility 的 Primitive 级别更精细。
+            </p>
+          </div>
+        </div>
+
+        <!-- 雾效和光照布尔开关 -->
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:6px">L2315-2332: 雾效与延迟光照开关计算</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 10px">
+            在进入渲染 Pass 之前，需要预先计算一组布尔开关变量，决定后续哪些 Pass 需要执行。这些变量是 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">const bool</code>，一经计算整帧不变：
+          </p>
+          <table style="width:100%;border-collapse:collapse;font-size:0.78rem;margin:6px 0">
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:bold;color:#fff">变量</td><td style="padding:4px 8px;font-weight:bold;color:#fff">含义</td><td style="padding:4px 8px;font-weight:bold;color:#fff">条件组合</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--accent)">bShouldRenderFogUsingSeparateComposition</td><td style="padding:4px 8px;color:var(--text-dim)">分离雾合成</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">场景启用了分离雾合成 + 延迟雾 + 视图需要雾</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--accent)">bUseGBuffer</td><td style="padding:4px 8px;color:var(--text-dim)">使用 GBuffer</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">IsUsingGBuffers(ShaderPlatform)</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--accent)">bShouldRenderVolumetricFog</td><td style="padding:4px 8px;color:var(--text-dim)">体积雾</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">ShouldRenderVolumetricFog()</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--accent)">bShouldRenderLocalFogVolume</td><td style="padding:4px 8px;color:var(--text-dim)">局部雾体积</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">场景中有 Local Fog Volume 组件</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--accent)">bFogComposeLocalFogVolumes</td><td style="padding:4px 8px;color:var(--text-dim)">局部雾与高度雾合成</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">体积雾路径 或 高度雾路径</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--accent)">bRenderDeferredLighting</td><td style="padding:4px 8px;color:var(--text-dim)">执行延迟光照</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">Lighting showflag + SM5+ + DeferredLighting + GBuffer + 非光追覆盖</td></tr>
+            <tr><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--accent)">bAnyLumenEnabled</td><td style="padding:4px 8px;color:var(--text-dim)">任意 View 启用 Lumen</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">遍历所有 Views 检查 DiffuseIndirect/ReflectionsMethod</td></tr>
+          </table>
+          <p style="font-size:0.83rem;color:var(--text-dim);margin:10px 0 0"><strong>局部雾体积（Local Fog Volume）</strong>是 UE5 特性，允许在场景中放置局部雾效区域。它可走两条合成路径：高度雾 Pass（传统）或体积雾 Pass，<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">bFogComposeLocalFogVolumes</code> 判断走哪条路。<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">bHeightFogHasComposedLocalFogVolume</code> 是运行时状态标记（非 const），防止重复合成。</p>
+        </div>
+
+        <!-- VT EndUpdate + MaterialCache -->
+        <div style="background:var(--code);border:1px solid var(--warn-border);border-left:3px solid var(--warn);border-radius:0 8px 8px 0;padding:18px 22px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.78rem;color:var(--warn);margin-bottom:8px;letter-spacing:0.5px">专题：RVT EndUpdate vs FinalizeRequests 三部曲</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 8px">
+            VT 系统一帧更新分为三个函数，同步版 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">Update()</code> 把它们串在一起，但 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">Render()</code> 中拆开到不同时机以最大化并行度：
+          </p>
+          <table style="width:100%;border-collapse:collapse;font-size:0.78rem;margin:8px 0">
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:bold;color:#fff">函数</td><td style="padding:4px 8px;font-weight:bold;color:#fff">管线时机</td><td style="padding:4px 8px;font-weight:bold;color:#fff">核心工作</td><td style="padding:4px 8px;font-weight:bold;color:#fff">GPU Pass</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">BeginUpdate()</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">CommitFinalPipelineState 时</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">收集需求：分配资源 + 自适应 VT + 脏页刷新 + 启动异步反馈收集 Task</td><td style="padding:4px 8px;color:var(--warn)">无（纯 CPU）</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">EndUpdate()</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">GPU Scene 更新后 (L2351)</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)"><strong>生产物理页数据</strong>：等待异步 Task → 为脏页分配物理纹理空间 → 调用 Producer.ProducePageData() 渲染材质到物理纹理</td><td style="padding:4px 8px;color:#fff">有（渲染到 VT 物理纹理）</td></tr>
+            <tr><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">FinalizeRequests()</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">几何渲染前 (L2455)</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)"><strong>最终化 + 页表更新</strong>：RenderFinalize（压缩）+ Finalize（清理）+ 更新虚拟→物理页表映射 + 提交 Barrier</td><td style="padding:4px 8px;color:#fff">有（页表更新 + 压缩）</td></tr>
+          </table>
+          <p style="font-size:0.83rem;color:var(--text-dim);margin:8px 0 0"><strong>为什么拆开？</strong>BeginUpdate 和可见性计算异步并行；EndUpdate 在 GPU Scene 更新后执行，确保 RVT 场景捕获使用最新的 Primitive 数据；FinalizeRequests 在几何渲染前最后一刻更新页表，保证 BasePass/Nanite/Lumen 采样时数据最新。</p>
+        </div>
+
+        <!-- MaterialCache TagProvider -->
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:6px">L2356: MaterialCache TagProvider Update</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 10px">
+            <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FMaterialCacheTagProvider::Get().Update(GraphBuilder)</code> 将 CPU 端的 Material Cache Tag 数据（注册的虚拟纹理、Tag 映射关系、PBR 属性描述等）<strong>上传到 GPU Buffer</strong>，供 Nanite ShadeBinning 阶段使用。Material Cache 是 RVT 的"全属性升级版"——缓存材质图的完整输出（BaseColor + Normal + Roughness + Specular + Metallic + Opacity 等 6-10 个 PBR 参数），而非仅单一属性。Tag 用 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FGuid</code> 标识不同材质的缓存页面，Update() 必须在 ShadeBinning 之前调用。
+          </p>
+          <p style="font-size:0.83rem;color:var(--text-dim);margin:0">
+            <strong style="color:var(--warn)">Material Cache 的三种渲染路径：</strong>
+            <table style="width:100%;border-collapse:collapse;font-size:0.78rem;margin:6px 0">
+              <tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 8px;font-weight:bold;color:#fff">路径</td><td style="padding:3px 8px;font-weight:bold;color:#fff">条件</td><td style="padding:3px 8px;font-weight:bold;color:#fff">方式</td></tr>
+              <tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 8px;font-family:var(--font-mono);color:var(--accent)">VertexInvariant</td><td style="padding:3px 8px;font-size:0.76rem;color:var(--text-dim)">材质只依赖 UV 导出数据，不依赖 WorldPosition 等</td><td style="padding:3px 8px;font-size:0.76rem;color:var(--text-dim)">纯 Compute Shader</td></tr>
+              <tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 8px;font-family:var(--font-mono);color:var(--accent)">HardwareRaster</td><td style="padding:3px 8px;font-size:0.76rem;color:var(--text-dim)">材质依赖非 UV 顶点数据 + 非 Nanite Mesh</td><td style="padding:3px 8px;font-size:0.76rem;color:var(--text-dim)">VS + PS 在 UV 空间重渲染到 Tile</td></tr>
+              <tr><td style="padding:3px 8px;font-family:var(--font-mono);color:var(--accent)">NaniteRaster</td><td style="padding:3px 8px;font-size:0.76rem;color:var(--text-dim)">材质依赖非 UV 顶点数据 + Nanite Mesh</td><td style="padding:3px 8px;font-size:0.76rem;color:var(--text-dim)">Nanite VisBuffer 光栅化 + CS 着色</td></tr>
+            </table>
+          </p>
+        </div>
+
+        <!-- GatherAndSortLightsTask -->
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:6px">L2358-2399: GatherAndSortLightsTask — 光源收集与排序异步启动</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 10px">
+            光源收集在异步 Task 线程上执行，与主渲染线程并行。核心代码：
+          </p>
+          <pre style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px 14px;overflow-x:auto;font-size:0.76rem;line-height:1.55;color:#c8ccd4;margin:6px 0"><code><span class="cmt">// 前置：光追实例收集收尾</span>
+<span class="fn">RayTracing::FinishGatherInstances</span>(GraphBuilder, ...);  <span class="cmt">// TLAS+SBT 上传</span>
+
+<span class="cmt">// 判断 Lumen 是否启用（光追覆盖模式下跳过）</span>
+<span class="fn">for</span> (const FViewInfo& View : Views) {
+    bAnyLumenEnabled = bAnyLumenEnabled
+        || GetViewPipelineState(View).DiffuseIndirectMethod == EDiffuseIndirectMethod::Lumen
+        || GetViewPipelineState(View).ReflectionsMethod == EReflectionsMethod::Lumen;
+}
+
+<span class="cmt">// 异步：GatherAndSortLights</span>
+GatherAndSortLightsTask = <span class="fn">LaunchSceneRenderTask</span>(
+    [this, SortedLightSet, bShadowedLightsInClustered] {
+        <span class="fn">GatherAndSortLights</span>(*SortedLightSet, bShadowedLightsInClustered);
+        return SortedLightSet;
+    },
+    <span class="cmt">// 前置依赖：DynamicShadows 初始化 + LightFunctionAtlas 更新</span>
+    { GetGatherAndSortLightsPrerequisiteTask(...), UpdateLightFunctionAtlasTask }
+);</code></pre>
+          <p style="font-size:0.83rem;color:var(--text-dim);margin:10px 0 0"><strong>bShadowedLightsInClustered</strong> 标志在 Clustered Deferred Shading + VSM 单 Pass 投影路径启用时激活，影响光源如何在 Cluster 中分配。<strong>前置依赖</strong>：动态阴影初始化（确定哪些光源有阴影）+ LightFunction Atlas 更新（光源遮罩纹理），两个都完成后才能开始收集光源。<strong>异步收益</strong>：光源收集是纯 CPU 工作（遍历数组+排序），在 Task 线程上执行，主线程继续提交 GPU Pass。</p>
+        </div>
+
+        <!-- View冻结 + 遮挡查询 + PrePass判断 + PreRender回调 -->
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:6px">L2408-2439: 视图冻结 + 遮挡查询 + 深度预通道判断 + PreRender 回调</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 10px">
+            进入几何渲染前的最后状态检查和回调通知：
+          </p>
+          <div style="margin-bottom:8px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:2px">视图冻结 (Debug/Development only)</div>
+            <p style="font-size:0.83rem;color:var(--text-dim);margin:0 0 6px">
+              Shipping/Test 构建中恒为 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">false</code>。Debug/Dev 中检查 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">ViewState->bIsFrozen</code>。冻结功能用于 RenderDoc/PIX 截帧调试——冻结后可见性和摄像机不变，逐帧调试更方便。
+            </p>
+          </div>
+          <div style="margin-bottom:8px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:2px">遮挡查询判断</div>
+            <p style="font-size:0.83rem;color:var(--text-dim);margin:0 0 6px">
+              例外：<strong>线框模式不做遮挡查询</strong>（线框不遮挡后方物体），但视图冻结时例外（相机和物体不动，上帧结果仍有效）。
+            </p>
+          </div>
+          <div style="margin-bottom:8px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:2px">深度预通道 + Nanite Sanity Check</div>
+            <p style="font-size:0.83rem;color:var(--text-dim);margin:0 0 6px">
+              <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">check(!UseNanite(ShaderPlatform) || bNeedsPrePass)</code> — Nanite 必须强制开启深度预通道。Nanite 的 VisBuffer 输出需要完整的 SceneDepth 来建立正确的 HZB 层次深度，后续裁剪和遮挡剔除依赖此深度。
+            </p>
+          </div>
+          <div style="margin-bottom:4px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:2px">PreRender 回调</div>
+            <p style="font-size:0.83rem;color:var(--text-dim);margin:0">
+              <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">GetSceneExtensionsRenderers().PreRender(GraphBuilder)</code> — 场景扩展系统通知<br/>
+              <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">GEngine->GetPreRenderDelegateEx().Broadcast(GraphBuilder)</code> — 引擎全局委托（音频系统更新听者位置、插件挂钩等）。传入 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FRDGBuilder&</code>，回调可插入额外 GPU Pass。
+            </p>
+          </div>
+        </div>
+
+        <!-- Dithered Stencil + Nanite Streaming + VT Finalize -->
+        <div style="background:var(--code);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--accent);margin-bottom:6px">L2440-2464: Dithered Stencil + Nanite 流送收尾 + VT FinalizeRequests</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 10px">
+            进入几何渲染前最后三个 GPU 状态同步操作：
+          </p>
+          <div style="margin-bottom:8px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:2px">1. Dithered Stencil Fill</div>
+            <p style="font-size:0.83rem;color:var(--text-dim);margin:0 0 6px">
+              Compute Shader 深度预通道下不走 PS 无法写入 Stencil，需要单独的 Dithered Stencil Fill Pass 向 Depth Stencil 通道写标记，后续 BasePass 用此标记做 Dithered LOD 的 Alpha 渐变过渡。
+            </p>
+          </div>
+          <div style="margin-bottom:8px">
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:2px">2. Nanite 流送收尾</div>
+            <p style="font-size:0.83rem;color:var(--text-dim);margin:0 0 6px">
+              <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">GStreamingManager.EndAsyncUpdate()</code> — 等待所有异步流送完成，将 Cluster Page Data 和 Hierarchy Buffer 上传到 GPU。注释强调 "Must happen before any Nanite rendering in the frame"。随后收集 ModifiedResources / InstalledPages / UninstalledPages 通知 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">GRayTracingManager.RequestUpdates()</code> 重建受影响的光追 BLAS。
+            </p>
+          </div>
+          <div>
+            <div style="font-size:0.8rem;color:var(--warn);margin-bottom:2px">3. VT FinalizeRequests</div>
+            <p style="font-size:0.83rem;color:var(--text-dim);margin:0">
+              和 EndUpdate 的区别：EndUpdate 负责"生产物理页数据"（渲染到 VT 纹理），FinalizeRequests 负责"最终化 + 页表更新"（RenderFinalize 压缩 + Finalize 清理 + 更新虚拟到物理页表映射 + 提交 Barrier）。必须在几何渲染前完成，保证 BasePass/Lumen 采样 VT 时页表已就绪。
+            </p>
+          </div>
+        </div>
+
+        <!-- EndInitViews + 后续操作 -->
+        <div style="background:var(--code);border:1px solid var(--warn-border);border-left:3px solid var(--warn);border-radius:0 8px 8px 0;padding:18px 22px;margin-bottom:12px">
+          <div style="font-family:var(--font-mono);font-size:0.78rem;color:var(--warn);margin-bottom:8px;letter-spacing:0.5px">专题：EndInitViews — 可见性计算的最终同步点 (L2465-2468)</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 10px">
+            <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">EndInitViews()</code>（SceneVisibility.cpp:6063）是 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">BeginInitViews()</code> 中启动的所有异步可见性任务的<strong>同步点</strong>，完成后所有 View 的可见性数据就绪。内部执行：
+          </p>
+          <table style="width:100%;border-collapse:collapse;font-size:0.78rem;margin:6px 0">
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:bold;color:#fff">步骤</td><td style="padding:4px 8px;font-weight:bold;color:#fff">操作</td><td style="padding:4px 8px;font-weight:bold;color:#fff">说明</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--accent)">1</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">VisibilityTaskData->Finish()</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">等待所有异步可见性任务完成</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--accent)">2</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">BeginShadowGatherDynamicMeshElements()</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">启动阴影动态网格元素收集（依赖主视口动态元素）</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--accent)">3</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">ILC Update / FinalizeCacheUpdates</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">间接光照缓存更新（新可见 Primitive 需要烘焙间接光照数据）</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--accent)">4</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">UpdatePrimitiveIndirectLightingCacheBuffers</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">更新 Primitive 预计算光照 Buffer</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--accent)">5</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">UpdateSeparateTranslucencyDimensions()</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">计算分离半透明的降分辨率尺寸</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--accent)">6</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">SetupSceneReflectionCaptureBuffer()</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">反射捕获探针数据上传 GPU Buffer</td></tr>
+            <tr><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--accent)">7</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">FinishInitDynamicShadows() (仅前向着色)</td><td style="padding:4px 8px;font-size:0.76rem;color:var(--text-dim)">前向着色路径下提前同步动态阴影</td></tr>
+          </table>
+          <p style="font-size:0.83rem;color:var(--text-dim);margin:10px 0 0">EndInitViews 后的一系列操作（L2470-2513）都依赖 ViewRelevance 等可见性结果：<strong>Substrate</strong> 帧数据初始化（注释明确 "Need to run after EndInitViews() to ensure ViewRelevance computation are completed"）、<strong>SVT</strong> 流送收尾、<strong>HairStrands</strong> 毛发处理与插值、<strong>ExternalAccessQueue</strong> 提交 GPU Barrier、<strong>天空大气</strong>判断是否在 PrePass 前渲染。这是从"确定谁可见"到"渲染可见对象"的分界点。</p>
+        </div>
+
       </div>
       <div class="call-chain">
         <h4>关键函数调用链</h4>
         <pre><code><span class="fn">OnRenderBegin</span>(GraphBuilder, SceneUpdateInputs)
   <span class="arrow">&#x2192;</span> <span class="fn">CommitFinalPipelineState</span>()              <span class="cmt">// 提交最终管线状态</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">VT::BeginUpdate</span>()                         <span class="cmt">// 虚拟纹理：收集页需求 + 启动异步生产</span>
   <span class="arrow">&#x2192;</span> <span class="fn">GSystemTextures.InitializeTextures</span>(RHICmdList, FeatureLevel)
   <span class="arrow">&#x2192;</span> <span class="fn">UpdateLightFunctionAtlasTask</span>              <span class="cmt">// 异步：光照函数图集更新</span>
   <span class="arrow">&#x2192;</span> <span class="fn">VirtualShadowMapArray.Initialize</span>(...)      <span class="cmt">// VSM 页面系统初始化</span>
@@ -995,7 +1185,17 @@ t<a href="#Nanite几何数据存储" class="sub">Nanite 几何数据存储</a>
   <span class="arrow">&#x2192;</span> <span class="fn">PrepareDistanceFieldScene</span>(...)            <span class="cmt">// 全局距离场准备</span>
   <span class="arrow">&#x2192;</span> <span class="fn">BeginInitViews</span>(GraphBuilder, ...)         <span class="cmt">// 可见性计算入口 (视锥/遮挡裁剪)</span>
   <span class="arrow">&#x2192;</span> <span class="fn">Scene->GPUScene.UploadDynamicPrimitiveShaderDataForView</span>(...)  <span class="cmt">// GPU Scene 动态图元上传</span>
-  <span class="arrow">&#x2192;</span> <span class="fn">EndInitViews</span>(GraphBuilder, ...)           <span class="cmt">// 可见性计算完成</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">SceneExtensions::UpdateViewData</span>()        <span class="cmt">// 场景扩展更新 View 参数</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">SceneExtensions::UpdateSceneUniformBuffer</span>() <span class="cmt">// 场景扩展更新 Scene 参数</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">InstanceCullingManager.BeginDeferredCulling</span>() <span class="cmt">// GPU 实例裁剪启动</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">雾效/光照开关计算</span>                         <span class="cmt">// 确定后续哪些 Pass 需执行</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">VT::EndUpdate</span>()                            <span class="cmt">// 渲染到 VT 物理纹理（GPU Scene 更新后）</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">MaterialCacheTagProvider.Update</span>()         <span class="cmt">// 材质缓存 Tag 上传 GPU（Nanite 分桶用）</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">GatherAndSortLightsTask</span> (异步)            <span class="cmt">// 光源收集与排序（等待 DynamicShadows + LightFunctionAtlas）</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">DitheredStencilFillPass</span>                   <span class="cmt">// Compute 深度预通道的 Stencil 标记</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">Nanite::GStreamingManager.EndAsyncUpdate</span>() <span class="cmt">// Nanite 流送收尾 + 光追 BLAS 通知</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">VT::FinalizeRequests</span>()                    <span class="cmt">// 虚拟纹理压缩 + 页表更新</span>
+  <span class="arrow">&#x2192;</span> <span class="fn">EndInitViews</span>(GraphBuilder, ...)           <span class="cmt">// 可见性计算同步点 + 阴影动态元素 + ILC 更新</span>
   <span class="arrow">&#x2192;</span> <span class="fn">Substrate::InitialiseSubstrateFrameSceneData</span>(...)  <span class="cmt">// Substrate 材质初始化</span>
   <span class="arrow">&#x2192;</span> <span class="fn">RunHairStrandsBookmark</span>(...)               <span class="cmt">// HairStrands 发丝初始化</span></code></pre>
       </div>
@@ -1005,10 +1205,16 @@ t<a href="#Nanite几何数据存储" class="sub">Nanite 几何数据存储</a>
           <li><code>FInitViewTaskDatas InitViewTaskDatas</code> — 可见性计算结果完整</li>
           <li><code>GPUScene</code> — 动态图元着色器数据已上传至 GPU</li>
           <li><code>NaniteVisibility</code> — 可见性查询已启动，基础通道可见性就绪</li>
-          <li><code>InstanceCullingManager</code> — 实例裁剪上下文就绪</li>
+          <li><code>InstanceCullingManager</code> — GPU 实例裁剪上下文就绪</li>
           <li><code>VirtualShadowMapArray</code> — 虚拟阴影贴图系统已初始化</li>
           <li><code>LumenFrameTemporaries</code> — Lumen 帧临时数据已初始化</li>
           <li><code>GatherAndSortLightsTask</code> — 光源收集与排序异步任务已启动</li>
+          <li><code>bAnyLumenEnabled / bRenderDeferredLighting</code> — 光照/雾效标志已计算</li>
+          <li><code>MaterialCache TagProvider</code> — GPU Tag 数据已更新（Nanite 分桶用）</li>
+          <li><code>VT 完整三阶段</code> — BeginUpdate→EndUpdate→FinalizeRequests 完成</li>
+          <li><code>Nanite Streaming</code> — 几何流送收尾 + 光追 BLAS 通知完成</li>
+          <li><code>SeparateTranslucencyDimensions</code> — 分离半透明分辨率已计算</li>
+          <li><code>ReflectionCapture Buffer</code> — 反射捕获探针数据已上传</li>
         </ul>
       </div>
       <a href="../02-Nanite/index.html" class="deep-link">深入：Nanite 可见性 &#8594;</a>
