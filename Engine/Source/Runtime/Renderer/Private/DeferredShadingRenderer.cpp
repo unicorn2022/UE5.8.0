@@ -1923,7 +1923,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	// 2.4 GPU 场景作用域管理器: 自动调用 GPUScene.Begin/EndRender()
 	FGPUSceneScopeBeginEndHelper GPUSceneScopeBeginEndHelper(GraphBuilder, Scene->GPUScene, GPUSceneDynamicContext);
 
-	// 2.5 更新 VT, 仅深度的 Pass 不需要 VT
+	// 2.5 开始 VT 的异步更新: 收集需求 + 启动异步生产
 	const bool bUseVirtualTexturing = UseVirtualTexturing(ShaderPlatform);
 	if (bUseVirtualTexturing && RendererOutput != ERendererOutput::DepthPrepassOnly) {
 		// 2.5.1 启动 VT 更新
@@ -2102,7 +2102,9 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	// By default, limit our GPU usage to only GPUs specified in the view masks.
 	RDG_GPU_MASK_SCOPE(GraphBuilder, ViewFamily.EngineShowFlags.PathTracing ? FRHIGPUMask::All() : AllViewsGPUMask);
 	
-	// GPU 调试事件: Scene
+	// ------------------------------------------------------------
+	//					GPU 调试事件: Scene
+	// ------------------------------------------------------------
 	RDG_EVENT_SCOPE(GraphBuilder, "Scene");
 
 	// ------------------------------------------------------------
@@ -2156,7 +2158,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 	FSceneTextures& SceneTextures = GetActiveSceneTextures();
 
 	// ------------------------------------------------------------
-	//			第四阶段：可见性计算 VisibilityCommands
+	//			第四阶段：开启可见性计算 VisibilityCommands
 	// ------------------------------------------------------------
 	// 4.1 开启可见性计算 (异步)
 	{
@@ -2278,8 +2280,8 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		RDG_CSV_STAT_EXCLUSIVE_SCOPE(GraphBuilder, UpdateGPUScene);
 		RDG_EVENT_SCOPE_STAT(GraphBuilder, GPUSceneUpdate, "GPUSceneUpdate");
 
-		for (int32 ViewIndex = 0; ViewIndex < AllViews.Num(); ViewIndex++)
-		{
+		// 5.1.1 逐 View 上传, 包含所有视图
+		for (int32 ViewIndex = 0; ViewIndex < AllViews.Num(); ViewIndex++) {
 			FViewInfo& View = *AllViews[ViewIndex];
 			RDG_GPU_MASK_SCOPE(GraphBuilder, View.GPUMask);
 
@@ -2287,79 +2289,80 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 			Scene->GPUScene.DebugRender(GraphBuilder, GetSceneUniforms(), View);
 		}
 
+		// 5.1.2 初始化 GPU 实例状态
 		// Must be called after all views have flushed the dynamic primitives.
 		ViewDataManager.InitInstanceState(GraphBuilder);
 
-		if (Views.Num() > 0)
-		{
+		// 5.1.3 更新物理场
+		if (Views.Num() > 0) {
 			FViewInfo& View = Views[0];
 			Scene->UpdatePhysicsField(GraphBuilder, View);
 		}
 	}
 
-
-	if (FSceneCullingRenderer* SceneCullingRenderer = GetSceneExtensionsRenderers().GetRendererPtr<FSceneCullingRenderer>())
-	{
+	// 5.2 Scene Culling 可视化
+	if (FSceneCullingRenderer* SceneCullingRenderer = GetSceneExtensionsRenderers().GetRendererPtr<FSceneCullingRenderer>()) {
 		SceneCullingRenderer->DebugRender(GraphBuilder, Views);
 	}
 
-	//SceneCullingInfo.SceneUniformBuffer = GetSceneUniforms().GetBuffer(GraphBuilder);
-	// 场景扩展更新视图数据 — 在所有GPU场景更新后同步
+	// 5.3 更新 Scene Extensions Renderers 的 View 数据、Uniform Buffer
 	GetSceneExtensionsRenderers().UpdateViewData(GraphBuilder, ViewDataManager);
-
 	// Allow scene extensions to affect the scene uniform buffer after GPU scene has fully updated
-	// 场景扩展更新场景UniformBuffer — 允许扩展修改场景级UB
 	GetSceneExtensionsRenderers().UpdateSceneUniformBuffer(GraphBuilder, GetSceneUniforms());
 
+	// 5.4 启动 GPU Instance Culling
 	// Must happen after visibility state & scene UB has been updated.
-	// 实例裁剪延迟处理开始（必须在可见性状态和场景UB更新后）
-	// 实例裁剪延迟处理 — 在可见性状态和UB更新后开始裁剪
 	InstanceCullingManager.BeginDeferredCulling(GraphBuilder);
 
+	// 5.5 计算 雾效&光照 的一系列开关
+	// 5.5.1 雾效相关变量
 	// Separate fog composition can only happen when deferred fog is enabled.
-	// 分离雾合成 — 仅在启用延迟雾且视图需要雾效时
-	const bool bShouldRenderFogUsingSeparateComposition = ShouldRenderFogUsingSeparateComposition(Scene) && ShouldRenderDeferredFog(Scene) && ShouldRenderFog(ViewFamily);
-
-	// GBuffer使用判断 — 检查平台是否支持GBuffer渲染
+	const bool bShouldRenderFogUsingSeparateComposition = 
+		ShouldRenderFogUsingSeparateComposition(Scene)	// 半透明物体需要单独合成雾
+		&& ShouldRenderDeferredFog(Scene)				// 项目启用了延迟雾
+		&& ShouldRenderFog(ViewFamily);					// 当前视图需要雾
 	const bool bUseGBuffer = IsUsingGBuffers(ShaderPlatform);
-	// 体积雾判断 — 检查是否需要渲染体积雾
-	const bool bShouldRenderVolumetricFog = ShouldRenderVolumetricFog();
-	// 局部雾体积判断 — 检查场景中是否有LFV组件
-	const bool bShouldRenderLocalFogVolume = ShouldRenderLocalFogVolume(Scene, ViewFamily);
-	const bool bShouldRenderLocalFogVolumeDuringHeightFogPass = ShouldRenderLocalFogVolumeDuringHeightFogPass(Scene, ViewFamily) || bShouldRenderFogUsingSeparateComposition;
-	const bool bShouldRenderLocalFogVolumeInVolumetricFog = ShouldRenderLocalFogVolumeInVolumetricFog(Scene, ViewFamily, bShouldRenderLocalFogVolume);
-	const bool bShouldRenderLocalFogVolumeVisualizationPass = ShouldRenderLocalFogVolumeVisualizationPass(Scene, ViewFamily);
-	const bool bFogComposeLocalFogVolumes = (bShouldRenderLocalFogVolumeInVolumetricFog && bShouldRenderVolumetricFog) || bShouldRenderLocalFogVolumeDuringHeightFogPass;
+	const bool bShouldRenderVolumetricFog = ShouldRenderVolumetricFog();	// 体积雾
+	const bool bShouldRenderLocalFogVolume = ShouldRenderLocalFogVolume(Scene, ViewFamily);	// 局部雾体积
+	const bool bShouldRenderLocalFogVolumeDuringHeightFogPass = 
+		ShouldRenderLocalFogVolumeDuringHeightFogPass(Scene, ViewFamily) // 局部雾在高度雾 Pass 中合成
+		|| bShouldRenderFogUsingSeparateComposition;					 // 或者分离雾合成需要
+	const bool bShouldRenderLocalFogVolumeInVolumetricFog = 
+		ShouldRenderLocalFogVolumeInVolumetricFog(Scene, ViewFamily, bShouldRenderLocalFogVolume); // 局部雾在体积雾中合成
+	const bool bShouldRenderLocalFogVolumeVisualizationPass = 
+		ShouldRenderLocalFogVolumeVisualizationPass(Scene, ViewFamily);	// 调试可视化
+	// 综合判断：局部雾是否需要和高度雾合成在一起
+	const bool bFogComposeLocalFogVolumes = 
+		(bShouldRenderLocalFogVolumeInVolumetricFog && bShouldRenderVolumetricFog)	// 体积雾路径
+		|| bShouldRenderLocalFogVolumeDuringHeightFogPass;							// 高度雾路径
+	// 运行时状态：是否已经把局部雾合进高度雾了
 	bool bHeightFogHasComposedLocalFogVolume = false;
-
-	// 延迟光照条件 — 需要SM5+、光照启用、GBuffer可用、非光追覆盖
-	const bool bRenderDeferredLighting = ViewFamily.EngineShowFlags.Lighting
-		&& FeatureLevel >= ERHIFeatureLevel::SM5
-		&& ViewFamily.EngineShowFlags.DeferredLighting
-		&& bUseGBuffer
-		&& !bHasRayTracedOverlay;
-
-	// Lumen启用检查 — 遍历所有视图检查漫反射间接光和反射方法
+	// 5.5.2 延迟光照开关
+	const bool bRenderDeferredLighting = 
+		ViewFamily.EngineShowFlags.Lighting				// 视口显示了光照
+		&& FeatureLevel >= ERHIFeatureLevel::SM5		// SM5+
+		&& ViewFamily.EngineShowFlags.DeferredLighting	// 视口启用延迟光照
+		&& bUseGBuffer									// 有 G-Buffer
+		&& !bHasRayTracedOverlay;						// 没有光追覆盖层
+	// 5.5.3 Lumen 开关
 	bool bAnyLumenEnabled = false;
 
+	// 5.6 完成 VT 的异步更新: 等待请求收集完成 + 生产物理页数据
 	// Virtual texturing isn't needed for depth prepass
-	if (bUseVirtualTexturing && RendererOutput != ERendererOutput::DepthPrepassOnly)
-	{
+	if (bUseVirtualTexturing && RendererOutput != ERendererOutput::DepthPrepassOnly) {
 		// Note, should happen after the GPU-Scene update to ensure rendering to runtime virtual textures is using the correctly updated scene
-		// 虚拟纹理系统结束更新 — 在GPU场景更新之后，确保RVT使用正确场景数据
 		FVirtualTextureSystem::Get().EndUpdate(GraphBuilder, MoveTemp(VirtualTextureUpdater), FeatureLevel);
 	}
 
-	// 材质缓存标签提供者更新 — 用于Nanite材质分桶
+	// 5.7 Material Cache Tag Provider 将 Tag 数据上传到 GPU
 	FMaterialCacheTagProvider::Get().Update(GraphBuilder);
 
+	// 5.8 执行光源收集与排序任务 (异步)
 	UE::Tasks::TTask<FSortedLightSetSceneInfo*> GatherAndSortLightsTask;
-
-	if (RendererOutput == ERendererOutput::FinalSceneColor)
-	{
+	if (RendererOutput == ERendererOutput::FinalSceneColor) {
+		// 5.8.1 等待光追实例收集完成, 并上传到 GPU
 		#if RHI_RAYTRACING
-			if (FamilyPipelineState[&FFamilyPipelineState::bRayTracing])
-			{
+			if (FamilyPipelineState[&FFamilyPipelineState::bRayTracing]) {
 				RayTracing::FinishGatherInstances(
 					GraphBuilder,
 					*InitViewTaskDatas.RayTracingGatherInstances,
@@ -2367,38 +2370,43 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 					RayTracingSBT);
 			}
 		#endif // RHI_RAYTRACING
-
-		if (!bHasRayTracedOverlay)
-		{
-			for (const FViewInfo& View : Views)
-			{
+		
+		// 5.8.2 判断是否需要启用 Lumen
+		if (!bHasRayTracedOverlay) {
+			for (const FViewInfo& View : Views) {
 				bAnyLumenEnabled = bAnyLumenEnabled
 					|| GetViewPipelineState(View).DiffuseIndirectMethod == EDiffuseIndirectMethod::Lumen
 					|| GetViewPipelineState(View).ReflectionsMethod == EReflectionsMethod::Lumen;
 			}
 		}
 
+		// 5.8.3 异步收集和排序光源
 		{
 			extern bool IsVSMOnePassProjectionEnabled(const FEngineShowFlags& ShowFlags);
 			extern UE::Tasks::FTask GetGatherAndSortLightsPrerequisiteTask(const FDynamicShadowsTaskData* TaskData);
 
+			// 5.8.3.1 排序 buffer
 			auto* SortedLightSet = GraphBuilder.AllocObject<FSortedLightSetSceneInfo>();
+
+			// 5.8.3.2 判断是否需要考虑阴影标记
 			const bool bShadowedLightsInClustered = ShouldUseClusteredDeferredShading(ViewFamily.GetShaderPlatform())
 				&& IsVSMOnePassProjectionEnabled(ViewFamily.EngineShowFlags)
 				&& VirtualShadowMapArray.IsEnabled();
 
+			// 5.8.3.3 前置依赖任务
 			TArray<UE::Tasks::FTask, TInlineAllocator<2>> IssuedTasksCompletionEvents;
-			IssuedTasksCompletionEvents.Add(GetGatherAndSortLightsPrerequisiteTask(InitViewTaskDatas.DynamicShadows));
-			IssuedTasksCompletionEvents.Add(UpdateLightFunctionAtlasTask);
+			IssuedTasksCompletionEvents.Add(GetGatherAndSortLightsPrerequisiteTask(InitViewTaskDatas.DynamicShadows));	// 动态阴影初始化任务
+			IssuedTasksCompletionEvents.Add(UpdateLightFunctionAtlasTask);												// Light Function 图集更新任务
 
-			GatherAndSortLightsTask = LaunchSceneRenderTask<FSortedLightSetSceneInfo*>(UE_SOURCE_LOCATION, [this, SortedLightSet, bShadowedLightsInClustered]
-			{
+			// 5.8.3.4 异步执行任务
+			GatherAndSortLightsTask = LaunchSceneRenderTask<FSortedLightSetSceneInfo*>(UE_SOURCE_LOCATION, [this, SortedLightSet, bShadowedLightsInClustered] {
 				GatherAndSortLights(*SortedLightSet, bShadowedLightsInClustered);
 				return SortedLightSet;
 			}, IssuedTasksCompletionEvents);
 		}
 	}
 
+	// 5.9 视图冻结检测 (仅 Debug)
 	// force using occ queries for wireframe if rendering is parented or frozen in the first view
 	check(Views.Num());
 	#if (UE_BUILD_SHIPPING || UE_BUILD_TEST)
@@ -2407,58 +2415,61 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		const bool bIsViewFrozen = Views[0].State && ((FSceneViewState*)Views[0].State)->bIsFrozen;
 	#endif
 
-	
-	// 遮挡查询 — 线框模式下除非视图冻结否则不启用
+	// 5.10 是否需要遮挡查询
 	const bool bIsOcclusionTesting = DoOcclusionQueries()
 		&& (!ViewFamily.EngineShowFlags.Wireframe || bIsViewFrozen);
-	// 深度预通道渲染 — 写入SceneDepth和HiZ，后续Pass用于遮挡剔除
+
+	// 5.11 是否需要 PreZ
 	const bool bNeedsPrePass = ShouldRenderPrePass();
-
 	// Sanity check - Note: Nanite forces a Z prepass in ShouldForceFullDepthPass()
-	check(!UseNanite(ShaderPlatform) || bNeedsPrePass);
+	check(!UseNanite(ShaderPlatform) || bNeedsPrePass); // Nanite 必须启用 PreZ
 
-	// 场景扩展PreRender回调 — 广播引擎PreRender委托
+	// 5.12 更新 Scene Extensions Renderer, 并通知外部系统渲染即将开始
 	GetSceneExtensionsRenderers().PreRender(GraphBuilder);
 	GEngine->GetPreRenderDelegateEx().Broadcast(GraphBuilder);
 
-	// 抖动模板填充Pass — 为计算着色器LOD抖动准备模板值
-	if (DepthPass.IsComputeStencilDitherEnabled())
-	{
+	// 5.13 抖动模板填充
+	if (DepthPass.IsComputeStencilDitherEnabled()) {
 		AddDitheredStencilFillPass(GraphBuilder, Views, SceneTextures.Depth.Target, DepthPass);
 	}
 
-	if (bNaniteEnabled)
-	{
+	// 5.14 完成 Nanite 异步更新任务
+	if (bNaniteEnabled) {
+		// 5.14.1 完成 Nanite 异步更新任务
 		// Must happen before any Nanite rendering in the frame
-		// Nanite流式加载完成 — 必须在任何Nanite渲染之前
-		// Nanite流式加载完成 — 必须在任何Nanite渲染之前，获取已修改资源列表
 		Nanite::GStreamingManager.EndAsyncUpdate(GraphBuilder);
 
+		// 5.14.2 获取本帧有哪些 Nanite 资源被修改
 		const TMap<uint32, uint32> ModifiedResources = Nanite::GStreamingManager.GetAndClearModifiedResources();
 
+		// 5.14.3 获取本帧安装/卸载了哪些页
 		TSet<Nanite::FPageInfo> InstalledPages;
 		TSet<Nanite::FPageInfo> UninstalledPages;
 		Nanite::GStreamingManager.GetAndClearModifiedPages(InstalledPages, UninstalledPages);
 
+		// 5.14.4 通知光追管理器：这些页变了，需要重建 BLAS
 		#if RHI_RAYTRACING
 			Nanite::GRayTracingManager.RequestUpdates(ModifiedResources, InstalledPages, UninstalledPages);
 		#endif
 	}
 
+	// 5.15 完成 VT 的异步更新: 压缩页数据 + 更新页表
 	// Virtual texturing isn't needed for depth prepass
-	if (bUseVirtualTexturing && RendererOutput != ERendererOutput::DepthPrepassOnly)
-	{
-		// 虚拟纹理请求最终化 — 在EndInitViews之前完成所有VT请求
+	if (bUseVirtualTexturing && RendererOutput != ERendererOutput::DepthPrepassOnly) {
 		FVirtualTextureSystem::Get().FinalizeRequests(GraphBuilder, this);
 	}
 
+	// ------------------------------------------------------------
+	//			第六阶段：完成可见性计算 VisibilityCommands
+	// ------------------------------------------------------------
+	// 6.1 完成可见性计算 (异步)
 	{
+		// GPU 调试事件: VisibilityCommands
 		RDG_RHI_EVENT_SCOPE_STAT(GraphBuilder, VisibilityCommands, "VisibilityCommands");
-		// 结束视图初始化 — 可见性计算完成，所有视图数据就绪
-		// 结束视图初始化 — 可见性计算完成，所有视图剔除数据就绪
 		EndInitViews(GraphBuilder, LumenFrameTemporaries, InstanceCullingManager, InitViewTaskDatas);
 	}
 
+	// 6.2
 	// Substrate initialisation is always run even when not enabled.
 	// Need to run after EndInitViews() to ensure ViewRelevance computation are completed
 	const bool bSubstrateEnabled = Substrate::IsSubstrateEnabled();
