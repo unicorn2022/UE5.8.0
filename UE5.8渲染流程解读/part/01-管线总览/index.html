@@ -213,6 +213,7 @@ body{display:flex}
 <a href="#光追初始化" class="sub">光追初始化</a>
 <a href="#视图与可见性初始化" class="sub">视图与可见性初始化</a>
 <a href="#预通道与Nanite渲染" class="sub">预通道与 Nanite 渲染</a>
+t<a href="#Nanite几何数据存储" class="sub">Nanite 几何数据存储</a>
 <a href="#BasePassG-Buffer写入" class="sub">BasePass（G-Buffer 写入）</a>
 <a href="#延迟光照计算" class="sub">延迟光照计算</a>
 <a href="#半透明渲染" class="sub">半透明渲染</a>
@@ -1043,6 +1044,135 @@ body{display:flex}
           <li><code>SceneTextures.PartialDepth</code> — 预通道部分深度（用于透明发射器）</li>
         </ul>
       </div>
+
+      <!-- Nanite 几何数据存储专题 -->
+      <div id="Nanite几何数据存储" style="background:var(--code);border:1px solid var(--warn-border);border-left:3px solid var(--warn);border-radius:0 8px 8px 0;padding:18px 22px;margin-top:18px;margin-bottom:12px">
+        <div style="font-family:var(--font-mono);font-size:0.78rem;color:var(--warn);margin-bottom:8px;letter-spacing:0.5px">专题：Nanite 几何数据存储架构</div>
+        <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 12px">
+          Nanite 的几何数据分为 <strong>CPU 侧持久化资源 (FResources)</strong> 和 <strong>GPU 侧缓存池 (ClusterPageData + Hierarchy Buffer)</strong> 两层，中间通过流式加载系统按需传输。核心设计哲学：<strong>像虚拟内存一样管理几何数据</strong>——最低 LOD 永久驻留，高精度按需换入/换出。
+        </p>
+
+        <!-- 两层架构 -->
+        <div style="margin-bottom:14px">
+          <div style="font-size:0.82rem;color:var(--warn);margin-bottom:4px">CPU 侧：FResources — 资产的持久化存储</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            每个 Nanite 网格资产对应一个 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">FResources</code> 实例（NaniteResources.h:452），内部划分为固定大小的<strong>页面（Page）</strong>：
+          </p>
+          <table style="width:100%;border-collapse:collapse;font-size:0.8rem;margin:6px 0">
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:bold;color:#fff">页面类型</td><td style="padding:4px 8px;font-weight:bold;color:#fff">GPU 大小</td><td style="padding:4px 8px;font-weight:bold;color:#fff">用途</td><td style="padding:4px 8px;font-weight:bold;color:#fff">存储方式</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">Root Page</td><td style="padding:4px 8px;color:var(--text-dim)">32 KB</td><td style="padding:4px 8px;color:var(--text-dim)">最低精度 LOD，始终驻留确保可绘制</td><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--text-dim)">TArray&lt;uint8&gt; RootData（CPU 内存常驻）</td></tr>
+            <tr><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">Streaming Page</td><td style="padding:4px 8px;color:var(--text-dim)">128 KB</td><td style="padding:4px 8px;color:var(--text-dim)">更高精度 LOD，按需流式加载</td><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--text-dim)">FByteBulkData（IoStore/磁盘异步读取）</td></tr>
+          </table>
+          <p style="font-size:0.83rem;color:var(--text-dim);margin:4px 0 0">常量定义在 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">NaniteDefinitions.h</code>：<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">NANITE_ROOT_PAGE_GPU_SIZE = 1 &lt;&lt; 15 = 32KB</code>、<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">NANITE_STREAMING_PAGE_GPU_SIZE = 1 &lt;&lt; 17 = 128KB</code>、全局上限 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">NANITE_MAX_GPU_PAGES = 131072</code>。</p>
+        </div>
+
+        <!-- GPU Page 精确内存布局 -->
+        <div style="margin-bottom:14px">
+          <div style="font-size:0.82rem;color:var(--warn);margin-bottom:4px">GPU Page 精确内存布局（一个自包含的数据块）</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 8px">
+            每个 GPU Page 存储在全局 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">ClusterPageData</code> ByteAddressBuffer 中，是一个<strong>完全自包含</strong>的数据块——给定 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">PageIndex</code> 即可直接访问该 Page 内所有 Cluster 的元数据 + 顶点/索引/属性数据。布局如下：
+          </p>
+          <pre style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px 14px;overflow-x:auto;font-size:0.76rem;line-height:1.55;color:#c8ccd4;margin:6px 0"><code>┌──────────────────────────────────────────────────────┐
+│ PageHeader (16 bytes)                                │  ← PageBaseAddress + 0
+│   NumClusters          : 16 bits                     │
+│   MaxClusterBoneInfluences : 8 bits                  │
+│   MaxVoxelBoneInfluences   : 8 bits                  │
+├──────────────────────────────────────────────────────┤
+│ Cluster 元数据 SoA 阵列                                │  ← PageBaseAddress + 16
+│   float4[0] x NumClusters  (所有 Cluster 的第0个 float4) │     SoA 布局, GPU 友好
+│   float4[1] x NumClusters                             │     跨 float4 的 stride = NumClusters × 16
+│   ...                                                 │     总计: NumClusters × 128 bytes
+│   float4[7] x NumClusters                             │
+├──────────────────────────────────────────────────────┤
+│ BoneInfluence 数据                                    │  NumClusters × MaxBoneInfluences × 8B
+├──────────────────────────────────────────────────────┤
+│ VoxelBoneInfluence (可选, 16字节对齐)                  │
+├──────────────────────────────────────────────────────┤
+│ ★ 所有 Cluster 的几何数据 (变长位流, 通过偏移定位)      │
+│   Cluster0: Index Buffer  (三角形索引, Delta编码)      │  ← PageBaseAddress + Cluster.IndexOffset
+│   Cluster0: Position Buffer (整数量化顶点位置)           │  ← PageBaseAddress + Cluster.PositionOffset
+│   Cluster0: Attribute Buffer (法线/切线/UV)            │  ← PageBaseAddress + Cluster.AttributeOffset
+│   Cluster1: Index Buffer                              │
+│   ...                                                 │
+├──────────────────────────────────────────────────────┤
+│ FFixupChunk (仅 Streaming Page)                       │  BVH 层次修复数据 (页面安装/卸载时使用)
+└──────────────────────────────────────────────────────┘</code></pre>
+          <p style="font-size:0.83rem;color:var(--text-dim);margin:4px 0 0"><strong>SoA 布局的动机：</strong>GPU 并行处理多个 Cluster 时（例如裁剪阶段），每个线程通常读取同一个 float4 字段。SoA 让同字段在内存中连续排列，提高缓存命中率和内存访问合并（coalescing）。Shader 读取路径见 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">NaniteDataDecode.ush:652-686</code>。</p>
+        </div>
+
+        <!-- FPackedCluster 结构 -->
+        <div style="margin-bottom:14px">
+          <div style="font-size:0.82rem;color:var(--warn);margin-bottom:4px">FPackedCluster — GPU 直读的压缩 Cluster（恰好 128 bytes = 8 float4）</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 4px">
+            定义在 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">NaniteResources.h:106</code>，是 GPU 直接解析的结构体。所有字段经过位压缩以节省显存和带宽：
+          </p>
+          <table style="width:100%;border-collapse:collapse;font-size:0.78rem;margin:6px 0">
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 8px;font-weight:bold;color:#fff">字段</td><td style="padding:3px 8px;font-weight:bold;color:#fff">位宽</td><td style="padding:3px 8px;font-weight:bold;color:#fff">说明</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 8px;font-family:var(--font-mono);color:var(--accent)">NumVerts / PositionOffset</td><td style="padding:3px 8px;color:var(--text-dim)">14:18 bits</td><td style="padding:3px 8px;color:var(--text-dim)">顶点数 + 位置数据在 Page 内的字节偏移</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 8px;font-family:var(--font-mono);color:var(--accent)">NumTris / IndexOffset</td><td style="padding:3px 8px;color:var(--text-dim)">8:24 bits</td><td style="padding:3px 8px;color:var(--text-dim)">三角形数 + 索引数据字节偏移（最大 128 三角形 = 384 索引）</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 8px;font-family:var(--font-mono);color:var(--accent)">PosBits / PosStart</td><td style="padding:3px 8px;color:var(--text-dim)">—</td><td style="padding:3px 8px;color:var(--text-dim)">位置量化位数 + 量化起始值（用于反量化恢复世界坐标）</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 8px;font-family:var(--font-mono);color:var(--accent)">LODBounds</td><td style="padding:3px 8px;color:var(--text-dim)">FSphere3f</td><td style="padding:3px 8px;color:var(--text-dim)">LOD 包围球（裁剪判断核心数据）</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 8px;font-family:var(--font-mono);color:var(--accent)">BoxBoundsCenter / Extent</td><td style="padding:3px 8px;color:var(--text-dim)">FVector3f × 2</td><td style="padding:3px 8px;color:var(--text-dim)">AABB 包围盒中心和半尺寸</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 8px;font-family:var(--font-mono);color:var(--accent)">AttributeOffset / BitsPerAttribute</td><td style="padding:3px 8px;color:var(--text-dim)">22:10 bits</td><td style="padding:3px 8px;color:var(--text-dim)">属性数据字节偏移 + 每属性位数</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 8px;font-family:var(--font-mono);color:var(--accent)">DecodeInfoOffset / HasTangents</td><td style="padding:3px 8px;color:var(--text-dim)">22:1:1:3:2</td><td style="padding:3px 8px;color:var(--text-dim)">解码信息偏移 + 是否有切线 + 是否蒙皮 + UV 通道数 + 颜色模式</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 8px;font-family:var(--font-mono);color:var(--accent)">PackedMaterialInfo</td><td style="padding:3px 8px;color:var(--text-dim)">32 bits</td><td style="padding:3px 8px;color:var(--text-dim)">压缩材质信息（材质槽索引等）</td></tr>
+            <tr><td style="padding:3px 8px;font-family:var(--font-mono);color:var(--accent)">VertReuseBatchInfo[4]</td><td style="padding:3px 8px;color:var(--text-dim)">128 bits</td><td style="padding:3px 8px;color:var(--text-dim)">顶点复用批次信息（加速硬件光栅化路径）</td></tr>
+          </table>
+          <p style="font-size:0.83rem;color:var(--text-dim);margin:4px 0 0">几何数据压缩策略：顶点位置相对于 Cluster AABB 整数量化（精度 ~0.01 cm），法线/切线用八面体映射 + 整数量化（8-10 bit/分量），UV 坐标整数量化（8-16 bit），三角形索引 Delta 编码 + 变长位宽（3-8 bit/索引）。GPU 在裁剪通过后，由 Compute Shader 动态解压顶点数据送入光栅化管线。</p>
+        </div>
+
+        <!-- Cluster 数量与数据量计算 -->
+        <div style="margin-bottom:14px">
+          <div style="font-size:0.82rem;color:var(--warn);margin-bottom:4px">一个 Page 包含多少个 Cluster？—— 理论最大 vs 实际情况</div>
+          <table style="width:100%;border-collapse:collapse;font-size:0.8rem;margin:6px 0">
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:bold;color:#fff">Page 类型</td><td style="padding:4px 8px;font-weight:bold;color:#fff">理论最大 Cluster 数</td><td style="padding:4px 8px;font-weight:bold;color:#fff">典型实际 Cluster 数</td><td style="padding:4px 8px;font-weight:bold;color:#fff">决定因素</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">Root Page (32 KB)</td><td style="padding:4px 8px;color:var(--text-dim)">64</td><td style="padding:4px 8px;color:var(--text-dim)">5 ~ 30</td><td style="padding:4px 8px;color:var(--text-dim)">最低 LOD，Cluster 少但覆盖范围大</td></tr>
+            <tr><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">Streaming Page (128 KB)</td><td style="padding:4px 8px;color:var(--text-dim)">256</td><td style="padding:4px 8px;color:var(--text-dim)">30 ~ 200</td><td style="padding:4px 8px;color:var(--text-dim)">取决于每 Cluster 几何数据量</td></tr>
+          </table>
+          <p style="font-size:0.83rem;color:var(--text-dim);margin:8px 0 0">上限来自位宽约束：<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">StreamingPageMaxClusters = 2^(17-9) = 256</code>（PageSize / MinExpectedClusterSize）。实际数量由每 Cluster 的几何数据量决定——轻量 Cluster（64 顶点、32 三角形、1 UV）约占 0.6 KB，重量级 Cluster（256 顶点、128 三角形、切线+4 UV）可占 4.6 KB。静态几何约 100 Cluster/Page，带蒙皮的约 24 Cluster/Page。</p>
+        </div>
+
+        <!-- GPU Scene Buffer 关系 -->
+        <div style="margin-bottom:4px">
+          <div style="font-size:0.82rem;color:var(--warn);margin-bottom:4px">GPU 侧：ClusterPageData + Hierarchy 两大 Buffer</div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0">
+            Nanite 在 GPU 侧通过两个全局 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">TRefCountPtr&lt;FRDGPooledBuffer&gt;</code> 管理所有几何数据（持久化在显存中，跨帧复用）：
+          </p>
+          <table style="width:100%;border-collapse:collapse;font-size:0.8rem;margin:6px 0">
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:bold;color:#fff">Buffer</td><td style="padding:4px 8px;font-weight:bold;color:#fff">HLSL 类型</td><td style="padding:4px 8px;font-weight:bold;color:#fff">管理方式</td><td style="padding:4px 8px;font-weight:bold;color:#fff">说明</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">ClusterPageData</td><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--text-dim)">ByteAddressBuffer</td><td style="padding:4px 8px;font-size:0.78rem;color:var(--text-dim)">FSpanAllocator 槽位分配 + LRU 淘汰</td><td style="padding:4px 8px;color:var(--text-dim)">Root Page (32KB/页) 与 Streaming Page (128KB/页) 混合布局在同一 Buffer 中</td></tr>
+            <tr><td style="padding:4px 8px;font-family:var(--font-mono);color:var(--accent)">Hierarchy</td><td style="padding:4px 8px;font-family:var(--font-mono);font-size:0.76rem;color:var(--text-dim)">ByteAddressBuffer</td><td style="padding:4px 8px;font-size:0.78rem;color:var(--text-dim)">FSpanAllocator</td><td style="padding:4px 8px;color:var(--text-dim)">所有资产的 FPackedHierarchyNode BVH 层次结构</td></tr>
+          </table>
+          <p style="font-size:0.83rem;color:var(--text-dim);margin:4px 0 0">页面地址转换公式：<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">Offset = Min(PageIndex, MaxStreamingPages) × 128KB + Max(PageIndex - MaxStreamingPages, 0) × 32KB</code>。全局 Streaming Pool 容量由 <code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">r.Nanite.Streaming.StreamingPoolSize</code> 控制（默认 512 MB），Streaming Page 超出上限时按 LRU 淘汰远距离资产的页面。</p>
+        </div>
+
+        <!-- 流式加载流程 -->
+        <div style="margin-bottom:4px">
+          <div style="font-size:0.82rem;color:var(--warn);margin-bottom:4px">流式加载流程：GPU 反馈驱动的按需加载</div>
+          <pre style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px 14px;overflow-x:auto;font-size:0.76rem;line-height:1.55;color:#c8ccd4;margin:6px 0"><code><span class="cmt">// GPU 端检测到需要更高精度 LOD</span>
+可见性裁剪 (GPU) → 生成页面请求
+  │
+  ▼
+<span class="cmt">// GPU Readback: 异步回读请求信息到 CPU</span>
+GPU Requests Readback Buffer → Streaming Manager
+  │
+  ▼
+<span class="cmt">// 优先级排序 → IO 请求</span>
+Streaming Manager → 优先级排序 → IO 请求
+  ├── RootData:  直接从 CPU 内存上传 (32KB, 零 IO 延迟)
+  └── Streaming: 从 IoStore/Disk 异步读取 (128KB/页)
+  │
+  ▼
+<span class="cmt">// GPU 上传: Scatter Upload 到目标偏移</span>
+FStreamingPageUploader → Scatter Upload 到 ClusterPageData 的正确偏移
+  │
+  ▼
+<span class="cmt">// BVH 修复: 安装 FixupChunk</span>
+GPU Transcode Pass → 修复 BVH Hierarchy 中受影响的节点引用</code></pre>
+          <p style="font-size:0.83rem;color:var(--text-dim);margin:4px 0 0">关键 CVars：<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">r.Nanite.Streaming.BandwidthLimit</code>（IO 带宽限制）、<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">r.Nanite.Streaming.MaxPageInstallsPerFrame</code>（每帧最多安装页面数，默认 16）、<code style="font-family:var(--font-mono);font-size:0.78rem;background:var(--code);padding:1px 4px;border-radius:2px">r.Nanite.Streaming.MaxPendingPages</code>（最大并发 IO 数，默认 64）。</p>
+        </div>
+      </div>
+
       <a href="../02-Nanite/index.html" class="deep-link">深入：Nanite 光栅化管线 &#8594;</a>
     </div>
   </details>
