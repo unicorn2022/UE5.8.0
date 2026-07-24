@@ -2061,7 +2061,7 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		#endif
 	}
 
-	// 2.14 异步更新 SVT (稀疏体积纹理) 流式管理器
+	// 2.14 开始 SVT 的异步更新
 	UE::SVT::GetStreamingManager().BeginAsyncUpdate(GraphBuilder);
 
 	// 2.15 初始化 Nanite
@@ -2469,42 +2469,43 @@ void FDeferredShadingSceneRenderer::Render(FRDGBuilder& GraphBuilder, const FSce
 		EndInitViews(GraphBuilder, LumenFrameTemporaries, InstanceCullingManager, InitViewTaskDatas);
 	}
 
-	// 6.2
+	// 6.2 初始化 Substrate 当前帧数据
 	// Substrate initialisation is always run even when not enabled.
 	// Need to run after EndInitViews() to ensure ViewRelevance computation are completed
 	const bool bSubstrateEnabled = Substrate::IsSubstrateEnabled();
-	// Substrate帧场景数据初始化 — 始终运行即使Substrate未启用
 	Substrate::InitialiseSubstrateFrameSceneData(GraphBuilder, *Scene, ViewFamily, AllViews, ShaderPlatform);
 
-	// SVT流式管理器结束异步更新
+	// 6.3 完成 SVT 的异步更新
 	UE::SVT::GetStreamingManager().EndAsyncUpdate(GraphBuilder);
 
+	// 6.4 HairStrands 头发/毛发渲染系统 书签 (Bookmark) 回调机制
+	// 6.4.1 从 RDG 分配器分配参数结构体
 	FHairStrandsBookmarkParameters& HairStrandsBookmarkParameters = *GraphBuilder.AllocObject<FHairStrandsBookmarkParameters>();
-	// 头发Strands启用检查 — 创建书签参数用于后续头发渲染Pass
-	if (IsHairStrandsEnabled(EHairStrandsShaderType::All, Scene->GetShaderPlatform()) && RendererOutput == ERendererOutput::FinalSceneColor)
-	{
+	if (IsHairStrandsEnabled(EHairStrandsShaderType::All, Scene->GetShaderPlatform()) && RendererOutput == ERendererOutput::FinalSceneColor) {
+		// 6.4.2 填充参数
 		CreateHairStrandsBookmarkParameters(Scene, Views, AllViews, HairStrandsBookmarkParameters);
 		check(Scene->HairStrandsSceneData.TransientResources);
 		HairStrandsBookmarkParameters.TransientResources = Scene->HairStrandsSceneData.TransientResources;
+
+		// 6.4.3 处理头发渲染的前置任务
 		RunHairStrandsBookmark(GraphBuilder, EHairStrandsBookmark::ProcessTasks, HairStrandsBookmarkParameters);
 
-		// Interpolation needs to happen after the skin cache run as there is a dependency 
-		// on the skin cache output.
+		// 6.4.4 插值阶段
+		// Interpolation needs to happen after the skin cache run as there is a dependency on the skin cache output.
 		const bool bRunHairStrands = HairStrandsBookmarkParameters.HasInstances() && (Views.Num() > 0);
-		if (bRunHairStrands)
-		{
+		if (bRunHairStrands) {
+			// 6.4.4.1 执行卡片/网格插值（主视图）任务
 			RunHairStrandsBookmark(GraphBuilder, EHairStrandsBookmark::ProcessCardsAndMeshesInterpolation_PrimaryView, HairStrandsBookmarkParameters);
 		}
-		else
-		{
-			for (FViewInfo& View : Views)
-			{
+		else {
+			// 6.4.4.2 使用默认缓冲
+			for (FViewInfo& View : Views) {
 				View.HairStrandsViewData.UniformBuffer = HairStrands::CreateDefaultHairStrandsViewUniformBuffer(GraphBuilder);
 			}
 		}
 	}
 
-	// 外部访问队列提交 — 确保之前提交的GPU写入对后续Pass可见
+	// 6.5 外部访问队列提交, 确保之前提交的 GPU 写入对后续 Pass 可见, 之后所有的 Pass 都是纯 RDG Pass (Nanite、BasePass、Lighting 等)
 	ExternalAccessQueue.Submit(GraphBuilder);
 
 	// 天空大气渲染判断 — 检查场景天空大气组件
